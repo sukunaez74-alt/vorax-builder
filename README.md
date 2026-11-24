@@ -42,6 +42,6 @@ A interface e a API estão versionadas no GitHub. O painel só funcionará com a
 
 A conexão Discord OAuth exige criar a aplicação Discord e cadastrar o callback da URL definitiva. A integração de hospedagem exige uma chave Bot-Hosting do próprio usuário.
 
-O CAOS original está em outro repositório privado. O campo `CAOS_MODULES` é gravado como variável de ambiente, mas o código Python de origem ainda precisa receber o filtro que remove/desativa comandos e tarefas de módulos não selecionados. Não trate o seletor de módulos como finalizado até esse ajuste e um teste do bot real.
+O CAOS original está em outro repositório privado (`sukunaez74-alt/cao`). O código Python recebeu o primeiro filtro de `CAOS_MODULES`: comandos identificados por módulo são removidos antes da sincronização e eventos/painéis principais são bloqueados quando desativados. Esse ajuste ainda precisa ser validado executando o bot com combinações reais de módulos. O painel ainda não transfere automaticamente o código do repositório privado para uma implantação vazia; por enquanto, a área de Arquivos prepara o envio de um pacote ZIP pela interface do navegador.
 
 Não coloque `.env`, tokens Discord, chaves Bot-Hosting, banco SQLite ou credenciais em repositórios.
