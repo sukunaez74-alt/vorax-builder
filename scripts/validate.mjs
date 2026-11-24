@@ -9,10 +9,10 @@ const html = "index.html";
 function check(file) {
   const result = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
   if (result.status !== 0) {
-    process.stderr.write(result.stderr || result.stdout || \`Falha ao validar \${file}\n\`);
+    process.stderr.write(result.stderr || result.stdout || ("Falha ao validar " + file + "\n"));
     process.exit(result.status || 1);
   }
-  console.log(\`OK: sintaxe de \${file}\`);
+  console.log("OK: sintaxe de " + file);
 }
 
 check(backend);
