@@ -141,7 +141,10 @@ async function discordCallback(request, env) {
     }
   }
   const session = await createSession(user.id, env);
-  return new Response(null, { status: 302, headers: { location: new URL("/", request.url).href, "set-cookie": [session, clearCookie("bz_oauth_state")] } });
+  const headers = new Headers({ location: new URL("/", request.url).href });
+  headers.append("set-cookie", session);
+  headers.append("set-cookie", clearCookie("bz_oauth_state"));
+  return new Response(null, { status: 302, headers });
 }
 export async function onRequest(context) {
   const { request, env } = context; const url = new URL(request.url); const path = url.pathname.replace(/^\/api/, "") || "/";
