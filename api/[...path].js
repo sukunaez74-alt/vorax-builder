@@ -298,7 +298,7 @@ async function readVerificationBotStatus(userId, env, settings) {
   if (!settings?.hosting_deployment_id) return { state: "not_deployed", online: false, deploymentId: null };
   let runtime = null;
   try {
-    runtime = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(settings.hosting_deployment_id) + "/diagnose?waitSeconds=0");
+    runtime = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(settings.hosting_deployment_id) + "/diagnose?waitSeconds=15");
   } catch (error) {
     return { state: "error", online: false, deploymentId: settings.hosting_deployment_id, error: error.message };
   }
@@ -315,7 +315,10 @@ async function readVerificationBotStatus(userId, env, settings) {
     online, deploymentId: settings.hosting_deployment_id,
     heartbeatAt: heartbeat?.updatedAt || null,
     guilds: Number(heartbeat?.guilds || 0),
-    runtimeState: runtime.state || runtime.deployment?.state || null
+    runtimeState: runtime.state || runtime.deployment?.state || null,
+    hint: runtime.hint || null,
+    error: heartbeat?.error || runtime.error || null,
+    logs: Array.isArray(runtime.logs) ? runtime.logs.slice(-18) : []
   };
 }
 async function saveVerificationBotSettings(user, input, env) {
