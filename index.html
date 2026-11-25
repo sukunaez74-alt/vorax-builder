@@ -1592,6 +1592,16 @@ function safePackageName(value){
   .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
   .replace(/[^a-z0-9._-]+/g,"-").replace(/^-+|-+$/g,"").slice(0,64)||"meu-bot";
 }
+async function requestBotUploadUrl(id,path,runtime,status){
+ const deadline=Date.now()+75000;
+ while(Date.now()<deadline){
+  const result=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path,runtime})});
+  if(result.code!=="hosting_installing")return result;
+  if(status)status.textContent="Preparando o servidor "+(runtime==="nodejs"?"Node.js":"Python")+"… o envio começará automaticamente assim que o ambiente estiver pronto.";
+  await new Promise(resolve=>setTimeout(resolve,Math.max(1000,Number(result.retryAfterMs||1800))));
+ }
+ throw new Error("O servidor demorou demais para terminar a preparação. Nenhum arquivo foi enviado ainda. Tente novamente; o painel não vai apagar o ZIP.");
+}
 function uploadSignedFiles(url,field,files,onProgress){
  return new Promise((resolve,reject)=>{
   const form=new FormData();
@@ -1761,7 +1771,7 @@ async function uploadBotFile(){
   if(button)button.textContent="Enviando ZIP…";
   if(status)status.textContent=(quickDetection?"ZIP reconhecido como ":"A pré-leitura não foi compatível; o servidor fará a análise completa. Enviando pacote em ambiente inicial "+(runtime==="nodejs"?"Node.js":"Python")+". ")+(runtime==="nodejs"?"Node.js":"Python")+" · "+file.name+"…";
   const archiveName=packageName+".zip";
-  const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path:"/",runtime})});
+  const signed=await requestBotUploadUrl(id,"/",runtime,status);
   if(!signed.url)throw new Error("A hospedagem não retornou um endereço de envio.");
   await uploadSignedFiles(signed.url,signed.field||"files",[{file,name:archiveName}],(loaded,total)=>{
    if(status)status.textContent="Enviando ZIP: "+Math.round(loaded/total*100)+"%";
@@ -1802,7 +1812,7 @@ async function uploadLooseFiles(){
   }
   if(!groups.size)throw new Error("Nenhum arquivo válido foi selecionado.");
   if(button)button.textContent="Enviando arquivos…";
-  const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path:"/",runtime})});
+  const signed=await requestBotUploadUrl(id,"/",runtime,status);
   if(!signed.url)throw new Error("A hospedagem não retornou o endereço para envio.");
   await uploadSignedFiles(signed.url,signed.field||"files",groups.get("/"),loaded=>{
    if(status)status.textContent="Enviando arquivos: "+Math.min(100,Math.round(loaded/(selected.reduce((sum,file)=>sum+file.size,0)||1)*100))+"%";
@@ -1855,7 +1865,7 @@ async function uploadBotFolder(){
   for(let i=0;i<groups.length;i++){
    const [path,items]=groups[i];
    if(status)status.textContent="Enviando arquivos da pasta "+(i+1)+"/"+groups.length+": "+(path||"/");
-   const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path:path||"/",runtime})});
+   const signed=await requestBotUploadUrl(id,path||"/",runtime,status);
    if(!signed.url)throw new Error("A hospedagem não retornou o endereço para a pasta "+path+".");
    deploymentReady=true;
    await uploadSignedFiles(signed.url,signed.field||"files",items,loaded=>{
