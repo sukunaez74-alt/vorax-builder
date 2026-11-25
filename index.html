@@ -431,9 +431,97 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 
 </style>
 <link rel="stylesheet" href="/kuro-shiro.css?v=2">
+<link rel="stylesheet" href="/studio-ui.css?v=1">
 </head>
 <body>
-<section id="gateScreen">
+
+<section id="landingScreen" class="hidden">
+ <header class="site-header">
+  <a class="site-brand" href="#inicio" aria-label="Black Zone Estúdio - início"><span class="site-mark">✦</span><span><b>ʙʟᴀᴄᴋ ᴢᴏɴᴇ</b><small>ESTÚDIO</small></span></a>
+  <nav class="site-nav" aria-label="Navegação principal">
+   <a href="#vantagens">Vantagens</a><a href="#recursos-publicos">Recursos</a><a href="#planos">Planos</a><a href="#comparativo">Comparativo</a><a href="#documentacao-publica">Documentação</a>
+  </nav>
+  <button class="btn site-login" data-enter-studio>Entrar no Estúdio <span>↗</span></button>
+  <button class="site-menu" id="siteMenuBtn" aria-label="Abrir menu">☰</button>
+ </header>
+ <main id="inicio">
+  <section class="landing-hero">
+   <div class="landing-hero-copy">
+    <div class="eyebrow"><span class="eyebrow-dot"></span> SEU UNIVERSO DE BOTS DISCORD</div>
+    <h1>Seu servidor merece um <em>universo inteiro.</em></h1>
+    <p>Crie, organize e configure seus projetos Discord em um só lugar. Um estúdio com personalidade anime, ferramentas claras e controle dos seus módulos.</p>
+    <div class="landing-actions">
+     <button class="btn btn-bright" data-enter-studio>✦ Acessar painel</button>
+     <a class="btn btn-outline" href="#recursos-publicos">Explorar recursos ↓</a>
+    </div>
+    <div class="landing-trust"><span>✧ Painel em português</span><span>✧ Tokens protegidos</span><span>✧ Módulos selecionáveis</span></div>
+   </div>
+   <div class="landing-art">
+    <div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div>
+    <div class="art-rune">✧</div><div class="art-caption"><b>KURO / SHIRO</b><small>ANIME CONTROL STUDIO</small></div>
+   </div>
+   <div class="landing-scroll">ROLE PARA DESCOBRIR <span>⌄</span></div>
+  </section>
+  <section class="landing-section" id="vantagens">
+   <div class="section-kicker">POR QUE USAR O ESTÚDIO?</div>
+   <h2>Organização bonita. Controle de verdade.</h2>
+   <p class="section-lead">Tudo começa com um projeto bem configurado. Você escolhe o que usar e acompanha cada etapa sem ficar perdido em arquivos e painéis diferentes.</p>
+   <div class="benefit-grid">
+    <article class="benefit-card"><span class="benefit-icon">◈</span><h3>Seu espaço, suas regras</h3><p>Reúna seus bots e preferências em uma área de trabalho organizada por projeto.</p></article>
+    <article class="benefit-card"><span class="benefit-icon">⌘</span><h3>Módulos à sua escolha</h3><p>Ative apenas os recursos compatíveis com o código do seu bot, sem ligar tudo de uma vez.</p></article>
+    <article class="benefit-card"><span class="benefit-icon">♢</span><h3>Configuração protegida</h3><p>O token Discord é validado e armazenado criptografado no servidor, sem aparecer novamente na tela.</p></article>
+   </div>
+  </section>
+  <section class="landing-section feature-section" id="recursos-publicos">
+   <div class="section-kicker">CENTRAL DE RECURSOS</div>
+   <h2>Tudo que seu bot pode organizar.</h2>
+   <p class="section-lead">Conheça os módulos do modelo CAOS que podem ser configurados no Estúdio. A disponibilidade depende da versão do código usada pelo bot.</p>
+   <div class="public-feature-grid">
+    <article class="public-feature"><span>▣</span><div><h3>Tickets</h3><p>Organize atendimentos e solicitações da comunidade.</p><small>MODELO CAOS</small></div></article>
+    <article class="public-feature"><span>♫</span><div><h3>Música</h3><p>Gerencie o módulo de música quando o código e as dependências estiverem instalados.</p><small>MODELO CAOS</small></div></article>
+    <article class="public-feature"><span>◷</span><div><h3>Bate-ponto</h3><p>Registre jornadas e atividades da equipe.</p><small>MODELO CAOS</small></div></article>
+    <article class="public-feature"><span>♙</span><div><h3>Equipe e cargos</h3><p>Organize funções e ferramentas internas de equipe.</p><small>MODELO CAOS</small></div></article>
+    <article class="public-feature"><span>✧</span><div><h3>Metas e ranking</h3><p>Acompanhe metas e resultados da comunidade.</p><small>MODELO CAOS</small></div></article>
+    <article class="public-feature"><span>⚑</span><div><h3>Advertências</h3><p>Mantenha registros e medidas disciplinares.</p><small>MODELO CAOS</small></div></article>
+    <article class="public-feature"><span>⌕</span><div><h3>Recrutamento</h3><p>Centralize o processo de entrada de novos membros na equipe.</p><small>MODELO CAOS</small></div></article>
+    <article class="public-feature"><span>≋</span><div><h3>Logs</h3><p>Consulte registros para acompanhar o funcionamento.</p><small>MODELO CAOS</small></div></article>
+   </div>
+  </section>
+  <section class="landing-section plans-section" id="planos">
+   <div class="section-kicker">COMO FUNCIONA</div><h2>Do projeto ao bot conectado.</h2>
+   <p class="section-lead">O Estúdio organiza a configuração. Para manter um bot conectado ao Discord, é necessário um serviço de execução compatível; as condições e os custos dependem do provedor escolhido.</p>
+   <div class="plan-grid">
+    <article class="plan-card featured-plan"><div class="plan-ribbon">PAINEL DO ESTÚDIO</div><h3>Workspace</h3><p class="plan-sub">Crie e organize seus projetos.</p><ul><li>Projetos e modelos</li><li>Configuração de módulos</li><li>Armazenamento protegido de token</li><li>Documentação de uso</li></ul><button class="btn btn-bright" data-enter-studio>Acessar o Estúdio</button></article>
+    <article class="plan-card"><div class="plan-ribbon muted-ribbon">EXECUÇÃO EXTERNA</div><h3>Hospedagem</h3><p class="plan-sub">Mantenha o processo do bot online.</p><ul><li>Servidor de execução</li><li>Iniciar, parar e reiniciar</li><li>Agendamento e logs, conforme o provedor</li><li>Limites e cobrança definidos pelo provedor</li></ul><a class="btn btn-outline" href="#documentacao-publica">Ver como conectar</a></article>
+   </div>
+  </section>
+  <section class="landing-section comparison-section" id="comparativo">
+   <div class="section-kicker">VISÃO GERAL</div><h2>Painel e hospedagem: cada um com seu papel.</h2>
+   <div class="compare-table">
+    <div class="compare-head"><span>RECURSO</span><b>ESTÚDIO</b><b>HOSPEDAGEM</b></div>
+    <div><span>Criar e organizar projetos</span><b>✓</b><b>—</b></div>
+    <div><span>Configurar módulos CAOS</span><b>✓</b><b>—</b></div>
+    <div><span>Proteger o token Discord</span><b>✓</b><b>—</b></div>
+    <div><span>Executar o processo do bot</span><b>—</b><b>✓</b></div>
+    <div><span>Manter conexão 24 horas</span><b>—</b><b>Depende do plano</b></div>
+   </div>
+  </section>
+  <section class="landing-section docs-section" id="documentacao-publica">
+   <div class="section-kicker">GUIA RÁPIDO</div><h2>Primeiros passos, sem mistério.</h2>
+   <p class="section-lead">A sequência para sair de um projeto vazio e chegar à configuração do seu bot.</p>
+   <div class="guide-grid">
+    <article class="guide-card"><span class="guide-number">01</span><div><h3>Crie seu projeto</h3><p>Escolha um nome e a linguagem compatível com seu código.</p></div></article>
+    <article class="guide-card"><span class="guide-number">02</span><div><h3>Proteja o token</h3><p>Use o Bot Token do Discord Developer Portal. Nunca compartilhe essa credencial.</p></div></article>
+    <article class="guide-card"><span class="guide-number">03</span><div><h3>Escolha os módulos</h3><p>Ative apenas os módulos que existem no código do seu bot.</p></div></article>
+    <article class="guide-card"><span class="guide-number">04</span><div><h3>Conecte a hospedagem</h3><p>Autorize o provedor e configure a execução, os horários e os logs.</p></div></article>
+   </div>
+   <div class="docs-callout"><div><b>Precisa de mais detalhes?</b><span>Entre no painel e consulte os guias de configuração por etapa.</span></div><button class="btn btn-bright" data-enter-studio>Abrir documentação ↗</button></div>
+  </section>
+ </main>
+ <footer class="site-footer"><a class="site-brand" href="#inicio"><span class="site-mark">✦</span><span><b>ʙʟᴀᴄᴋ ᴢᴏɴᴇ</b><small>ESTÚDIO</small></span></a><span>ANIME CONTROL STUDIO · DISCORD PROJECT WORKSPACE</span><a href="#inicio">Voltar ao topo ↑</a></footer>
+</section>
+
+<section id="gateScreen" class="hidden">
  <div class="auth-card">
   <div class="brand"><div class="brand-mark">✦</div><div class="brand-name">ʙʟᴀᴄᴋ ᴢᴏɴᴇ<br><span class="caps">ESTÚDIO</span></div></div>
   <h1>Seu estúdio de bots começa aqui.</h1><p>Organize seus projetos de Discord em um painel moderno, simples e em português. Crie seu espaço e configure os módulos do seu jeito.</p>
@@ -492,24 +580,35 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 </section>
 <div id="app" class="hidden">
  <aside class="sidebar" id="sidebar">
+  <div class="sidebar-mobile-top"><span>MENU DO ESTÚDIO</span><button id="closeSidebar" aria-label="Fechar menu">×</button></div>
   <div class="brand"><div class="brand-mark">✦</div><div class="brand-name">ʙʟᴀᴄᴋ ᴢᴏɴᴇ<br><span class="caps">ESTÚDIO</span></div></div>
-  <div class="nav-group"><div class="nav-title caps">Workspace</div>
-   <button class="nav-btn active" data-view="overview"><span>⌂</span> Visão geral</button>
-   <button class="nav-btn" data-view="bots"><span>🤖</span> Meus bots</button>
-   <button class="nav-btn" data-view="templates"><span>✧</span> Modelos prontos</button>
+  <div class="nav-group"><div class="nav-title caps">Seus servidores</div>
+   <button class="nav-btn active" data-view="overview"><span>⌂</span> Início</button>
+   <button class="nav-btn" data-view="bots"><span>◈</span> Meus servidores</button>
+   <button class="nav-btn" data-action="create-bot"><span>＋</span> Criar bot</button>
   </div>
-  <div class="nav-group"><div class="nav-title caps">Operações</div>
-   <button class="nav-btn" data-view="files"><span>▤</span> Arquivos</button>
+  <div class="nav-group"><div class="nav-title caps">Sonhos</div>
+   <button class="nav-btn" data-view="resources"><span>✦</span> Recursos</button>
+   <button class="nav-btn" data-view="templates"><span>▧</span> Modelos prontos</button>
    <button class="nav-btn" data-view="schedules"><span>◷</span> Agendamentos</button>
-   <button class="nav-btn" data-view="logs"><span>⌁</span> Registros</button>
+  </div>
+  <div class="nav-group"><div class="nav-title caps">Personalização</div>
+   <button class="nav-btn" data-view="modules"><span>⚙</span> Módulos do bot</button>
+   <button class="nav-btn" data-view="files"><span>▤</span> Arquivos e pacotes</button>
+  </div>
+  <div class="nav-group"><div class="nav-title caps">Miscelânea</div>
+   <button class="nav-btn" data-view="docs"><span>▤</span> Documentação</button>
+   <button class="nav-btn" data-view="integrations"><span>⌁</span> Integrações</button>
+   <button class="nav-btn" data-view="logs"><span>≋</span> Registros</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Conta</div>
    <button class="nav-btn" data-view="settings"><span>⚙</span> Configurações</button>
+   <button class="nav-btn nav-logout" id="sidebarLogout"><span>⇥</span> Sair da conta</button>
   </div>
   <div class="sidebar-bottom"><div class="host-card"><strong>✦ Seu espaço de criação</strong><p>Crie projetos e organize os módulos sem cadastrar uma chave de API.</p><button class="btn secondary wide" data-view="bots">Ver meus projetos</button></div></div>
  </aside>
  <main class="main">
-  <header class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="btn secondary mobile-menu" id="menuBtn">☰</button><div class="breadcrumb">ʙʟᴀᴄᴋ ᴢᴏɴᴇ / <span id="crumb">Visão geral</span></div></div><div class="top-actions"><div class="user-chip"><div class="avatar" id="avatar">B</div><span id="userLabel" class="user-email">Conta</span></div><button class="btn ghost" id="logoutBtn">Sair</button></div></header>
+  <header class="topbar"><div class="topbar-left"><button class="btn secondary mobile-menu" id="menuBtn">☰</button><div class="breadcrumb"><span class="breadcrumb-mark">✦</span> ʙʟᴀᴄᴋ ᴢᴏɴᴇ <span class="crumb-slash">/</span> <span id="crumb">Início</span></div></div><div class="top-actions"><button class="top-doc-link" data-view="docs">Documentação</button><button class="top-create-btn" data-action="create-bot">＋ Novo bot</button><div class="user-chip"><div class="avatar" id="avatar">B</div><span id="userLabel" class="user-email">Conta</span></div><button class="btn ghost top-logout" id="logoutBtn">Sair</button></div></header>
   <div id="view"></div>
  </main>
 </div>
