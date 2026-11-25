@@ -2086,10 +2086,12 @@ export async function onRequest(context) {
       if (action === "import" && request.method === "POST") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Envie o pacote para preparar a hospedagem primeiro." }, 409);
         try {
+          const importBody = await body(request);
+          const packageName = String(importBody.packageName || bot.name || "meu-bot").trim().slice(0, 64) || String(bot.name || "meu-bot");
           const analysis = await scanImportedProject(user.id, env, bot.hosting_deployment_id);
           if (!analysis.ok) return reply(analysis, 422);
           const customProject = {
-            rootPath: "/", runtime: analysis.runtime, entryFile: analysis.entryFile,
+            packageName, rootPath: "/", runtime: analysis.runtime, entryFile: analysis.entryFile,
             startCommand: analysis.startCommand || null, dependencyFile: analysis.dependencyFile || null,
             fileCount: analysis.fileCount, directoryCount: analysis.directoryCount,
             imageCount: analysis.imageCount, importedAt: Date.now()
