@@ -256,15 +256,22 @@ async function ensureVerificationBotDeployment(userId, env) {
     if (!granted.includes("credits:spend") || !granted.includes("deployments:write")) {
       throw new Error("A autorização atual do Bot-Hosting não permite criar o servidor do ADM. Vá em Configurações, clique em Conectar / reconectar Bot-Hosting e aprove a permissão de criação de implantações.");
     }
-    const created = await hostRequest(userId, env, "/deployments", "POST", {
-      name: "black-zone-verificacao",
-      source: "blank",
-      runtime: "python",
-      runtimeVersion: "3.11"
-    });
-    const deployment = created.deployment || created;
-    deploymentId = String(deployment.id || "");
-    if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID da implantação do bot de verificação.");
+    const existing = await hostRequest(userId, env, "/deployments?name=black-zone-verificacao&brief=true");
+    const matches = Array.isArray(existing.deployments) ? existing.deployments : [];
+    const recovered = matches.find(item => item && item.name === "black-zone-verificacao" && item.owned !== false && item.id);
+    if (recovered) {
+      deploymentId = String(recovered.id);
+    } else {
+      const created = await hostRequest(userId, env, "/deployments", "POST", {
+        name: "black-zone-verificacao",
+        source: "blank",
+        runtime: "python",
+        runtimeVersion: "3.11"
+      });
+      const deployment = created.deployment || created;
+      deploymentId = String(deployment.id || "");
+      if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID da implantação do bot de verificação.");
+    }
     await env.DB.prepare("UPDATE verification_bot_settings SET hosting_deployment_id=?,bot_id=?,bot_name=?,state='starting',updated_at=? WHERE id='main'")
       .bind(deploymentId, identity.botId, identity.botName || null, Date.now()).run();
   }
@@ -1233,6 +1240,19 @@ export async function onRequest(context) {
       const oauth = await discordOAuthCredentials(env);
       const hosting = await env.DB.prepare("SELECT user_id,scope FROM hosting_connections WHERE user_id=?").bind(user.id).first();
       const hostingScopes = String(hosting?.scope || "").split(/\s+/).filter(Boolean);
+      let hostingDiagnostic = { ok: false, message: hosting ? "Testando conexão com a hospedagem..." : "Conta Bot-Hosting não conectada." };
+      if (hosting) {
+        try {
+          const probe = await hostRequest(user.id, env, "/deployments?brief=true");
+          hostingDiagnostic = {
+            ok: true,
+            message: "Conexão com Bot-Hosting confirmada.",
+            deploymentsCount: Array.isArray(probe.deployments) ? probe.deployments.length : 0
+          };
+        } catch (error) {
+          hostingDiagnostic = { ok: false, message: error.message || "A hospedagem recusou a conexão." };
+        }
+      }
       return reply({
         configured: !!settings?.bot_token_enc && !!settings?.invite_url,
         oauthRedirectUri: new URL("/api/verification/callback", request.url).href,
@@ -1246,6 +1266,8 @@ export async function onRequest(context) {
         clientId: settings?.oauth_client_id || oauth.clientId || "",
         hostingConnected: !!hosting,
         hostingCanCreate: hostingScopes.includes("credits:spend") && hostingScopes.includes("deployments:write"),
+        hostingMissingScopes: ["deployments:write", "credits:spend"].filter(scope => !hostingScopes.includes(scope)),
+        hostingDiagnostic,
         runtime
       });
     }
