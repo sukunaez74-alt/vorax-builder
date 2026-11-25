@@ -882,23 +882,35 @@ async function setHostEnv(userId, env, deploymentId, key, value, secret = false)
 }
 async function ensureBotDeployment(bot, userId, env) {
   const customProject = typeof bot.custom_project === "string" ? JSON.parse(bot.custom_project || "null") : (bot.custom_project || null);
-  if (!customProject && bot.runtime !== "python") {
-    throw new Error("Este projeto ainda não tem um pacote importado compatível. Envie um ZIP ou uma pasta de arquivos primeiro.");
+  const projectType = bot.project_type === "custom" || customProject ? "custom" : "standard";
+  if (projectType === "custom" && !customProject) {
+    throw new Error("Envie primeiro o ZIP, a pasta ou os arquivos do seu bot na área Arquivos.");
   }
-  if (!customProject && (!CAOS_MAIN_PY || CAOS_MAIN_PY.length < 10000)) {
-    throw new Error("O pacote CAOS não foi incluído nesta publicação do servidor. Atualize o painel e tente novamente.");
+  if (projectType === "standard" && bot.runtime !== "python") {
+    throw new Error("O bot padrão do Estúdio utiliza Python 3.11.");
   }
-  if (!bot.discord_token_enc) throw new Error("Salve primeiro o Bot Token Discord deste projeto.");
-  const token = await decryptSecret(bot.discord_token_enc, env);
-  if (!token) throw new Error("Não consegui abrir o token protegido deste projeto. Salve novamente o token do Discord.");
-  const identity = await validateDiscordBotToken(token);
-  if (!identity.valid) throw new Error("O Discord não aceitou o token salvo. Abra Configurar token e módulos e atualize a credencial.");
-  const duplicate = await env.DB.prepare("SELECT id,name FROM bots WHERE user_id=? AND discord_bot_id=? AND id<>? LIMIT 1")
-    .bind(userId, identity.botId, bot.id).first();
-  if (duplicate) throw new Error("Este mesmo bot Discord já está cadastrado no projeto \"" + String(duplicate.name || duplicate.id) + "\". Cada projeto precisa de um Bot Token próprio para evitar sessões duplicadas no Discord.");
-  const central = await verificationBotSettings(env);
-  if (central?.bot_id && String(central.bot_id) === identity.botId) {
-    throw new Error("Este Bot Token também está reservado para o bot central do ADM. Use um bot Discord diferente neste projeto.");
+  if (projectType === "standard" && (!CAOS_MAIN_PY || CAOS_MAIN_PY.length < 10000)) {
+    throw new Error("O bot padrão não foi incluído nesta publicação. Atualize o painel e tente novamente.");
+  }
+  let token = null;
+  if (bot.discord_token_enc) {
+    token = await decryptSecret(bot.discord_token_enc, env);
+    if (!token) throw new Error("Não consegui abrir o token protegido deste projeto. Salve novamente o token do Discord.");
+  }
+  if (!token && projectType === "standard") {
+    throw new Error("Salve o Bot Token Discord para o bot padrão antes de iniciar.");
+  }
+  let identity = null;
+  if (token) {
+    identity = await validateDiscordBotToken(token);
+    if (!identity.valid) throw new Error("O Discord não aceitou o token salvo. Abra Configurar bot e atualize a credencial.");
+    const duplicate = await env.DB.prepare("SELECT id,name FROM bots WHERE user_id=? AND discord_bot_id=? AND id<>? LIMIT 1")
+      .bind(userId, identity.botId, bot.id).first();
+    if (duplicate) throw new Error("Este mesmo bot Discord já está cadastrado no projeto \"" + String(duplicate.name || duplicate.id) + "\". Cada projeto precisa de um Bot Token próprio para evitar sessões duplicadas no Discord.");
+    const central = await verificationBotSettings(env);
+    if (central?.bot_id && String(central.bot_id) === identity.botId) {
+      throw new Error("Este Bot Token também está reservado para o bot central do ADM. Use um bot Discord diferente neste projeto.");
+    }
   }
 
   const modules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
@@ -912,17 +924,18 @@ async function ensureBotDeployment(bot, userId, env) {
       throw new Error("A hospedagem desta conta não recebeu as permissões deployments:write e credits:spend. Reconecte o Bot-Hosting em Configurações e autorize a criação de servidores.");
     }
     const safeName = ("black-zone-" + String(bot.name || "caos").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + String(bot.id).slice(0, 5)).replace(/-+/g, "-");
+    const deployRuntime = projectType === "custom" ? (customProject.runtime === "nodejs" ? "nodejs" : "python") : "python";
     const created = await hostRequest(userId, env, "/deployments", "POST", {
       name: safeName,
       source: "blank",
-      runtime: "python",
-      runtimeVersion: "3.11"
+      runtime: deployRuntime,
+      runtimeVersion: deployRuntime === "nodejs" ? "22" : "3.11"
     });
     const deployment = created.deployment || created;
     deploymentId = String(deployment.id || "");
     if (!deploymentId) throw new Error("O Bot-Hosting respondeu sem o identificador da implantação.");
-    await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,discord_bot_id=?,discord_bot_name=?,state='draft',updated_at=? WHERE id=? AND user_id=?")
-      .bind(deploymentId, identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
+    await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,discord_bot_id=COALESCE(?,discord_bot_id),discord_bot_name=COALESCE(?,discord_bot_name),state='draft',updated_at=? WHERE id=? AND user_id=?")
+      .bind(deploymentId, identity?.botId || null, identity?.botName || null, Date.now(), bot.id, userId).run();
   }
 
   if (customProject) {
@@ -930,17 +943,19 @@ async function ensureBotDeployment(bot, userId, env) {
     const runtimeVersion = runtime === "nodejs" ? "22" : "3.11";
     const entryFile = String(customProject.entryFile || "").replace(/^\/+/, "");
     if (!entryFile || entryFile.split("/").some(part => part === "..")) throw new Error("O pacote importado não tem um arquivo principal válido. Reenvie a pasta ou o ZIP.");
-    await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
-    await setHostEnv(userId, env, deploymentId, "BOT_TOKEN", token, true);
-    await setHostEnv(userId, env, deploymentId, "TOKEN", token, true);
+    if (token) {
+      await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
+      await setHostEnv(userId, env, deploymentId, "BOT_TOKEN", token, true);
+      await setHostEnv(userId, env, deploymentId, "TOKEN", token, true);
+    }
     await setHostEnv(userId, env, deploymentId, "APP_URL", "https://black-zone-estudio.vercel.app", false);
     await setHostEnv(userId, env, deploymentId, "BOT_NAME", bot.name || "Discord Bot", false);
     await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
       runtime, runtimeVersion, entryFile, startCommand: customProject.startCommand || null
     });
-    await env.DB.prepare("UPDATE bots SET runtime=?,discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?")
-      .bind(runtime, identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
-    return { deploymentId, botId: identity.botId, botName: identity.botName || null, customProject: true, entryFile, runtime };
+    await env.DB.prepare("UPDATE bots SET runtime=?,discord_bot_id=COALESCE(?,discord_bot_id),discord_bot_name=COALESCE(?,discord_bot_name),updated_at=? WHERE id=? AND user_id=?")
+      .bind(runtime, identity?.botId || null, identity?.botName || null, Date.now(), bot.id, userId).run();
+    return { deploymentId, botId: identity?.botId || bot.discord_bot_id || null, botName: identity?.botName || bot.discord_bot_name || null, customProject: true, entryFile, runtime, tokenSource: token ? "secure-field" : "project-files" };
   }
 
   // Só reenviamos o pacote CAOS quando a versão instalada mudou.
@@ -1006,7 +1021,7 @@ async function ensureBotDeployment(bot, userId, env) {
 }
 async function getOwnedBot(id, userId, env) {
   return env.DB.prepare(
-    "SELECT id,name,runtime,state,modules,custom_project,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE id=? AND user_id=?"
+    "SELECT id,name,runtime,state,modules,project_type,custom_project,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE id=? AND user_id=?"
   ).bind(id, userId).first();
 }
 function validClock(value) { return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value); }
@@ -1638,12 +1653,13 @@ export async function onRequest(context) {
 
     if (path === "/bots" && request.method === "GET") {
       const rows = await env.DB.prepare(
-        "SELECT id,name,runtime,state,modules,custom_project,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE user_id=? ORDER BY created_at DESC"
+        "SELECT id,name,runtime,state,modules,project_type,custom_project,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE user_id=? ORDER BY created_at DESC"
       ).bind(user.id).all();
       return reply({ deployments: rows.map(row => ({
         ...row,
         modules: typeof row.modules === "string" ? JSON.parse(row.modules) : row.modules,
         customProject: typeof row.custom_project === "string" ? JSON.parse(row.custom_project || "null") : (row.custom_project || null),
+        projectType: row.project_type === "custom" || row.custom_project ? "custom" : "standard",
         hasDiscordToken: !!row.has_discord_token,
         discordBotId: row.discord_bot_id || null,
         discordBotName: row.discord_bot_name || null,
@@ -1659,9 +1675,10 @@ export async function onRequest(context) {
     if (path === "/bots" && request.method === "POST") {
       const b = await body(request);
       const name = String(b.name || "Novo bot").trim().slice(0, 48);
-      const runtime = "python";
-      if (b.runtime && b.runtime !== "python") {
-        return reply({ error: "O executor automático atual está preparado para o CAOS em Python 3.11." }, 400);
+      const projectType = b.projectType === "custom" ? "custom" : "standard";
+      const runtime = projectType === "custom" && b.runtime === "nodejs" ? "nodejs" : "python";
+      if (b.runtime && !["python","nodejs"].includes(b.runtime)) {
+        return reply({ error: "Escolha Python ou Node.js para o seu próprio bot." }, 400);
       }
       if (name.length < 2) return reply({ error: "Digite um nome com pelo menos 2 caracteres." }, 400);
 
@@ -1676,9 +1693,9 @@ export async function onRequest(context) {
       const id = randomToken(12);
       const now = Date.now();
       await env.DB.prepare(
-        "INSERT INTO bots (id,user_id,name,runtime,state,modules,discord_token_enc,discord_bot_id,discord_bot_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+        "INSERT INTO bots (id,user_id,name,runtime,project_type,state,modules,discord_token_enc,discord_bot_id,discord_bot_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
       ).bind(
-        id, user.id, name, runtime, "draft", JSON.stringify({}),
+        id, user.id, name, runtime, projectType, "draft", JSON.stringify({}),
         prepared?.encryptedToken || null,
         prepared?.identity.botId || null,
         prepared?.identity.botName || null,
@@ -1700,7 +1717,7 @@ export async function onRequest(context) {
       }
 
       return reply({
-        id, name, runtime, state: "draft", modules: {},
+        id, name, runtime, projectType, state: "draft", modules: {},
         hasDiscordToken: !!prepared,
         discordBotId: persisted.discord_bot_id || null,
         discordBotName: persisted.discord_bot_name || null,
@@ -1779,6 +1796,7 @@ export async function onRequest(context) {
         return reply({
           id: bot.id, name: bot.name, runtime: bot.runtime, state,
           modules, customProject: typeof bot.custom_project === "string" ? JSON.parse(bot.custom_project || "null") : (bot.custom_project || null),
+          projectType: bot.project_type === "custom" || bot.custom_project ? "custom" : "standard",
           hasDiscordToken: hasToken,
           discordBotId, discordBotName,
           hostingDeploymentId: bot.hosting_deployment_id || null,
@@ -2049,6 +2067,7 @@ export async function onRequest(context) {
       }
 
       if (action === "upload-url" && request.method === "POST") {
+        if (bot.project_type !== "custom") return reply({ error: "Envio de código próprio só está disponível em projetos criados como \"Meu próprio bot\"." }, 409);
         try {
           const b = await body(request);
           const root = safeVolumePath(b.path || "/");
@@ -2069,7 +2088,7 @@ export async function onRequest(context) {
             });
             deploymentId = String((created.deployment || created).id || "");
             if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID do servidor para receber arquivos.");
-            await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,runtime=?,state='draft',updated_at=? WHERE id=? AND user_id=?")
+            await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,runtime=?,project_type='custom',state='draft',updated_at=? WHERE id=? AND user_id=?")
               .bind(deploymentId, requestedRuntime, Date.now(), id, user.id).run();
           } else if (requestedRuntime !== String(bot.runtime || "python").toLowerCase()) {
             await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
@@ -2098,6 +2117,7 @@ export async function onRequest(context) {
       }
 
       if (action === "import" && request.method === "POST") {
+        if (bot.project_type !== "custom") return reply({ error: "Este é um projeto do bot padrão do Estúdio. Para importar seu próprio código, crie um projeto na opção \"Meu próprio bot\"." }, 409);
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Envie o pacote para preparar a hospedagem primeiro." }, 409);
         try {
           const importBody = await body(request);
@@ -2333,6 +2353,7 @@ async function ensureSchema(db) {
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS schedule_timezone TEXT NOT NULL DEFAULT 'America/Bahia'");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS guild_id TEXT");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS custom_project JSONB");
+      await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS project_type TEXT NOT NULL DEFAULT 'standard'");
       await db.raw("INSERT INTO app_state (id, owner_user_id) VALUES ('main', NULL) ON CONFLICT (id) DO NOTHING");
     })().catch(error => { schemaPromise = null; throw error; });
   }
