@@ -2177,7 +2177,7 @@ async function uploadBotFile(){
   }
  }catch(error){
   toast(error.message||"Não consegui importar este ZIP.");
-  if(status)status.textContent=error.message||"Falha ao importar o pacote.";
+  if(status)status.textContent=error.message||"Não foi possível encontrar uma vaga gratuita disponível. Seu ZIP original continua preservado. O Estúdio não contratará hospedagem paga.";
  }finally{
   if(button){button.disabled=false;button.textContent="⇧ Escolha um ZIP"}
   if(completed)input.value="";
