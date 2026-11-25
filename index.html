@@ -846,14 +846,15 @@ function logsView(){
  return pageHead("Terminal e registros","Consulte os logs e execute comandos no container da hospedagem.",'<button class="btn secondary" id="refreshLogs">↻ Atualizar logs</button>')+
  '<section class="dashboard-panel logs-full"><div class="field"><label>PROJETO</label><select id="logsBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div>'+
  '<div class="terminal-window"><div class="terminal-top"><i></i><i></i><i></i><span>black-zone · logs do processo</span></div><div id="logsArea" class="terminal-content"><div class="dashboard-empty">Selecione um projeto e atualize os logs.</div></div></div>'+
- ((bot.hostingProvider==="squarecloud"||bot.hostingProvider==="discloud")
-  ? '<div class="project-note">'+(bot.hostingProvider==="squarecloud"?'A API da Square Cloud não oferece terminal de comandos no painel. Você continua com acesso aos logs, navegador de arquivos, edição, download e controles de iniciar/parar/reiniciar.':'A integração Discloud mantém logs e controles de iniciar/parar. O terminal e o gerenciador de arquivos completos não estão disponíveis pela API pública no Estúdio.')+'</div>'
+ ((bot.hostingProvider==="squarecloud"||bot.hostingProvider==="discloud"||bot.hostingProvider==="cubecloud")
+  ? '<div class="project-note">'+(bot.hostingProvider==="cubecloud"?'O Estúdio usa a API da Cube Hosting para arquivos (quando o plano permite), logs e controles de iniciar/parar/reiniciar. O terminal interativo não está ligado.':(bot.hostingProvider==="squarecloud"?'A API da Square Cloud não oferece terminal de comandos no painel. Você continua com acesso aos logs, navegador de arquivos, edição, download e controles de iniciar/parar/reiniciar.':'A integração Discloud mantém logs e controles de iniciar/parar. O terminal e o gerenciador de arquivos completos não estão disponíveis pela API pública no Estúdio.'))+'</div>'
   : '<div class="shell-panel"><div class="dashboard-panel-head"><div><small>TERMINAL DO CONTAINER</small><h2>Executar comando</h2></div><span class="small-muted">Shell da hospedagem</span></div><div class="shell-command-row"><input id="shellCommand" spellcheck="false" placeholder="Ex.: python --version ou ls -la"><button class="btn" id="shellRun">Executar ↗</button></div><pre class="shell-output" id="shellOutput">O terminal executa comandos no container deste bot; não é o stdin do processo Discord.</pre></div>')+'</section>';
 }function backupsView(){
  const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
  if(!bot)return pageHead("Backups e restauração","Nenhum bot cadastrado.")+'<div class="dashboard-empty">Crie um bot para usar esta área.</div>';
  if(bot.hostingProvider==="discloud")return pageHead("Backups e restauração","A hospedagem atual é Discloud.")+'<div class="dashboard-empty">Use o <a href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer">Dashboard da Discloud</a> para consultar e criar backups desta aplicação.</div>';
  if(bot.hostingProvider==="squarecloud")return pageHead("Backups e restauração","A hospedagem atual é Square Cloud.")+'<div class="dashboard-empty">Os snapshots da Square Cloud ainda não foram ligados a esta tela. Os arquivos podem ser exportados pelo gerenciador de arquivos do Estúdio; use Arquivos → Exportar ZIP para guardar uma cópia do projeto.</div>';
+ if(bot.hostingProvider==="cubecloud")return pageHead("Backups e restauração","A hospedagem atual é Cube Hosting.")+'<div class="dashboard-empty">Backups da Cube Hosting ainda não estão ligados a esta tela. Use o painel Cube para gerenciar cópias; no Free, o explorador de arquivos não está incluído.</div>';
  if(!bot.hostingDeploymentId)return pageHead("Backups e restauração","Exporte uma cópia quando a hospedagem estiver preparada.")+'<div class="dashboard-empty">Prepare a hospedagem deste bot primeiro.</div>';
  return pageHead("Backups e restauração","Crie um ZIP para baixar ao seu computador ou restaure um ponto automático do Bot-Hosting.")+
  '<section class="dashboard-panel"><div class="backup-toolbar"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="backup-toolbar-actions"><button class="btn" id="backupManualCreate">↓ Criar e baixar ZIP</button><button class="btn secondary" id="backupRefresh">↻ Atualizar pontos</button></div></div><div id="backupStatus" class="project-note">O ZIP manual é uma cópia dos arquivos atuais. Os pontos de restauração automáticos são fornecidos pelo Bot-Hosting.</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Consultando pontos de restauração…</div></div></section>';
@@ -950,14 +951,25 @@ function verificationAdminView(){
  '<a class="btn secondary" style="display:inline-flex;text-decoration:none;align-items:center;margin-top:12px" id="verificationInviteBot" href="https://discord.com/oauth2/authorize?client_id='+encodeURIComponent(r.botId||"")+'&permissions=19456&scope=bot%20applications.commands" target="_blank" rel="noopener noreferrer">Adicionar bot ao servidor ↗</a></section>';
 }
 async function loadDiscloudHostingState(){
- const node=$("#settingsDiscloudState"),squareNode=$("#settingsSquareState");
- if(!node&&!squareNode)return;
+ const node=$("#settingsDiscloudState"),squareNode=$("#settingsSquareState"),cubeNode=$("#settingsCubeState");
+ if(!node&&!squareNode&&!cubeNode)return;
  try{
   const result=await api("/hosting/pool/status");
   const providers=Array.isArray(result.providers)?result.providers:[];
   const primary=providers.find(provider=>provider.id==="bot-hosting")||{};
   const square=providers.find(provider=>provider.id==="squarecloud")||{};
+  const cube=providers.find(provider=>provider.id==="cubecloud")||{};
   const discloud=providers.find(provider=>provider.id==="discloud")||{};
+  if(cubeNode){
+   const cubeText=cube.valid
+    ? "Conectada · plano "+escapeHtml(cube.plan||"não informado")+" · "+Number(cube.projectsCount||0)+"/"+Number(cube.maxBots||0)+" projeto(s) · "+Number(cube.memoryAvailableMb||0)+"/"+Number(cube.memoryLimitMb||0)+" MB livres"
+    : (cube.connected?"Conectada, mas não foi possível validar o plano":"Ainda não conectada");
+   const cubeDetails=cube.valid
+    ? (cube.canCreate?"Existe espaço informado para criar mais um bot.":"Sem espaço no plano para outro bot no momento.")+" "+(cube.fileManagerAvailable?"O plano inclui explorador de arquivos.":"No Free, o painel de arquivos e o reinício automático não estão disponíveis.")
+    : "O Free permite 1 bot de 100 MB e exige resgatar uma vaga com /free no Discord da Cube.";
+   cubeNode.innerHTML="<strong>"+cubeText+"</strong><br><small>"+cubeDetails+"</small>";
+   cubeNode.classList.toggle("changes-pending",!cube.valid||!cube.canCreate);
+  }
   if(squareNode){
    const squareText=square.valid
     ? "Conectada · "+escapeHtml(square.accountLabel||"Conta Square Cloud")+" · plano "+escapeHtml(square.plan||"não informado")+" · "+Number(square.applicationsCount||0)+" aplicações · "+Number(square.memoryAvailableMb||0)+"/"+Number(square.memoryLimitMb||0)+" MB livres"
@@ -970,13 +982,14 @@ async function loadDiscloudHostingState(){
    const discloudText=discloud.valid
     ? "Conectada · "+escapeHtml(discloud.accountLabel||"Conta Discloud")+" · plano "+escapeHtml(discloud.plan||"não informado")+" · "+Number(discloud.appsCount||0)+" app(s) · "+Number(discloud.ramUsedMb||0)+"/"+Number(discloud.totalRamMb||0)+" MB RAM"
     : (discloud.connected?"Conectada, mas precisa atualizar a API Key":"Ainda não conectada");
-   node.innerHTML="<strong>"+escapeHtml(discloudText)+"</strong><br><small>"+escapeHtml(primaryText)+". Pool completo para novos bots: Bot-Hosting e Square Cloud (se houver capacidade). Discloud aparece apenas para aplicações já hospedadas nela, pois seu gerenciador de arquivos não está disponível pela API pública. A conta e o plano de cada serviço continuam sob seu controle.</small>";
+   node.innerHTML="<strong>"+escapeHtml(discloudText)+"</strong><br><small>"+escapeHtml(primaryText)+". O Estúdio também usa Cube Hosting e Square Cloud quando suas contas conectadas têm vagas/memória. Discloud fica apenas para aplicações já hospedadas nela.</small>";
    node.classList.toggle("changes-pending",!discloud.valid);
   }
  }catch(error){
   const message=escapeHtml(error.message||"Falha de conexão.");
   if(node){node.innerHTML="<strong>Não consegui consultar o pool.</strong><br>"+message;node.classList.add("changes-pending")}
   if(squareNode){squareNode.innerHTML="<strong>Não consegui consultar a Square Cloud.</strong><br>"+message;squareNode.classList.add("changes-pending")}
+  if(cubeNode){cubeNode.innerHTML="<strong>Não consegui consultar Cube Hosting.</strong><br>"+message;cubeNode.classList.add("changes-pending")}
  }
 }
 function settingsView(){
@@ -990,7 +1003,7 @@ function settingsView(){
  '<div id="settingsDiscordOAuthState" class="project-note changes-pending"><strong>Conferindo configuração OAuth…</strong></div>'+
  '<button class="btn" id="connectDiscordAccount" disabled>'+(linked?"Trocar conta vinculada":"Vincular minha conta Discord ↗")+'</button></section>'+
  '<section class="card"><div class="section-head"><h3>Executor de bots</h3><span class="status">OAuth · sem chave manual</span></div><p class="muted small">Conecte sua conta Bot-Hosting uma vez. O Estúdio usa autorização OAuth e guarda os tokens de acesso criptografados; você não precisa copiar uma chave de API.</p><div id="settingsHostingState" class="project-note"><strong>Consultando autorização…</strong><br>Verificando se esta conta já autorizou o executor.</div><button class="btn" id="settingsHostingConnect">Conectar / reconectar Bot-Hosting</button><p class="muted small" style="margin-top:10px">O bot central do ADM continua nesta hospedagem. O provedor adicional é configurado separadamente.</p></section>'+
-'<section class="card"><div class="section-head"><h3>Square Cloud · Gerenciador completo</h3><span class="status">PROVEDOR COM ARQUIVOS</span></div><p class="muted small">A Square Cloud oferece no Estúdio envio de ZIP, navegador de arquivos, edição, download, logs e controles de iniciar/parar/reiniciar. É um provedor pago: o plano Hobby começa em R$ 12,49/mês. O Estúdio nunca compra nem altera seu plano sem sua autorização.</p><div id="settingsSquareState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando sua conta Square Cloud e memória disponível.</div><form id="squareConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>SQUARE CLOUD API KEY</label><input id="squareApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua API Key da Square Cloud" minlength="64" maxlength="1024"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="squareConnectButton" type="submit">Validar e conectar Square Cloud</button><a class="btn secondary" href="https://squarecloud.app/account/security" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir conta e API Keys ↗</a></div></form><p class="muted small" style="margin-top:10px">Ao criar a chave, libere os escopos: <b>account:read, apps:read, apps:write, apps:control, files:read, files:write e envs:write</b>. Conecte uma conta com espaço para pelo menos 512 MB por bot.</p></section>'+
+'<section class="card"><div class="section-head"><h3>Cube Hosting · vaga adicional</h3><span class="status">API INTEGRADA</span></div><p class="muted small">Conecte a Cube Hosting para criar bots extras pelo Estúdio. O Free oferece 1 bot com 100 MB, mas você precisa resgatar a vaga no Discord da Cube com <b>/free</b>. Atenção: no Free não há explorador de arquivos nem reinício automático; esses recursos são dos planos pagos.</p><div id="settingsCubeState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando plano e vagas da Cube Hosting.</div><form id="cubeConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>CUBE HOSTING API KEY</label><input id="cubeApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua chave cube_..." minlength="17" maxlength="1024"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="cubeConnectButton" type="submit">Validar e conectar Cube Hosting</button><a class="btn secondary" href="https://app.cubehosting.com.br" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir painel Cube ↗</a><a class="btn secondary" href="https://docs.cubehosting.com.br/api-keys" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Ajuda da API ↗</a></div></form><p class="muted small" style="margin-top:10px">Crie uma chave com permissões: <b>account:read, projects:read, projects:create, projects:deploy, projects:control, projects:logs, files:read, files:write, variables:read e variables:write</b>. Para apagar projetos pelo Estúdio, libere também <b>projects:delete</b>. Nunca cole a chave no chat.</p></section>'+'<section class="card"><div class="section-head"><h3>Square Cloud · Gerenciador completo</h3><span class="status">PROVEDOR COM ARQUIVOS</span></div><p class="muted small">A Square Cloud oferece no Estúdio envio de ZIP, navegador de arquivos, edição, download, logs e controles de iniciar/parar/reiniciar. É um provedor pago: o plano Hobby começa em R$ 12,49/mês. O Estúdio nunca compra nem altera seu plano sem sua autorização.</p><div id="settingsSquareState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando sua conta Square Cloud e memória disponível.</div><form id="squareConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>SQUARE CLOUD API KEY</label><input id="squareApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua API Key da Square Cloud" minlength="64" maxlength="1024"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="squareConnectButton" type="submit">Validar e conectar Square Cloud</button><a class="btn secondary" href="https://squarecloud.app/account/security" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir conta e API Keys ↗</a></div></form><p class="muted small" style="margin-top:10px">Ao criar a chave, libere os escopos: <b>account:read, apps:read, apps:write, apps:control, files:read, files:write e envs:write</b>. Conecte uma conta com espaço para pelo menos 512 MB por bot.</p></section>'+
 '<section class="card"><div class="section-head"><h3>Pool de hospedagem · Discloud</h3><span class="status">PROVEDOR RESERVA</span></div><p class="muted small">Conecte a Discloud como última alternativa gratuita. A Discloud continua disponível para consultar logs e controlar aplicações que já estão hospedadas nela. Ela não entra no pool de novos bots porque não oferece o mesmo gerenciador de arquivos dentro do Estúdio. A chave fica guardada criptografada; não cole no chat.</p><div id="settingsDiscloudState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando a conta Discloud.</div><form id="discloudConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>DISCLOUD API KEY</label><input id="discloudApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua API Key da Discloud" minlength="16" maxlength="512"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="discloudConnectButton" type="submit">Validar e conectar Discloud</button><a class="btn secondary" href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir Dashboard Discloud ↗</a></div></form><p class="muted small" style="margin-top:10px">No Dashboard da Discloud, abra Ferramentas → Chaves de API e gere sua chave. O plano Free oficial informa limite de 1 bot e 100 MB de RAM; o Estúdio respeitará a capacidade real da conta.</p></section>'+
 '<section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">As sessões usam cookies HttpOnly. Os Bot Tokens são criptografados no servidor e nunca são devolvidos ao navegador em texto aberto.</p></section>'+
  '<section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API, o PostgreSQL e a configuração do ambiente.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>';
@@ -1010,6 +1023,21 @@ function bindView(){
    await loadDiscloudHostingState();
   }catch(error){toast(error.message||"Não consegui conectar a Discloud.");}
   finally{button.disabled=false;button.textContent="Validar e conectar Discloud"}
+ };
+ const cubeForm=$("#cubeConnectForm");
+ if(cubeForm)cubeForm.onsubmit=async e=>{
+  e.preventDefault();
+  const input=$("#cubeApiToken"),button=$("#cubeConnectButton"),token=(input?.value||"").trim();
+  if(!token){toast("Cole a API Key da Cube Hosting antes de conectar.");input?.focus();return;}
+  if(!/^cube_[A-Za-z0-9_-]{12,1020}$/.test(token)){toast("A chave Cube Hosting precisa começar com cube_.");input?.focus();return;}
+  button.disabled=true;button.textContent="Validando API Key…";
+  try{
+   const r=await api("/hosting/cube/connect",{method:"POST",body:JSON.stringify({apiToken:token})});
+   input.value="";
+   toast(r.message||"Cube Hosting conectada com segurança.");
+   await loadDiscloudHostingState();
+  }catch(error){toast(error.message||"Não consegui conectar Cube Hosting.");}
+  finally{button.disabled=false;button.textContent="Validar e conectar Cube Hosting"}
  };
  const squareForm=$("#squareConnectForm");
  if(squareForm)squareForm.onsubmit=async e=>{
@@ -1832,7 +1860,7 @@ async function uploadZipToDiscloud(id,file,runtime,packageName,status){
   body:JSON.stringify({filename:packageName+".zip",archiveBase64,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error("O provedor alternativo não confirmou a criação da aplicação.");
- const providerName=result.provider==="squarecloud"?"Square Cloud":"Discloud";
+ const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="squarecloud"?"Square Cloud":"Discloud");
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
  state.activeBot=id;
@@ -1868,7 +1896,7 @@ async function uploadBotFile(){
   if(currentBot?.customProject&&
     !window.confirm("Este projeto já tem um pacote importado. Os arquivos com o mesmo nome poderão ser substituídos. Continuar?"))return;
   if(button)button.textContent="Enviando ZIP…";
-  if((currentBot?.hostingProvider==="discloud"||currentBot?.hostingProvider==="squarecloud")&&currentBot?.providerAppId){
+  if((currentBot?.hostingProvider==="discloud"||currentBot?.hostingProvider==="squarecloud"||currentBot?.hostingProvider==="cubecloud")&&currentBot?.providerAppId){
    await uploadZipToDiscloud(id,file,runtime,packageName,status);
    completed=true;
   }else{
