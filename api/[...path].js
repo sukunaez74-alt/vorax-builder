@@ -1080,6 +1080,153 @@ async function squareCloudRequest(token, path, method = "GET", payload = null, f
   }
   return data?.response ?? data;
 }
+
+async function cubeCloudRequest(token, path, method = "GET", payload = null, form = null) {
+  const headers = { Authorization: "Bearer " + token, accept: "application/json" };
+  if (payload && !form) headers["content-type"] = "application/json";
+  const response = await fetch("https://app.cubehosting.com.br/api" + path, {
+    method, headers, body: form || (payload ? JSON.stringify(payload) : undefined),
+    signal: AbortSignal.timeout(60000)
+  });
+  const raw = await response.text();
+  let data = {};
+  try { data = raw ? JSON.parse(raw) : {}; } catch { data = { message: raw.slice(0, 1200) }; }
+  if (!response.ok || data?.ok === false || data?.status === "error") {
+    const code = String(data?.code || data?.error?.code || "");
+    const reason = externalErrorText(data?.message || data?.error?.message || data?.error || data?.details || raw) || ("HTTP " + response.status);
+    const error = new Error("Cube Hosting · " + method + " " + path + " · " + (code ? code + ": " : "") + reason);
+    error.code = code; error.status = response.status; throw error;
+  }
+  return data;
+}
+function cubeProjectId(value) {
+  const id = String(value || "").trim();
+  if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) throw new Error("ID de projeto Cube Hosting inválido.");
+  return id;
+}
+function cubeRelativePath(value) {
+  return safeVolumePath(value || "/").replace(/^\/+/, "");
+}
+async function cubeCloudLogs(token, projectId) {
+  const id = cubeProjectId(projectId);
+  const response = await fetch("https://app.cubehosting.com.br/api/projects/" + encodeURIComponent(id) + "/logs?lines=120", {
+    headers: { Authorization: "Bearer " + token, accept: "text/event-stream, application/json" },
+    signal: AbortSignal.timeout(60000)
+  });
+  const raw = await response.text();
+  if (!response.ok) {
+    let data = {}; try { data = JSON.parse(raw); } catch {}
+    const error = new Error("Cube Hosting · logs · HTTP " + response.status + ": " + externalErrorText(data.message || data.error || raw));
+    error.code = data.code || ""; error.status = response.status; throw error;
+  }
+  const lines = [];
+  for (const event of raw.split(/\r?\n\r?\n/)) {
+    const eventType = (event.match(/^event:\s*(.+)$/m) || [])[1] || "";
+    const payload = (event.match(/^data:\s*(.+)$/m) || [])[1] || "";
+    if (!payload) continue;
+    try {
+      const item = JSON.parse(payload);
+      if (eventType === "line") lines.push(String(item.text || ""));
+    } catch { if (eventType === "line") lines.push(payload); }
+  }
+  return { provider: "cubecloud", lines: lines.filter(Boolean).slice(-200), logs: lines.filter(Boolean).slice(-200), raw };
+}
+async function prepareCubeCloudProject(archiveBytes, bot, requestedRuntime, env) {
+  const input = await JSZip.loadAsync(archiveBytes, { checkCRC32: false, createFolders: false });
+  const entries = Object.values(input.files).filter(file => !file.dir);
+  if (!entries.length) throw new Error("O ZIP não contém arquivos de projeto.");
+  if (entries.length > 6000) throw new Error("O ZIP contém arquivos demais para a importação automática (limite: 6.000).");
+  const names = entries.map(file => String(file.name || "").replace(/\\/g, "/"));
+  for (const name of names) {
+    if (!name || name.startsWith("/") || name.split("/").some(part => part === "..")) throw new Error("O ZIP contém um caminho de arquivo inválido.");
+  }
+  const rootFiles = names.filter(name => !name.includes("/") && !name.startsWith("__MACOSX"));
+  const roots = [...new Set(names.filter(name => name.includes("/")).map(name => name.split("/")[0]))];
+  const wrapper = rootFiles.length === 0 && roots.length === 1 ? roots[0] + "/" : "";
+  const ignored = new Set([".git","node_modules",".venv","venv","__pycache__",".pytest_cache",".mypy_cache",".next","__macosx"]);
+  const output = new JSZip();
+  const filePaths = [];
+  let totalUnpacked = 0, dotenv = "";
+  for (let i = 0; i < entries.length; i++) {
+    let relative = wrapper && names[i].startsWith(wrapper) ? names[i].slice(wrapper.length) : names[i];
+    relative = cleanProjectEntry(relative);
+    if (!relative || relative.endsWith("/")) continue;
+    const parts = relative.split("/");
+    const base = parts[parts.length - 1];
+    if (parts.some(part => ignored.has(part.toLowerCase())) || base === ".DS_Store" || base.startsWith("._")) continue;
+    const expectedSize = Number(entries[i]._data?.uncompressedSize || entries[i]._data?.compressedSize || 0);
+    totalUnpacked += expectedSize;
+    if (totalUnpacked > 50 * 1024 * 1024) throw new Error("O conteúdo descompactado passa de 50 MB. Remova caches e dependências locais.");
+    const bytes = await entries[i].async("uint8array");
+    if (relative.toLowerCase() === ".env") {
+      dotenv = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      continue;
+    }
+    output.file(relative, bytes);
+    filePaths.push(relative);
+  }
+  if (!filePaths.length) throw new Error("Não encontrei arquivos de projeto depois de remover caches e dependências locais.");
+  let packageJson = {};
+  const packagePath = filePaths.find(path => path.toLowerCase() === "package.json");
+  if (packagePath) {
+    try { packageJson = JSON.parse(await output.file(packagePath).async("string")); }
+    catch { throw new Error("O package.json do projeto não é um JSON válido."); }
+  }
+  const hasNode = !!packagePath || filePaths.some(path => /\.(?:js|mjs|cjs|ts|mts|cts)$/i.test(path));
+  const runtime = String(requestedRuntime || (hasNode ? "nodejs" : "python")).toLowerCase() === "nodejs" ? "nodejs" : "python";
+  const envs = {};
+  for (const line of dotenv.split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match) continue;
+    let value = match[2] || "";
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+    else value = value.replace(/\s+#.*$/, "").trim();
+    envs[match[1]] = value;
+  }
+  let entryFile = "", command = "";
+  if (runtime === "nodejs") {
+    const startScript = String(packageJson.scripts?.start || "").trim();
+    entryFile = String(packageJson.main || "").trim();
+    if (!entryFile) entryFile = filePaths.find(path => /^(?:index|main|bot|app)\.(?:js|mjs|cjs)$/i.test(path)) || filePaths.find(path => /\.(?:js|mjs|cjs)$/i.test(path)) || "";
+    command = startScript ? "npm start" : (entryFile ? "node " + entryFile : "");
+    if (!command) throw new Error("Não encontrei o arquivo principal Node.js nem um script start no package.json.");
+  } else {
+    entryFile = filePaths.find(path => /^(?:main|bot|runner|app|index)\.py$/i.test(path)) || filePaths.find(path => /\.py$/i.test(path)) || "";
+    command = entryFile ? "python " + entryFile : "";
+    if (!command) throw new Error("Não encontrei o arquivo principal Python no ZIP.");
+  }
+  let discordToken = null;
+  try { if (bot.discord_token_enc) discordToken = await decryptSecret(bot.discord_token_enc, env); } catch {}
+  if (discordToken) {
+    envs.DISCORD_TOKEN = discordToken; envs.BOT_TOKEN = discordToken; envs.TOKEN = discordToken;
+  }
+  envs.APP_URL = env.APP_URL || "https://black-zone-estudio.vercel.app";
+  envs.BOT_NAME = String(bot.name || "Discord Bot");
+  for (const [key, value] of Object.entries(envs)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || String(value).length > 10000) delete envs[key];
+  }
+  let priorConfig = {};
+  if (filePaths.includes("cube.json")) {
+    try { priorConfig = JSON.parse(await output.file("cube.json").async("string")); } catch {}
+  }
+  output.file("cube.json", JSON.stringify({
+    ...priorConfig,
+    name: String(bot.name || "Discord Bot").replace(/[^A-Za-z0-9 ._-]/g, "").slice(0, 40) || "Discord Bot",
+    type: "bot",
+    language: runtime === "nodejs" ? "node" : "python",
+    version: runtime === "nodejs" ? "22" : "3.12",
+    command
+  }, null, 2));
+  const bytes = await output.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  return {
+    bytes, runtime, envs,
+    customProject: {
+      runtime, entryFile, fileCount: filePaths.length + 1,
+      directories: [...new Set(filePaths.map(path => path.split("/").slice(0,-1).join("/")).filter(Boolean))].length,
+      dependencyFile: filePaths.find(path => /^(?:package\.json|requirements\.txt|pyproject\.toml)$/i.test(path)) || null
+    }
+  };
+}
 function squareAppId(value) {
   const id = String(value || "").trim();
   if (!/^[a-f0-9]{32}(?:-[a-f0-9-]+)?$/i.test(id)) throw new Error("ID de aplicação Square Cloud inválido.");
@@ -2010,6 +2157,39 @@ export async function onRequest(context) {
         return reply({ error: error.message || "Não consegui validar a conta Discloud." }, 502);
       }
     }
+
+    if (path === "/hosting/cube/connect" && request.method === "POST") {
+      const b = await body(request);
+      const token = String(b.apiToken || "").trim();
+      if (!/^cube_[A-Za-z0-9_-]{12,1020}$/.test(token)) return reply({ error: "Informe uma API Key Cube Hosting válida (ela começa com cube_)." }, 400);
+      try {
+        const usage = await cubeCloudRequest(token, "/account/usage");
+        if (!usage?.plan || !usage?.projects) throw new Error("A Cube Hosting não retornou os dados do plano.");
+        const encrypted = await encryptSecret(token, env);
+        await env.DB.prepare(
+          "INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,'cubecloud',?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at"
+        ).bind(user.id, String(usage.accountId || ""), String(usage.plan.name || ""), Date.now()).run();
+        return reply({
+          ok: true, connected: true, provider: "cubecloud",
+          accountLabel: usage.accountId || null, plan: usage.plan.name || null,
+          projectsCount: Number(usage.projects.total || 0),
+          maxBots: Number(usage.plan.maxBots || 0),
+          memoryAvailableMb: Number(usage.memory?.freeMb || 0),
+          memoryLimitMb: Number(usage.plan.memoryMb || 0),
+          fileManagerAvailable: String(usage.plan.id || "").toLowerCase() !== "free",
+          message: "Conta Cube Hosting validada e API Key criptografada."
+        });
+      } catch (error) {
+        return reply({ error: error.message || "Não consegui validar a API Key da Cube Hosting." }, 401);
+      }
+    }
+    if (path === "/hosting/cube/disconnect" && request.method === "POST") {
+      const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='cubecloud' AND provider_app_id IS NOT NULL LIMIT 1").bind(user.id).first();
+      if (linked) return reply({ error: "Há bots usando Cube Hosting. Mova ou exclua esses projetos antes de desconectar a conta." }, 409);
+      await env.DB.prepare("DELETE FROM provider_connections WHERE user_id=? AND provider='cubecloud'").bind(user.id).run();
+      return reply({ ok: true, connected: false });
+    }
+
     if (path === "/hosting/square/connect" && request.method === "POST") {
       const b = await body(request);
       const token = String(b.apiToken || "").trim();
@@ -2043,9 +2223,10 @@ export async function onRequest(context) {
     }
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
-      const [discloudRow, squareRow, hostingRow] = await Promise.all([
+      const [discloudRow, squareRow, cubeRow, hostingRow] = await Promise.all([
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cubecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(user.id).first()
       ]);
       let discloud = { connected: false, provider: "discloud" };
@@ -2089,10 +2270,41 @@ export async function onRequest(context) {
           square = { connected: true, valid: false, provider: "squarecloud", error: error.message || "Falha de validação." };
         }
       }
+
+      let cube = { connected: false, provider: "cubecloud" };
+      if (cubeRow) {
+        try {
+          const token = await providerToken(user.id, "cubecloud", env);
+          const usage = token ? await cubeCloudRequest(token, "/account/usage") : null;
+          if (usage?.plan) {
+            const plan = usage.plan || {};
+            const projects = usage.projects || {};
+            const maxBots = Number(plan.maxBots || 0);
+            const projectCount = Number(projects.total || 0);
+            const minMemory = Number(plan.minMemoryMb?.bot || (String(plan.id).toLowerCase() === "free" ? 100 : 256));
+            const freeMb = Number(usage.memory?.freeMb || 0);
+            cube = {
+              connected: true, valid: true, provider: "cubecloud",
+              accountLabel: cubeRow.account_label || usage.accountId || null,
+              plan: plan.name || cubeRow.plan || null,
+              planId: plan.id || null,
+              projectsCount: projectCount, maxBots,
+              memoryAvailableMb: freeMb,
+              memoryLimitMb: Number(plan.memoryMb || 0),
+              zipMaxMb: Number(plan.zipMaxMb || 0),
+              fileManagerAvailable: String(plan.id || "").toLowerCase() !== "free",
+              canCreate: (maxBots <= 0 || projectCount < maxBots) && freeMb >= minMemory
+            };
+          } else cube = { connected: true, valid: false, provider: "cubecloud", error: "A Cube Hosting não retornou o uso do plano." };
+        } catch (error) {
+          cube = { connected: true, valid: false, provider: "cubecloud", error: error.message || "Falha de validação." };
+        }
+      }
       const scopes = String(hostingRow?.scope || "").split(/\s+/).filter(Boolean);
       return reply({
         providers: [
           { id: "bot-hosting", name: "Bot-Hosting", connected: !!hostingRow, canCreate: !!hostingRow && scopes.includes("deployments:write") && scopes.includes("credits:spend"), role: "principal" },
+          { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
           { id: "squarecloud", name: "Square Cloud", role: "reserva-paga", ...square, canCreate: !!square.valid && !!square.canCreate },
           { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, canCreate: false, role: "compatibilidade-parcial", ...discloud, canCreate: false }
         ]
@@ -2337,6 +2549,16 @@ export async function onRequest(context) {
             return reply({ error: "Não consegui remover a aplicação da Discloud. O projeto continua salvo no painel. " + (error.message || "") }, 502);
           }
         }
+        if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "cubecloud", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting antes de excluir este projeto." }, 409);
+            await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)), "DELETE");
+            deploymentDeleted = true;
+          } catch (error) {
+            return reply({ error: "Não consegui remover o projeto da Cube Hosting. O projeto continua salvo no Estúdio. " + (error.message || "") }, 502);
+          }
+        }
         if (bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
           try {
             const token = await providerToken(user.id, "squarecloud", env);
@@ -2408,6 +2630,16 @@ export async function onRequest(context) {
             state = String(status.status || (status.running ? "running" : "stopped")).toLowerCase();
           } catch (error) {
             runtimeInfo = { error: error.message || "Falha ao consultar Square Cloud." };
+          }
+        } else if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "cubecloud", env);
+            if (!token) throw new Error("Conta Cube Hosting desconectada.");
+            const data = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)));
+            runtimeInfo = data.project || data;
+            state = String(runtimeInfo.status || state).toLowerCase();
+          } catch (error) {
+            runtimeInfo = { error: error.message || "Falha ao consultar Cube Hosting." };
           }
         } else if (bot.hosting_deployment_id) {
           try {
@@ -2503,6 +2735,26 @@ export async function onRequest(context) {
             });
           } catch (error) {
             return reply({ ok: false, code: "provider_action_failed", error: error.message || "Falha ao controlar a aplicação na Discloud." }, 502);
+          }
+        }
+        if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "cubecloud", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
+            const projectId = cubeProjectId(bot.provider_app_id);
+            const result = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(projectId) + "/" + signal, "POST");
+            const project = result.project || {};
+            const state = String(project.status || (signal === "stop" ? "stopped" : "running")).toLowerCase();
+            await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
+              .bind(state, Date.now(), id, user.id).run();
+            return reply({
+              ok: true, action: signal, state, provider: "cubecloud",
+              providerAppId: projectId, discordOnline: false,
+              resources: project.usage || null,
+              hint: signal === "stop" ? "Projeto parado na Cube Hosting." : "Comando enviado à Cube Hosting. Confira os logs para confirmar a conexão do Discord."
+            });
+          } catch (error) {
+            return reply({ ok: false, code: "provider_action_failed", error: error.message || "Falha ao controlar o projeto na Cube Hosting." }, 502);
           }
         }
         if (bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
@@ -2698,6 +2950,33 @@ export async function onRequest(context) {
           return reply({ error: error.message || "Não consegui consultar a Discloud." }, 502);
         }
       }
+      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "cubecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
+          const projectId = cubeProjectId(bot.provider_app_id);
+          if (action === "logs") return reply(await cubeCloudLogs(token, projectId));
+          if (action === "diagnose") {
+            const data = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(projectId));
+            return reply({ provider: "cubecloud", ...(data.project || data) });
+          }
+          const metrics = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(projectId) + "/metrics?window=15m");
+          const point = (Array.isArray(metrics.points) ? metrics.points : []).slice(-1)[0] || {};
+          return reply({
+            provider: "cubecloud",
+            resources: {
+              cpu: point.cpuPercent ?? null,
+              ram: point.memoryMb ?? null,
+              memoryLimitMb: metrics.memoryLimitMb ?? null,
+              networkInBps: point.networkInBps ?? null,
+              networkOutBps: point.networkOutBps ?? null
+            },
+            metrics
+          });
+        } catch (error) {
+          return reply({ error: error.message || "Não consegui consultar a Cube Hosting." }, 502);
+        }
+      }
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
         try {
           const token = await providerToken(user.id, "squarecloud", env);
@@ -2731,6 +3010,24 @@ export async function onRequest(context) {
         }
       }
 
+      if (action === "files" && !subPath && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "cubecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
+          const root = safeVolumePath(url.searchParams.get("path") || "/");
+          const data = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)) + "/files?path=" + encodeURIComponent(cubeRelativePath(root)));
+          const entries = (Array.isArray(data.items) ? data.items : []).map(item => ({
+            name: String(item.name || ""),
+            type: String(item.type || "").toLowerCase() === "directory" ? "directory" : "file",
+            sizeBytes: Number(item.sizeBytes || 0),
+            modifiedAt: item.modifiedAt || null,
+            isProtected: !!item.isProtected
+          })).filter(item => item.name);
+          return reply({ provider: "cubecloud", path: root, entries, isTruncated: !!data.isTruncated });
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao listar arquivos da Cube Hosting." }, 502);
+        }
+      }
       if (action === "files" && !subPath && request.method === "GET" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
         try {
           const token = await providerToken(user.id, "squarecloud", env);
@@ -2756,6 +3053,28 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao listar arquivos." }, 502); }
       }
 
+      if (action === "files" && subPath === "download-url" && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "cubecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
+          const projectId = cubeProjectId(bot.provider_app_id);
+          const filePath = cubeRelativePath(url.searchParams.get("path") || "/");
+          const signed = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(projectId) + "/files/download", "POST", { path: filePath });
+          const downloadUrl = String(signed.url || "");
+          if (!downloadUrl.startsWith("/projects/")) return reply({ error: "A Cube Hosting não retornou um link de download válido." }, 502);
+          const response = await fetch("https://app.cubehosting.com.br/api" + downloadUrl, {
+            headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(60000)
+          });
+          if (!response.ok) throw new Error("Cube Hosting · download · HTTP " + response.status);
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          if (bytes.byteLength > 4 * 1024 * 1024) return reply({ error: "O arquivo passa de 4 MB para download pelo Estúdio. Use o painel Cube Hosting para baixar arquivos maiores." }, 413);
+          let binary = "";
+          for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+          return reply({ provider: "cubecloud", base64: btoa(binary), filename: filePath.split("/").pop() || "download.bin" });
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao baixar arquivo da Cube Hosting." }, 502);
+        }
+      }
       if (action === "files" && subPath === "download-url" && request.method === "GET" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
         try {
           const token = await providerToken(user.id, "squarecloud", env);
@@ -2817,6 +3136,21 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao criar o arquivo ZIP." }, 502); }
       }
 
+      if (action === "files" && subPath === "content" && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
+        try {
+          const filePath = cubeRelativePath(url.searchParams.get("path") || "/main.py");
+          if (/\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f|mp3|wav|ogg|m4a|flac|mp4|webm|mov|woff2?|ttf|otf|zip|pdf|db|sqlite)$/i.test(filePath)) {
+            return reply({ error: "Este arquivo é binário e não pode ser aberto no editor. Use Baixar." }, 415);
+          }
+          const token = await providerToken(user.id, "cubecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
+          const data = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)) + "/files/content?path=" + encodeURIComponent(filePath));
+          const content = String(data.content || "");
+          return reply({ provider: "cubecloud", path: "/" + filePath, content, totalLines: content.split("\n").length });
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao ler arquivo da Cube Hosting." }, 502);
+        }
+      }
       if (action === "files" && subPath === "content" && request.method === "GET" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
         try {
           const filePath = safeVolumePath(url.searchParams.get("path") || "/main.py");
@@ -2841,6 +3175,20 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao ler arquivo." }, 502); }
       }
 
+      if (action === "files" && subPath === "content" && request.method === "POST" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
+        const b = await body(request);
+        const filePath = cubeRelativePath(b.path);
+        const content = String(b.content ?? "");
+        if (!filePath) return reply({ error: "Escolha um arquivo para salvar." }, 400);
+        if (content.length > 450000) return reply({ error: "O arquivo é grande demais para o editor de texto. Use o envio de arquivos." }, 413);
+        try {
+          const token = await providerToken(user.id, "cubecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
+          return reply(await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)) + "/files/content", "PUT", { path: filePath, content }));
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao salvar arquivo na Cube Hosting." }, 502);
+        }
+      }
       if (action === "files" && subPath === "content" && request.method === "POST" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
         const b = await body(request);
         const filePath = safeVolumePath(b.path);
@@ -2865,6 +3213,18 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao salvar arquivo." }, 502); }
       }
 
+      if (action === "files" && subPath === "delete" && request.method === "POST" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
+        const b = await body(request);
+        const filePath = cubeRelativePath(b.path);
+        if (!filePath || ["main.py","runner.py","index.js"].includes(filePath)) return reply({ error: "A raiz ou o arquivo principal do bot não pode ser removido pelo Estúdio." }, 400);
+        try {
+          const token = await providerToken(user.id, "cubecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
+          return reply(await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)) + "/files?path=" + encodeURIComponent(filePath), "DELETE"));
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao excluir arquivo da Cube Hosting." }, 502);
+        }
+      }
       if (action === "files" && subPath === "delete" && request.method === "POST" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
         const b = await body(request);
         const filePath = safeVolumePath(b.path);
@@ -2909,9 +3269,31 @@ export async function onRequest(context) {
           const currentAppId = bot.provider_app_id ? String(bot.provider_app_id) : "";
           const squareToken = await providerToken(user.id, "squarecloud", env);
           const discloudToken = await providerToken(user.id, "discloud", env);
+          const cubeToken = await providerToken(user.id, "cubecloud", env);
 
           // Existing projects stay on their current provider. New projects prefer
           // Square Cloud when the connected account has the required memory budget.
+          if (currentProvider === "cubecloud" && currentAppId) {
+            if (!cubeToken) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações para atualizar este bot." }, 409);
+            const prepared = await prepareCubeCloudProject(archiveBytes, bot, b.runtime, env);
+            const form = new FormData();
+            form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
+            await cubeCloudRequest(cubeToken, "/projects/" + encodeURIComponent(cubeProjectId(currentAppId)) + "/code", "POST", null, form);
+            const existingVars = await cubeCloudRequest(cubeToken, "/projects/" + encodeURIComponent(cubeProjectId(currentAppId)) + "/variables");
+            const existingNames = (Array.isArray(existingVars.variables) ? existingVars.variables : []).map(item => String(item.name || "")).filter(Boolean);
+            const variables = existingNames.map(name => Object.prototype.hasOwnProperty.call(prepared.envs, name) ? { name, value: prepared.envs[name] } : { name });
+            for (const [name, value] of Object.entries(prepared.envs)) if (!existingNames.includes(name)) variables.push({ name, value });
+            if (variables.length) await cubeCloudRequest(cubeToken, "/projects/" + encodeURIComponent(cubeProjectId(currentAppId)) + "/variables", "PUT", { variables });
+            await env.DB.prepare(
+              "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='cubecloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='installing',updated_at=? WHERE id=? AND user_id=?"
+            ).bind(currentAppId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
+            return reply({
+              ok: true, provider: "cubecloud", providerAppId: currentAppId,
+              runtime: prepared.runtime, customProject: prepared.customProject,
+              message: "Código enviado à Cube Hosting; a instalação foi solicitada e as variáveis salvas foram preservadas."
+            });
+          }
+
           if (currentProvider === "squarecloud" && currentAppId) {
             if (!squareToken) return reply({ code: "provider_not_connected", error: "Reconecte a conta Square Cloud nas Configurações para atualizar este bot." }, 409);
             const prepared = await prepareSquareCloudProject(archiveBytes, bot, b.runtime, env);
@@ -2953,6 +3335,43 @@ export async function onRequest(context) {
             });
           }
 
+          let cubeCapacityMessage = "";
+          if (cubeToken) {
+            try {
+              const usage = await cubeCloudRequest(cubeToken, "/account/usage");
+              const plan = usage.plan || {};
+              const projects = usage.projects || {};
+              const maxBots = Number(plan.maxBots || 0);
+              const minMemory = Number(plan.minMemoryMb?.bot || (String(plan.id).toLowerCase() === "free" ? 100 : 256));
+              const freeMb = Number(usage.memory?.freeMb || 0);
+              const canCreate = (maxBots <= 0 || Number(projects.total || 0) < maxBots) && freeMb >= minMemory;
+              if (canCreate) {
+                const prepared = await prepareCubeCloudProject(archiveBytes, bot, b.runtime, env);
+                const form = new FormData();
+                form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
+                form.append("start", "true");
+                form.append("variables", JSON.stringify(Object.entries(prepared.envs).map(([name, value]) => ({ name, value }))));
+                const created = await cubeCloudRequest(cubeToken, "/projects", "POST", null, form);
+                const projectId = String(created.project?.id || "");
+                if (!projectId) throw new Error("A Cube Hosting recebeu o ZIP, mas não retornou o ID do projeto.");
+                await env.DB.prepare(
+                  "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='cubecloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state=?,updated_at=? WHERE id=? AND user_id=?"
+                ).bind(projectId, prepared.runtime, JSON.stringify(prepared.customProject), String(created.project?.status || "installing"), Date.now(), id, user.id).run();
+                return reply({
+                  ok: true, provider: "cubecloud", providerAppId: projectId,
+                  runtime: prepared.runtime, customProject: prepared.customProject,
+                  project: created.project || null,
+                  message: "Projeto criado na Cube Hosting. A instalação e a inicialização foram solicitadas."
+                });
+              }
+              cubeCapacityMessage = "Cube Hosting: " + Number(projects.total || 0) + "/" + (maxBots || "sem limite informado") + " projetos e " + freeMb + " MB livres; o plano não tem espaço para outro bot agora.";
+            } catch (error) {
+              const capacityCodes = new Set(["project_limit_reached","insufficient_memory","free_slot_required","free_slot_lost","plan_limit_reached"]);
+              if (!capacityCodes.has(String(error?.code || "")) && !/free_slot_required|project_limit_reached|insufficient_memory|plan_limit_reached/i.test(String(error?.message || ""))) throw error;
+              cubeCapacityMessage = error.message || "Cube Hosting não tem uma vaga disponível. No plano Free, resgate a vaga com /free no Discord da Cube.";
+            }
+          }
+
           let squareCapacityMessage = "";
           if (squareToken) {
             try {
@@ -2982,7 +3401,7 @@ export async function onRequest(context) {
               squareCapacityMessage = "Sua conta Square Cloud tem apenas " + availableMb + " MB livres; são necessários 512 MB para criar este bot.";
             } catch (error) {
               const capacityCodes = new Set([
-                "APPLICATIONS_LIMIT_REACHED","INSUFFICIENT_MEMORY","CLUSTER_SELECTION_FAILED",
+                "APPLICATIONS_LIMIT_REACHED","INSUFFICIENT_MEMORY","CLUSTER_SELECTION_FAILED","project_limit_reached","free_slot_required","free_slot_lost","plan_limit_reached",
                 "CLUSTER_MAINTENANCE_TRY_LATER","CLUSTER_UNAVAILABLE","LOAD_BALANCER_LIMIT_REACHED"
               ]);
               if (!capacityCodes.has(String(error?.code || ""))) throw error;
@@ -2993,8 +3412,8 @@ export async function onRequest(context) {
           return reply({
             code: squareCapacityMessage ? "provider_capacity_full" : "provider_not_connected",
             error: squareCapacityMessage
-              ? squareCapacityMessage + " A Discloud não foi escolhida porque a API pública atual não oferece o mesmo gerenciador de arquivos dentro do Estúdio. Nenhum bot existente foi alterado."
-              : "O Bot-Hosting está sem vaga. Para usar a próxima hospedagem com envio, arquivos, edição, logs e controles dentro do Estúdio, conecte sua conta Square Cloud nas Configurações. A Discloud fica disponível apenas para projetos que já estão hospedados nela."
+              ? [cubeCapacityMessage, squareCapacityMessage].filter(Boolean).join(" ") + " Nenhum bot existente foi alterado."
+              : "O Bot-Hosting está sem vaga. Conecte Cube Hosting ou Square Cloud nas Configurações para ampliar seu pool. A Discloud continua disponível apenas para projetos que já estão hospedados nela."
           }, squareCapacityMessage ? 402 : 409);
         } catch (error) {
           const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
