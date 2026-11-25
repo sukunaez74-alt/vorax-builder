@@ -1135,10 +1135,10 @@ async function discloudRequest(token, path, method = "GET", form = null) {
   return data;
 }
 function discloudExpectedProjectName(bot) {
-  return String(bot?.name || "Discord Bot").normalize("NFKD").replace(/[^\\w -]/g, "").trim().slice(0, 30) || "Discord Bot";
+  return String(bot?.name || "Discord Bot").normalize("NFKD").replace(/[^\w -]/g, "").trim().slice(0, 30) || "Discord Bot";
 }
 function discloudNormalizeProjectName(value) {
-  return String(value || "").normalize("NFKD").replace(/[^\\w -]/g, "").trim().slice(0, 30).toLowerCase();
+  return String(value || "").normalize("NFKD").replace(/[^\w -]/g, "").trim().slice(0, 30).toLowerCase();
 }
 function discloudLauncherForRuntime(runtime) {
   return String(runtime || "").toLowerCase() === "nodejs" ? "blackzone_launcher.cjs" : "blackzone_launcher.py";
@@ -1152,7 +1152,7 @@ async function findDiscloudProjectApp(token, appIds, expectedName, expectedMainF
       const app = result?.apps || result?.app || null;
       if (!app || String(app.id || appId) !== appId) continue;
       const nameMatches = discloudNormalizeProjectName(app.name) === discloudNormalizeProjectName(expectedName);
-      const mainFile = String(app.mainFile || "").replace(/^\\/+/, "").toLowerCase();
+      const mainFile = String(app.mainFile || "").replace(/^\/+/, "").toLowerCase();
       if (nameMatches && mainFile === String(expectedMainFile || "").toLowerCase()) matches.push({ ...app, id: appId });
     } catch {}
   }
@@ -3923,7 +3923,7 @@ export async function onRequest(context) {
               const appIds = Array.isArray(accountInfo.apps) ? accountInfo.apps.map(value => String(value || "")).filter(Boolean) : null;
               const totalRamMb = Number(accountInfo.totalRamMb || 0);
               const ramUsedMb = Number(accountInfo.ramUsedMb || 0);
-              if (!/\\bfree\\b/i.test(planName)) {
+              if (!/\bfree\b/i.test(planName)) {
                 discloudCapacityMessage = "Discloud ignorada: a conta conectada não está no plano Free. Nenhum plano pago será usado.";
               } else if (!appIds) {
                 discloudCapacityMessage = "Discloud não informou a quantidade de aplicações da conta; a vaga Free não pôde ser confirmada.";
@@ -3998,13 +3998,13 @@ export async function onRequest(context) {
                   ).bind(prepared.runtime, JSON.stringify(pendingProject), startedAt, id, user.id).run();
 
                   const form = new FormData();
-                  form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\\.zip$/i, "-black-zone.zip"));
+                  form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
                   let uploaded = null;
                   try {
                     uploaded = await discloudRequest(discloudToken, "/upload", "POST", form);
                   } catch (error) {
                     const message = String(error?.message || "");
-                    const isTimeout = /HTTP 504\\b|HTTP 524\\b|timed? ?out|timeout|origin web server did not respond/i.test(message);
+                    const isTimeout = /HTTP 504\b|HTTP 524\b|timed? ?out|timeout|origin web server did not respond/i.test(message);
                     if (isTimeout) {
                       let afterIds = [];
                       try {
