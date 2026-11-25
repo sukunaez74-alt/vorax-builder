@@ -847,7 +847,8 @@ function caosModal(targetId){
   dirty=readState()!==baseline;
   const save=$("#saveModules");
   const stateNote=$("#changesState");
-  if(save)save.disabled=!dirty;
+  const current=state.bots.find(bot=>bot.id===$("#caosTarget")?.value);
+  if(save){save.disabled=!dirty;save.textContent=dirty?"Salvar alterações":(current?.hasDiscordToken?"Salvo ✓":"Aguardando token");}
   if(stateNote){
    stateNote.textContent=dirty?"Há alterações não salvas. Clique em Salvar alterações ou em Cancelar.":"Tudo salvo. O token fica protegido e nunca é exibido novamente.";
    stateNote.classList.toggle("changes-pending",dirty);
@@ -861,11 +862,13 @@ function caosModal(targetId){
   });
   const input=$("#discordToken");
   const hasToken=!!selected?.hasDiscordToken;
+  const tokenLabel=input.parentElement?.querySelector("label");
+  if(tokenLabel)tokenLabel.textContent=hasToken?"TOKEN ATUAL PROTEGIDO · NOVO TOKEN OPCIONAL":"TOKEN DO BOT DISCORD";
   input.required=!hasToken;
   input.value="";
-  input.placeholder=hasToken?"Token já salvo — deixe vazio para manter":"Cole o token do seu bot Discord";
+  input.placeholder=hasToken?"Cole um NOVO token apenas para substituir o atual":"Cole o token do seu bot Discord";
   $("#tokenStatus").innerHTML=hasToken
-   ?'<span class="token-saved-indicator"><i></i> TOKEN SALVO E PROTEGIDO</span><br><strong>O token está gravado no banco e criptografado.</strong><br>Ele não é exibido novamente por segurança. Deixe o campo vazio para mantê-lo ou digite um novo para substituir.'
+   ?'<div class="token-saved-card"><span class="token-saved-indicator"><i></i> TOKEN SALVO E PROTEGIDO</span><strong>TOKEN ATUAL</strong><code>••••••••••••••••••••••</code><small>Gravado no banco e criptografado. Digite um novo token somente para substituir o atual.</small></div>'
    :'<span class="token-empty-indicator">TOKEN AINDA NÃO SALVO</span><br><strong>Informe o Bot Token.</strong><br>Depois de validar, ele ficará protegido e aparecerá aqui como salvo.';
   baseline=readState();
   updateDirty();
@@ -924,8 +927,15 @@ function caosModal(targetId){
     bot.discordBotId=persisted.discordBotId||response.discordBotId||bot.discordBotId||null;
     bot.discordBotName=persisted.discordBotName||bot.discordBotName||null;
    }
-   window.__modalCloseGuard=null;
-   closeModal(true);
+   token.value="";
+   token.required=false;
+   token.placeholder="Cole um NOVO token apenas para substituir o atual";
+   const tokenLabel=token.parentElement?.querySelector("label");
+   if(tokenLabel)tokenLabel.textContent="TOKEN ATUAL PROTEGIDO · NOVO TOKEN OPCIONAL";
+   $("#tokenStatus").innerHTML='<div class="token-saved-card"><span class="token-saved-indicator"><i></i> TOKEN SALVO E PROTEGIDO</span><strong>TOKEN ATUAL</strong><code>••••••••••••••••••••••</code><small>Gravado e confirmado no banco. O token continuará guardado se você fechar esta janela.</small></div>';
+   baseline=readState();
+   updateDirty();
+   window.__modalCloseGuard=()=>!dirty||window.confirm("Você tem alterações não salvas. Deseja descartá-las?");
    toast(response.tokenUpdated?"Token validado, gravado e confirmado no banco.":"Alterações gravadas. O token anterior foi mantido.");
    await loadBots();
   }catch(e){
