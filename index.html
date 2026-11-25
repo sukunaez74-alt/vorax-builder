@@ -658,7 +658,7 @@ $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#regi
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){if(view==="verificationAdmin"&&state.user?.role!=="owner")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();const labels={overview:"Painel",bots:"Meus Bots",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações",verificationAdmin:"Administração · Verificação"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){if(view==="verificationAdmin"&&state.user?.role!=="owner")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações",verificationAdmin:"Administração · Verificação"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
 function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 function overviewView(){
@@ -911,7 +911,6 @@ function bindView(){
   try{await navigator.clipboard.writeText($("#verificationPublicUrl").value);toast("Link de verificação copiado.")}
   catch{toast("Não foi possível copiar automaticamente. Selecione o link e copie.")}
  };
- if(state.view==="verificationAdmin")loadVerificationBotAdmin();
 
  const add=()=>createBotModal();
  ["addBot","heroCreate"].forEach(id=>{const e=$("#"+id);if(e)e.onclick=add});
