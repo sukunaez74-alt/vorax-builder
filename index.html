@@ -691,17 +691,20 @@ function botStatusLabel(b){
  return "Pronto para iniciar";
 }
 function botCard(b){
- const running=b.state==="running"&&b.botOnlineNow!==false;
+ const online=b.discordOnline===true;
+ const processActive=b.state==="running";
+ const statusText=online?"ONLINE":(processActive?"PROCESSO ATIVO":(b.hostingDeploymentId?"OFFLINE":"RASCUNHO"));
+ const allocation=b.runtimeInfo?.resources||{};
  const safeId=escapeHtml(b.id);
  return '<article class="dashboard-bot-card" data-search-bot="'+escapeHtml((b.name||"")+" "+(b.runtime||""))+'">'+
   '<div class="dashboard-bot-avatar">◈</div>'+
-  '<div class="dashboard-bot-main"><div class="dashboard-bot-title"><strong>'+escapeHtml(b.name||"Projeto sem nome")+'</strong><span class="status-pill '+(running?"pill-online":"pill-offline")+'"><i></i>'+(running?"ONLINE":(b.state==="running"?"FORA DO HORÁRIO":(b.hostingDeploymentId?"OFFLINE":"RASCUNHO")))+'</span></div>'+
-  '<div class="dashboard-bot-meta">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' · '+(b.hostingDeploymentId?"Implantado":"Ainda não publicado")+' · '+(b.hasDiscordToken?"Token protegido":"Token pendente")+'</div>'+
-  '<div class="dashboard-bot-stats"><span><b>CPU</b><small>'+(b.runtimeInfo?.cpu?.usedPercent!=null?escapeHtml(String(b.runtimeInfo.cpu.usedPercent))+"%":"—")+'</small></span><span><b>RAM</b><small>'+(b.runtimeInfo?.memory?.usedBytes!=null?formatBytes(b.runtimeInfo.memory.usedBytes):"—")+'</small></span><span><b>DISCO</b><small>'+(b.runtimeInfo?.disk?.usedBytes!=null?formatBytes(b.runtimeInfo.disk.usedBytes):"—")+'</small></span></div></div>'+
+  '<div class="dashboard-bot-main"><div class="dashboard-bot-title"><strong>'+escapeHtml(b.name||"Projeto sem nome")+'</strong><span class="status-pill '+(online?"pill-online":"pill-offline")+'"><i></i>'+statusText+'</span></div>'+
+  '<div class="dashboard-bot-meta">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' · '+(b.hostingDeploymentId?"Implantado":"Ainda não publicado")+' · '+(b.hasDiscordToken?"Token salvo e protegido":"Token pendente")+'</div>'+
+  '<div class="dashboard-bot-stats"><span><b>CPU ALOCADA</b><small>'+(allocation.cpuPercent!=null?escapeHtml(String(allocation.cpuPercent))+"%":"—")+'</small></span><span><b>RAM ALOCADA</b><small>'+(allocation.ramMB!=null?escapeHtml(String(allocation.ramMB))+" MB":"—")+'</small></span><span><b>ARMAZENAMENTO</b><small>'+(allocation.storageMB!=null?escapeHtml(String(allocation.storageMB))+" MB":"—")+'</small></span></div></div>'+
   '<div class="dashboard-bot-actions">'+
-   '<button class="bot-action action-start" data-bot-power="start" data-bot-id="'+safeId+'" '+(running||!state.hosting||!b.hasDiscordToken?"disabled":"")+'><span>▶</span>Iniciar</button>'+
+   '<button class="bot-action action-start" data-bot-power="start" data-bot-id="'+safeId+'" '+(online||!state.hosting||!b.hasDiscordToken?"disabled":"")+'><span>▶</span>Iniciar</button>'+
    '<button class="bot-action action-restart" data-bot-power="restart" data-bot-id="'+safeId+'" '+(!b.hostingDeploymentId||!state.hosting?"disabled":"")+'><span>↻</span>Reiniciar</button>'+
-   '<button class="bot-action action-stop" data-bot-power="stop" data-bot-id="'+safeId+'" '+(!running||!state.hosting?"disabled":"")+'><span>■</span>Parar</button>'+
+   '<button class="bot-action action-stop" data-bot-power="stop" data-bot-id="'+safeId+'" '+(!b.hostingDeploymentId||!processActive||!state.hosting?"disabled":"")+'><span>■</span>Parar</button>'+
    '<button class="bot-action action-more" data-openbot="'+safeId+'"><span>•••</span>Mais</button>'+
   '</div></article>';
 }
@@ -950,7 +953,7 @@ async function openBot(id){
  try{const hostStatus=await api("/hosting/status");state.hosting=!!hostStatus.connected;}catch{state.hosting=false;}
  const connected=!!state.hosting;
  const botId=b.discordBotId||null;
- const serverRunning=b.state==="running";const isRunning=serverRunning && b.botOnlineNow!==false;
+ const serverRunning=b.state==="running";const isRunning=b.discordOnline===true;
  const schedule=b.scheduleEnabled;
  const scheduleText=schedule?(b.scheduleStart+" até "+b.scheduleEnd+" • America/Bahia"):"Sem horário limitado (conforme a disponibilidade da hospedagem)";
  const connectPanel=connected
@@ -960,9 +963,10 @@ async function openBot(id){
  '<div class="modal-head"><h3>'+escapeHtml(b.name||"Projeto")+'</h3><button class="close" id="closeModal">×</button></div>'+
  '<p class="muted small">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token do Discord protegido":"Token do Discord pendente")+'</p>'+
  '<div class="grid stats" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:15px 0">'+
- '<div class="card"><div class="stat-label">STATUS DO SERVIDOR</div><div class="stat-value" style="font-size:17px">'+(isRunning?"Online":(serverRunning&&b.scheduleEnabled?"Fora do horário":(b.hostingDeploymentId?"Parado":"Não iniciado")))+'</div></div>'+
+ '<div class="card"><div class="stat-label">STATUS DO SERVIDOR</div><div class="stat-value" style="font-size:17px">'+(isRunning?"Online no Discord":(serverRunning?"Processo ativo · aguardando login":(b.scheduleEnabled?"Fora do horário":(b.hostingDeploymentId?"Parado":"Não iniciado"))))+'</div></div>'+
  '<div class="card"><div class="stat-label">MÓDULOS ATIVOS</div><div class="stat-value">'+enabled+'</div></div></div>'+
  connectPanel+
+ (b.discordStatus?.status==='token_error'?'<div class="project-note changes-pending"><strong>O Discord recusou o token durante a inicialização.</strong><br>Abra a configuração, substitua o token e salve novamente.</div>':b.discordStatus?.status==='intents_error'?'<div class="project-note changes-pending"><strong>Intents privilegiados não habilitados.</strong><br>Ative Server Members Intent e Message Content Intent no Developer Portal.</div>':(serverRunning&&!isRunning?'<div class="project-note"><strong>O processo da hospedagem está ativo, mas o login no Discord ainda não foi confirmado.</strong><br>Consulte o terminal para ver se o token foi aceito ou se faltam intents.</div>':''))+
  '<div class="hero-actions" style="margin-top:14px;flex-wrap:wrap">'+
  (connected?'<button class="btn" id="botStart" '+(serverRunning?"disabled":"")+'>▶ Iniciar</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!serverRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar Bot-Hosting</button>')+
  '<button class="btn secondary" id="botModules">Configurar token e módulos</button></div>'+
@@ -1000,10 +1004,10 @@ async function openBot(id){
    try{
      const result=await api("/bots/"+encodeURIComponent(id)+"/power",{method:"POST",body:JSON.stringify({action})});
      await loadBots();
-     if(action==="stop")toast("Servidor parado.");
-     else if(result.scheduled&&!result.botOnlineNow)toast("Supervisor iniciado. O bot ficará offline até o horário configurado.");
-     else if(result.commandsSynced)toast("Bot iniciado. Comandos do Discord sincronizados.");
-     else toast("Bot iniciado. Confira os logs enquanto o Discord registra os comandos.");
+     if(action==="stop")toast("Processo parado na hospedagem.");
+     else if(result.discordOnline)toast("CAOS confirmou o login e está online no Discord.");
+     else if(result.state==="running")toast("Container ligado, mas o Discord ainda não confirmou o login. Consulte o terminal.");
+     else toast("Solicitação enviada. Confira o estado e os logs da hospedagem.");
      await openBot(id);
    }catch(e){toast(e.message);if(btn){btn.disabled=false;btn.textContent=action==="start"?"▶ Iniciar":action==="stop"?"■ Parar":"↻ Reiniciar";}}
  };
@@ -1038,8 +1042,8 @@ async function loadBots(){
 async function refreshBotPower(id,action,button){
  if(button){button.disabled=true;button.classList.add("is-loading")}
  try{
-  await api("/bots/"+encodeURIComponent(id)+"/power",{method:"POST",body:JSON.stringify({action})});
-  toast(action==="stop"?"Parada solicitada.":action==="restart"?"Reinicialização solicitada.":"Inicialização solicitada.");
+  const result=await api("/bots/"+encodeURIComponent(id)+"/power",{method:"POST",body:JSON.stringify({action})});
+  toast(action==="stop"?"Parada solicitada.":result.discordOnline?"CAOS conectado ao Discord.":result.state==="running"?"Container ativo; aguardando confirmação do Discord.":"Comando enviado à hospedagem.");
   await loadBots();
   if(state.view==="overview")loadDashboardPanels();
  }catch(err){toast(err.message)}
