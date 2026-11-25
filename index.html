@@ -1114,7 +1114,8 @@ async function openBot(id){
  '<div class="project-note"><strong>Fuso horário: America/Bahia.</strong><br>Sem agenda, o supervisor mantém o bot online enquanto a hospedagem estiver ativa. Com agenda, o processo do Discord só roda dentro da janela diária.</div>'+
  '<button class="btn wide" id="saveBotSchedule">Salvar horário</button></section>'+
  '<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
- '<p class="muted small" style="margin-top:12px">O CAOS registra os comandos de aplicativo globalmente ao iniciar. O Discord pode levar alguns minutos para disponibilizá-los na lista de comandos.</p><div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative os intents Server Members Intent e Message Content Intent para este bot. O bot deve estar adicionado ao servidor em que será utilizado.</div></section>'+
+ (botId?'<button class="btn secondary wide" id="botInvite">Adicionar este bot ao servidor Discord ↗</button>':'<p class="muted small">Salve o Bot Token para gerar o convite de instalação deste bot.</p>')+
+ '<p class="muted small" style="margin-top:12px">O CAOS registra os comandos de aplicativo globalmente ao iniciar. O Discord pode levar alguns minutos para disponibilizá-los na lista de comandos.</p><div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative os intents Server Members Intent e Message Content Intent. Se o bot ainda não estiver instalado, use o convite acima; a vinculação da conta pessoal é uma autorização separada.</div></section>'+
  '<div class="hero-actions" style="margin-top:14px;justify-content:space-between"><button class="btn danger" id="botDelete">Excluir bot</button><button class="btn secondary" id="botClose">Fechar</button></div>'
  );
  const connect=$("#connectHosting");
@@ -1124,6 +1125,16 @@ async function openBot(id){
    catch(e){toast(e.message);connect.disabled=false;connect.textContent="Conectar Bot-Hosting";}
  };
  const modules=$("#botModules");if(modules)modules.onclick=()=>caosModal(id);
+ const inviteButton=$("#botInvite");
+ if(inviteButton)inviteButton.onclick=()=>{
+   if(!botId)return toast("Salve e valide o Bot Token antes de convidar o bot.");
+   const invite=new URL("https://discord.com/oauth2/authorize");
+   invite.searchParams.set("client_id",botId);
+   invite.searchParams.set("scope","bot applications.commands");
+   invite.searchParams.set("permissions","0");
+   window.open(invite.toString(),"_blank","noopener,noreferrer");
+ };
+
  const close=$("#botClose");if(close)close.onclick=closeModal;
  const deleteButton=$("#botDelete");
  if(deleteButton)deleteButton.onclick=async()=>{
