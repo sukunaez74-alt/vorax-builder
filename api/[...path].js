@@ -218,7 +218,7 @@ async function hostingCallback(request, env) {
 }
 async function hostingAccessToken(userId, env, forceRefresh = false) {
   const connection = await env.DB.prepare(
-    "SELECT access_token_enc,refresh_token_enc,expires_at FROM hosting_connections WHERE user_id=?"
+    "SELECT access_token_enc,refresh_token_enc,expires_at,scope FROM hosting_connections WHERE user_id=?"
   ).bind(userId).first();
   if (!connection) throw new Error("Conecte sua conta Bot-Hosting para controlar este bot.");
   if (!forceRefresh && Number(connection.expires_at) > Date.now() + 120000) {
