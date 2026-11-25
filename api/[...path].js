@@ -3512,7 +3512,7 @@ export async function onRequest(context) {
             const chunks = await env.DB.prepare(
               "SELECT chunk_index,total_chunks,chunk_base64 FROM bot_upload_chunks WHERE user_id=? AND bot_id=? AND upload_id=? ORDER BY chunk_index ASC"
             ).bind(user.id, id, uploadId).all();
-            const rows = Array.isArray(chunks?.results) ? chunks.results : [];
+            const rows = Array.isArray(chunks) ? chunks : (Array.isArray(chunks?.results) ? chunks.results : []);
             if (!rows.length) return reply({ code: "upload_chunks_missing", error: "Não encontrei as partes deste ZIP. Selecione o arquivo e tente novamente." }, 409);
             const totalChunks = Number(rows[0].total_chunks || 0);
             if (!Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > 24 || rows.length !== totalChunks) {
