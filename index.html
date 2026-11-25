@@ -1463,20 +1463,18 @@ async function loadDashboardPanels(){
  if(date)date.textContent=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Bahia",day:"2-digit",month:"long",year:"numeric"}).format(new Date());
  if(servicesArea){
   let health=null,hosting=null;
-  try{
-   const [healthResponse,hostingResult]=await Promise.all([
-    fetch("/api/health",{credentials:"same-origin",cache:"no-store"}),
-    api("/hosting/status")
-   ]);
-   if(healthResponse.ok)health=await healthResponse.json();
-   hosting=hostingResult;
-   state.hosting=!!hosting.connected;
-   state.hostingCanCreate=!!hosting.canCreateDeployments;
-  }catch{}
+  const [healthState,hostingState]=await Promise.allSettled([
+   fetch("/api/health",{credentials:"same-origin",cache:"no-store"}).then(async response=>response.ok?response.json():null),
+   api("/hosting/status")
+  ]);
+  if(healthState.status==="fulfilled")health=healthState.value;
+  if(hostingState.status==="fulfilled")hosting=hostingState.value;
+  state.hosting=!!hosting?.connected;
+  state.hostingCanCreate=!!hosting?.canCreateDeployments;
   const services=[
    ["API do painel",!!health?.checks?.api],
    ["Banco de dados",!!health?.databaseQuery],
-   ["Hospedagem autorizada",!!hosting?.connected],
+   ["Hospedagem / criação",!!hosting?.connected&&!!hosting?.canCreateDeployments],
    ["Bot implantado",!!bot?.hostingDeploymentId]
   ];
   servicesArea.innerHTML=services.map(([label,ok])=>'<div class="service-line"><span class="service-dot '+(ok?"online":"pending")+'"></span><span>'+label+'</span><b class="'+(ok?"good":"muted")+'">'+(ok?"Operacional":(label==="Bot implantado"?"Aguardando":label==="Hospedagem autorizada"?"Não conectada":"Pendente"))+'</b></div>').join("");
@@ -1784,20 +1782,26 @@ async function healthCheck(){
  if(button){button.disabled=true;button.textContent="Verificando…"}
  if(area)area.innerHTML='<div class="log-line">Consultando API, banco de dados, criptografia e hospedagem…</div>';
  try{
-  const [healthResponse,hostingResult]=await Promise.all([
-   fetch("/api/health",{credentials:"same-origin",cache:"no-store"}),
+  const [healthState,hostingState]=await Promise.allSettled([
+   fetch("/api/health",{credentials:"same-origin",cache:"no-store"}).then(async response=>{
+    const data=await response.json();
+    if(!response.ok)throw new Error(data.error||"Falha no diagnóstico da API.");
+    return data;
+   }),
    api("/hosting/status")
   ]);
-  const health=await healthResponse.json();
-  if(!healthResponse.ok)throw new Error(health.error||"Falha no diagnóstico da API.");
-  state.hosting=!!hostingResult.connected;
-  state.hostingCanCreate=!!hostingResult.canCreateDeployments;
+  if(healthState.status!=="fulfilled")throw healthState.reason||new Error("Não consegui consultar a API do painel.");
+  const health=healthState.value;
+  const hostingResult=hostingState.status==="fulfilled"?hostingState.value:null;
+  state.hosting=!!hostingResult?.connected;
+  state.hostingCanCreate=!!hostingResult?.canCreateDeployments;
   const rows=[
    ["API do painel",!!health.checks?.api,"Essencial"],
    ["Banco de dados",!!health.databaseQuery,health.databaseError||"Essencial"],
    ["Segredo de sessão",!!health.secretsConfigured?.session,"Essencial"],
    ["Criptografia",!!health.secretsConfigured?.encryption,"Essencial"],
-   ["Bot-Hosting",!!hostingResult.connected,hostingResult.connected?(hostingResult.canCreateDeployments?"Permissão para criar hospedagens":"Reconectar e liberar permissões"): "Conectar em Integrações"],
+   ["Bot-Hosting / criação",!!hostingResult?.connected&&!!hostingResult?.canCreateDeployments,
+    hostingResult?(hostingResult.connected?(hostingResult.canCreateDeployments?"Permissão para criar hospedagens":"Reconectar e liberar permissões"):"Conectar em Integrações"):(hostingState.reason?.message||"Falha ao consultar hospedagem")],
    ["OAuth de conta Discord",!!health.secretsConfigured?.discordOAuth,"Opcional para o funcionamento básico do site"]
   ];
   const operational=health.operational===true;
