@@ -743,7 +743,7 @@ export async function onRequest(context) {
       const name = String(b.name || "Novo bot").trim().slice(0, 48);
       const runtime = b.runtime === "nodejs" ? "nodejs" : "python";
       if (name.length < 2) return reply({ error: "Digite um nome com pelo menos 2 caracteres." }, 400);
-      const discordToken = String(b.discordToken || "").trim();
+      const discordToken = normalizeDiscordBotToken(b.discordToken);
       if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
         return reply({ error: "Informe um token de bot Discord válido, sem espaços, com pelo menos 30 caracteres." }, 400);
       }
