@@ -759,6 +759,19 @@ async function hostRequest(userId, env, path, method = "GET", data = null) {
   }
   return parsed;
 }
+async function waitForHostReinstall(userId, env, deploymentId) {
+  const deadline = Date.now() + 45000;
+  let lastState = "unknown";
+  while (Date.now() < deadline) {
+    const current = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId));
+    lastState = String(current.state || current.deployment?.state || "").toLowerCase();
+    if (lastState && !["installing","starting","provisioning","reinstalling","creating","unknown"].includes(lastState)) {
+      return { state: lastState };
+    }
+    await new Promise(resolve => setTimeout(resolve, 1250));
+  }
+  throw new Error("O Bot-Hosting ainda está preparando o ambiente (" + lastState + "). O painel não enviou o ZIP antes de terminar a reinstalação. Clique em Enviar ZIP novamente em alguns segundos; seus arquivos não serão apagados por uma nova reinstalação.");
+}
 const CAOS_REQUIREMENTS = "discord.py[voice]==2.7.1\nyt-dlp>=2026.10.26\nimageio-ffmpeg>=0.8.1\n";
 function runnerTemplate() {
   return String.raw`import json, os, signal, subprocess, sys, time
@@ -2150,6 +2163,7 @@ export async function onRequest(context) {
           const requestedRuntime = String(b.runtime || bot.runtime || "python").toLowerCase();
           if (!["python","nodejs"].includes(requestedRuntime)) return reply({ error: "Escolha Python ou Node.js para este pacote." }, 400);
           let deploymentId = bot.hosting_deployment_id || null;
+          let waitForReady = false;
           if (!deploymentId) {
             const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(user.id).first();
             if (!hosting) return reply({ code: "hosting_not_connected", error: "Conecte o Bot-Hosting antes de enviar o pacote do bot." }, 409);
@@ -2166,7 +2180,10 @@ export async function onRequest(context) {
             if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID do servidor para receber arquivos.");
             await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,runtime=?,project_type='custom',state='draft',updated_at=? WHERE id=? AND user_id=?")
               .bind(deploymentId, requestedRuntime, Date.now(), id, user.id).run();
+            waitForReady = true;
           } else if (requestedRuntime !== String(bot.runtime || "python").toLowerCase()) {
+            // O provedor apaga o volume ao trocar o runtime. Troque primeiro e espere
+            // a reinstalação terminar ANTES de emitir a URL de upload.
             await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
               runtime: requestedRuntime, runtimeVersion: requestedRuntime === "nodejs" ? "22" : "3.11",
               entryFile: requestedRuntime === "nodejs" ? "index.js" : "main.py",
@@ -2174,7 +2191,9 @@ export async function onRequest(context) {
             });
             await env.DB.prepare("UPDATE bots SET runtime=?,custom_project=NULL,state='draft',updated_at=? WHERE id=? AND user_id=?")
               .bind(requestedRuntime, Date.now(), id, user.id).run();
+            waitForReady = true;
           }
+          if (waitForReady) await waitForHostReinstall(user.id, env, deploymentId);
           const signed = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/upload-url", "POST", { path: root });
           return reply({ ...signed, deploymentId, path: root, runtime: requestedRuntime });
         } catch (error) { return reply({ error: error.message || "Falha ao preparar envio." }, 502); }
