@@ -618,7 +618,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 </div>
 <div id="modalRoot"></div><div id="toastRoot"></div>
 <script>
-const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,adminPortal:false,verificationAdmin:null,view:"overview",modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,logs:[]};
+const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,adminPortal:false,verificationAdmin:null,view:"overview",modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,hostingCanCreate:false,logs:[]};
 const moduleNames={music:"Música",tickets:"Tickets",attendance:"Bate-ponto",team:"Equipe e cargos",goals:"Metas e ranking",warnings:"Advertências",recruitment:"Recrutamento",logs:"Logs"};
 async function api(path,options={}){
  let res;
@@ -766,7 +766,7 @@ function docsView(){
 }
 function integrationsView(){
  return pageHead("Integrações","Conecte os serviços necessários para executar seus bots.")+
- '<div class="integration-card"><div class="integration-logo">BH</div><div class="integration-copy"><div class="section-kicker">PROVEDOR DE HOSPEDAGEM</div><h3>Bot-Hosting</h3><p>Autorize o acesso do Estúdio para preparar o servidor do bot e controlar a execução sem copiar uma chave de API.</p><span class="resource-state '+(state.hosting?"is-on":"")+'">'+(state.hosting?"Conta conectada":"Não conectado")+'</span></div><button class="btn '+(state.hosting?"secondary":"btn-bright")+'" id="hostingConnectPage">'+(state.hosting?"Conectado":"Conectar conta ↗")+'</button></div>'+
+ '<div class="integration-card"><div class="integration-logo">BH</div><div class="integration-copy"><div class="section-kicker">PROVEDOR DE HOSPEDAGEM</div><h3>Bot-Hosting</h3><p>Autorize o acesso do Estúdio para preparar o servidor do bot e controlar a execução sem copiar uma chave de API.</p><span class="resource-state '+(state.hosting&&state.hostingCanCreate?"is-on":"")+'">'+(state.hosting?(state.hostingCanCreate?"Conta conectada · criação liberada":"Conexão parcial · falta permissão para criar"):"Não conectado")+'</span></div><button class="btn '+(state.hosting&&state.hostingCanCreate?"secondary":"btn-bright")+'" id="hostingConnectPage">'+(state.hosting&&state.hostingCanCreate?"Reconectar conta":"Autorizar criação de servidores ↗")+'</button></div>'+
  '<div class="integration-explainer"><b>Por que conectar?</b><p>O site e o painel são uma parte. Para manter um bot online, é necessário um processo ativo em um serviço de hospedagem. A disponibilidade, os limites e eventuais cobranças são definidos pelo provedor.</p></div>';
 }
 
@@ -805,9 +805,13 @@ async function loadSettingsHostingState(){
   node.innerHTML="<strong>Consultando autorização…</strong><br>Verificando a conexão com o Bot-Hosting.";
   try{
    const result=await api("/hosting/status");
-   if(result.connected){
-    node.innerHTML='<strong>Hospedagem conectada.</strong><br>Esta conta autorizou o executor. Você já pode preparar o container de um bot.';
+   state.hosting=!!result.connected;state.hostingCanCreate=!!result.canCreateDeployments;
+   if(result.connected&&result.canCreateDeployments){
+    node.innerHTML='<strong>Hospedagem conectada com permissão de criação.</strong><br>O Estúdio pode criar, iniciar e controlar os servidores desta conta.';
     node.classList.remove("changes-pending");
+   }else if(result.connected){
+    node.innerHTML='<strong>Conexão incompleta: falta liberar a criação de servidores.</strong><br>Reconecte usando o botão abaixo e confira se a tela de autorização inclui <b>credits:spend</b> e <b>deployments:write</b>.';
+    node.classList.add("changes-pending");
    }else{
     node.innerHTML="<strong>Autorização pendente.</strong><br>Conecte sua conta Bot-Hosting para criar e controlar os containers.";
     node.classList.add("changes-pending");
@@ -851,7 +855,7 @@ async function loadVerificationBotAdmin(){
 function verificationAdminView(){
  const r=state.verificationAdmin||{},runtime=r.runtime||{},live=runtime.online===true;
  const status=live?"ONLINE":runtime.state==="not_deployed"?"NÃO IMPLANTADO":String(runtime.state||"PENDENTE").toUpperCase();
- const connection=!r.hostingConnected?"Conecte o Bot-Hosting na página Configurações usando sua conta proprietária.":(!r.hostingCanCreate&&!r.deploymentId?"Reconecte o Bot-Hosting em Configurações e aprove a permissão para criar implantações.":(!r.configured?"Informe o Bot Token e o convite do seu servidor.":"Token e convite salvos e protegidos."));
+ const connection=!r.hostingConnected?"Conecte o Bot-Hosting na página Configurações usando sua conta proprietária.":(!r.hostingCanCreate&&!r.deploymentId?"A conexão não recebeu credits:spend e deployments:write. Autorize novamente pelo botão abaixo.":(!r.configured?"Informe o Bot Token e o convite do seu servidor.":"Token e convite salvos e protegidos."));
  return pageHead("Bot de verificação","Configure uma única vez o bot central usado por todos os usuários do Estúdio.")+
  (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
  '<section class="card"><div class="section-head"><h3>Estado do bot central</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+status+'</span></div>'+
@@ -913,6 +917,11 @@ function bindView(){
   catch(error){toast(error.message)}finally{if($("#verificationStop"))$("#verificationStop").disabled=false}
  };
  const verifyRefresh=$("#verificationRefresh");if(verifyRefresh)verifyRefresh.onclick=loadVerificationBotAdmin;
+ const verifyConnect=$("#verificationConnectHosting");if(verifyConnect)verifyConnect.onclick=async()=>{
+  verifyConnect.disabled=true;verifyConnect.textContent="Preparando autorização…";
+  try{const r=await api("/hosting/connect");window.location.assign(r.authorizationUrl)}
+  catch(error){toast(error.message);verifyConnect.disabled=false;verifyConnect.textContent="Autorizar criação de servidores ↗"}
+ };
 
  const add=()=>createBotModal();
  ["addBot","heroCreate"].forEach(id=>{const e=$("#"+id);if(e)e.onclick=add});
@@ -1198,7 +1207,7 @@ function caosModal(targetId){
  };
 }
 async function loadSettings(){
- try{const r=await api("/hosting/status");state.hosting=!!r.connected;}
+ try{const r=await api("/hosting/status");state.hosting=!!r.connected;state.hostingCanCreate=!!r.canCreateDeployments;}
  catch{state.hosting=false;}
  const discordResult=new URLSearchParams(window.location.search).get("discord");
  if(discordResult==="linked"){
