@@ -1213,7 +1213,7 @@ export async function onRequest(context) {
         oauthConfigured: !!(oauth.clientId && oauth.clientSecret),
         clientId: settings?.oauth_client_id || oauth.clientId || "",
         hostingConnected: !!hosting,
-        hostingCanCreate: hostingScopes.includes("credits:spend"),
+        hostingCanCreate: hostingScopes.includes("credits:spend") && hostingScopes.includes("deployments:write"),
         runtime
       });
     }
