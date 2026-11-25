@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { CAOS_MAIN_PY } from "./caos-main.js";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const HOST = "https://bot-hosting.net/api/v1";
@@ -247,6 +248,10 @@ async function ensureVerificationBotDeployment(userId, env) {
   let deploymentId = settings.hosting_deployment_id || null;
   const isNew = !deploymentId;
   if (isNew) {
+    const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(userId).first();
+    if (!String(hosting?.scope || "").split(/\s+/).includes("credits:spend")) {
+      throw new Error("A autorização atual do Bot-Hosting não permite criar o servidor do ADM. Vá em Configurações, clique em Conectar / reconectar Bot-Hosting e aprove a permissão de criação de implantações.");
+    }
     const created = await hostRequest(userId, env, "/deployments", "POST", {
       name: "black-zone-verificacao",
       source: "blank",
@@ -546,7 +551,7 @@ async function hostingConnectUrl(request, user, env) {
   const scopes = [
     "deployments:read", "deployments:power", "deployments:write", "deployments:shell",
     "files:read", "files:write", "env:read", "env:write",
-    "backups:read", "backups:write"
+    "backups:read", "backups:write", "credits:spend"
   ].join(" ");
   const url = new URL("https://bot-hosting.net/oauth/authorize");
   url.searchParams.set("client_id", clientId);
@@ -649,8 +654,7 @@ async function hostRequest(userId, env, path, method = "GET", data = null) {
   }
   return parsed;
 }
-const CAOS_MAIN_PY = "";
-const CAOS_REQUIREMENTS = "discord.py[voice]==2.7.1\ndavey==0.1.7\nPyNaCl>=1.6.0,<1.7.0\npython-dotenv>=1.0,<2.0\nyt-dlp[default]>=2026.10.26\ndeno>=2.3.0\nimageio-ffmpeg>=0.8.1\n";
+const CAOS_REQUIREMENTS = "discord.py[voice]==2.7.1\nyt-dlp>=2026.10.26\nimageio-ffmpeg>=0.8.1\n";
 function runnerTemplate() {
   return String.raw`import json, os, signal, subprocess, sys, time
 from datetime import datetime, timezone
@@ -789,6 +793,10 @@ async function ensureBotDeployment(bot, userId, env) {
   const isNewDeployment = !deploymentId;
 
   if (isNewDeployment) {
+    const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(userId).first();
+    if (!String(hosting?.scope || "").split(/\s+/).includes("credits:spend")) {
+      throw new Error("A autorização atual do Bot-Hosting não permite criar servidores. Vá em Configurações, clique em Conectar / reconectar Bot-Hosting e aprove a permissão de criação de implantações.");
+    }
     const safeName = ("black-zone-" + String(bot.name || "caos").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + String(bot.id).slice(0, 5)).replace(/-+/g, "-");
     const created = await hostRequest(userId, env, "/deployments", "POST", {
       name: safeName,
@@ -1179,6 +1187,8 @@ export async function onRequest(context) {
       let runtime = { state: "not_deployed", online: false, deploymentId: null };
       if (settings?.hosting_deployment_id) runtime = await readVerificationBotStatus(user.id, env, settings);
       const oauth = await discordOAuthCredentials(env);
+      const hosting = await env.DB.prepare("SELECT user_id,scope FROM hosting_connections WHERE user_id=?").bind(user.id).first();
+      const hostingScopes = String(hosting?.scope || "").split(/\s+/).filter(Boolean);
       return reply({
         configured: !!settings?.bot_token_enc && !!settings?.invite_url,
         hasToken: !!settings?.bot_token_enc,
@@ -1189,7 +1199,8 @@ export async function onRequest(context) {
         updatedAt: settings?.updated_at || null,
         oauthConfigured: !!(oauth.clientId && oauth.clientSecret),
         clientId: settings?.oauth_client_id || oauth.clientId || "",
-        hostingConnected: !!(await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first()),
+        hostingConnected: !!hosting,
+        hostingCanCreate: hostingScopes.includes("credits:spend"),
         runtime
       });
     }
@@ -1216,10 +1227,10 @@ export async function onRequest(context) {
         }
         const prepared = await ensureVerificationBotDeployment(user.id, env);
         deploymentId = prepared.deploymentId;
-        let applied = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", { restart: true, waitSeconds: 0 });
+        let applied = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", { restart: true, waitSeconds: 45 });
         const state = String(applied.state || "").toLowerCase();
         if (["offline","stopped","unknown",""].includes(state)) {
-          const started = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "start", waitSeconds: 0 });
+          const started = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "start", waitSeconds: 45 });
           applied = { ...applied, ...started };
         }
         await env.DB.prepare("UPDATE verification_bot_settings SET state='starting',updated_at=? WHERE id='main'").bind(Date.now()).run();
@@ -1238,7 +1249,8 @@ export async function onRequest(context) {
     }
     if (path === "/hosting/status" && request.method === "GET") {
       const row = await env.DB.prepare("SELECT expires_at,scope FROM hosting_connections WHERE user_id=?").bind(user.id).first();
-      return reply({ connected: !!row, expiresAt: row?.expires_at || null, scope: row?.scope || "" });
+      const scopes = String(row?.scope || "").split(/\s+/).filter(Boolean);
+      return reply({ connected: !!row, expiresAt: row?.expires_at || null, scope: row?.scope || "", canCreateDeployments: scopes.includes("credits:spend") });
     }
     if (path === "/hosting/disconnect" && request.method === "POST") {
       await env.DB.prepare("DELETE FROM hosting_connections WHERE user_id=?").bind(user.id).run();
