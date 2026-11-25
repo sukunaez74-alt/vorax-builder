@@ -1538,19 +1538,22 @@ async function loadDashboardPanels(){
  if(clock)clock.textContent=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Bahia",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(new Date());
  if(date)date.textContent=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Bahia",day:"2-digit",month:"long",year:"numeric"}).format(new Date());
  if(servicesArea){
-  let health=null,hosting=null;
-  const [healthState,hostingState]=await Promise.allSettled([
+  let health=null,hosting=null,pool=null;
+  const [healthState,hostingState,poolState]=await Promise.allSettled([
    fetch("/api/health",{credentials:"same-origin",cache:"no-store"}).then(async response=>response.ok?response.json():null),
-   api("/hosting/status")
+   api("/hosting/status"),
+   api("/hosting/pool/status")
   ]);
   if(healthState.status==="fulfilled")health=healthState.value;
   if(hostingState.status==="fulfilled")hosting=hostingState.value;
+  if(poolState.status==="fulfilled")pool=poolState.value;
   state.hosting=!!hosting?.connected;
   state.hostingCanCreate=!!hosting?.canCreateDeployments;
+  const poolReady=Array.isArray(pool?.providers)&&pool.providers.some(provider=>provider.canCreate===true);
   const services=[
    ["API do painel",!!health?.checks?.api],
    ["Banco de dados",!!health?.databaseQuery],
-   ["Hospedagem / criação",!!hosting?.connected&&!!hosting?.canCreateDeployments],
+   ["Pool de hospedagem",poolReady],
    ["Bot implantado",!!bot?.hostingDeploymentId]
   ];
   servicesArea.innerHTML=services.map(([label,ok])=>'<div class="service-line"><span class="service-dot '+(ok?"online":"pending")+'"></span><span>'+label+'</span><b class="'+(ok?"good":"muted")+'">'+(ok?"Operacional":(label==="Bot implantado"?"Aguardando":label==="Hospedagem autorizada"?"Não conectada":"Pendente"))+'</b></div>').join("");
@@ -2082,7 +2085,7 @@ async function loadBackups(){
  }catch(e){if(status)status.textContent=e.message;if(list)list.innerHTML='<div class="dashboard-empty">'+escapeHtml(e.message)+'</div>'}
 }
 function formatBytes(n){if(!Number.isFinite(Number(n)))return "—";const v=Number(n);if(v<1024)return v+" B";if(v<1048576)return (v/1024).toFixed(1)+" KB";return (v/1048576).toFixed(1)+" MB"}
-async function loadBotResources(id){const area=$("#botResources");if(!area)return;try{const r=await api("/bots/"+encodeURIComponent(id)+"/resources");const a=r.resources||r.deployment?.resources||{};area.innerHTML='<div class="card"><div class="stat-label">CPU alocada</div><div class="stat-value">'+(a.cpuPercent??"—")+'%</div><div class="stat-label">Percentual de um núcleo</div></div><div class="card"><div class="stat-label">RAM alocada</div><div class="stat-value">'+(a.ramMB??"—")+' MB</div></div><div class="card"><div class="stat-label">Armazenamento alocado</div><div class="stat-value">'+(a.storageMB??"—")+' MB</div></div>'}catch(e){area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
+async function loadBotResources(id){const area=$("#botResources");if(!area)return;try{const r=await api("/bots/"+encodeURIComponent(id)+"/resources");const a=r.resources||r.deployment?.resources||{};const cpu=a.cpuPercent??a.cpu??"—",ram=a.ramMB??a.ram??"—",storage=a.storageMB??a.storage??"—";area.innerHTML='<div class="card"><div class="stat-label">CPU</div><div class="stat-value">'+escapeHtml(String(cpu))+(a.cpuPercent!=null?"%":"")+'</div></div><div class="card"><div class="stat-label">RAM</div><div class="stat-value">'+escapeHtml(String(ram))+(a.ramMB!=null?" MB":"")+'</div></div><div class="card"><div class="stat-label">Armazenamento</div><div class="stat-value">'+escapeHtml(String(storage))+(a.storageMB!=null?" MB":"")+'</div></div>'}catch(e){area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
 function terminalModal(id){openModal('<div class="modal-head"><h3>Terminal do bot</h3><button class="close" id="closeModal">×</button></div><p class="muted small">Comandos são executados dentro do contêiner desta implantação. Evite comandos que apaguem arquivos ou alterem credenciais.</p><form id="shellForm"><div class="field"><label>COMANDO</label><textarea id="shellCommand" rows="2" required maxlength="1200" placeholder="Ex.: python --version"></textarea></div><button class="btn">Executar comando</button></form><pre id="terminalOutput" class="log-line" style="margin-top:14px;max-height:280px;overflow:auto;white-space:pre-wrap">Terminal pronto.</pre>');$("#shellForm").onsubmit=async e=>{e.preventDefault();const command=$("#shellCommand").value.trim();if(!command)return;const out=$("#terminalOutput");out.textContent+="\n$ "+command+"\nExecutando…";$("#shellCommand").value="";try{const r=await api("/bots/"+encodeURIComponent(id)+"/shell",{method:"POST",body:JSON.stringify({command})});out.textContent=out.textContent.replace("Executando…",(r.output||"Sem saída do comando.")+"\nCódigo de saída: "+(r.exitCode??"—")+(r.timedOut?"\nTempo limite atingido.":"")+(r.truncated?"\nA saída foi reduzida pela hospedagem.":""));}catch(err){out.textContent=out.textContent.replace("Executando…","Erro: "+err.message)}}}
 async function loadFileList(){const id=$("#fileBot")?.value,area=$("#fileList");if(!id)return toast("Crie ou selecione uma implantação primeiro.");if(!area)return;area.innerHTML='<div class="log-line">Carregando arquivos…</div>';try{const r=await api("/bots/"+encodeURIComponent(id)+"/files?path=/");const entries=r.entries||[];area.innerHTML=entries.length?entries.map(x=>'<div class="bot-row"><div class="bot-logo">'+(x.type==="directory"?"📁":"📄")+'</div><div class="bot-info"><strong>'+escapeHtml(x.name||"sem nome")+'</strong><span>'+escapeHtml(x.type||"arquivo")+' • '+formatBytes(x.sizeBytes||0)+'</span></div></div>').join(""):'<div class="empty">Nenhum arquivo encontrado no diretório principal.</div>'}catch(e){area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
 async function uploadZip(){const file=$("#zipFile")?.files?.[0],id=$("#fileBot")?.value;if(!file||!id)return toast("Escolha o bot e um arquivo ZIP.");if(file.size>25*1024*1024)return toast("O arquivo excede o limite inicial de 25 MB.");try{const r=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({filename:file.name})});const form=new FormData();form.append(r.field||"files",file,file.name);const sent=await fetch(r.url,{method:"POST",body:form});if(!sent.ok)throw new Error("Falha ao enviar o arquivo para a hospedagem.");await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({filename:file.name})});toast("Pacote enviado. Confira os logs antes de iniciar.");}catch(e){toast(e.message)}}
