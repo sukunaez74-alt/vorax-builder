@@ -828,8 +828,8 @@ function caosModal(targetId){
   input.value="";
   input.placeholder=hasToken?"Token já salvo — deixe vazio para manter":"Cole o token do seu bot Discord";
   $("#tokenStatus").innerHTML=hasToken
-   ?"<strong>Token protegido e salvo.</strong><br>Por segurança, o valor não é mostrado. Deixe o campo vazio para manter o token atual ou digite um novo para substituí-lo."
-   :"<strong>Token ainda não salvo.</strong><br>Informe o Bot Token para concluir a configuração.";
+   ?'<span class="token-saved-indicator"><i></i> TOKEN SALVO E PROTEGIDO</span><br><strong>O token está gravado no banco e criptografado.</strong><br>Ele não é exibido novamente por segurança. Deixe o campo vazio para mantê-lo ou digite um novo para substituir.'
+   :'<span class="token-empty-indicator">TOKEN AINDA NÃO SALVO</span><br><strong>Informe o Bot Token.</strong><br>Depois de validar, ele ficará protegido e aparecerá aqui como salvo.';
   baseline=readState();
   updateDirty();
  };
@@ -874,14 +874,22 @@ function caosModal(targetId){
   try{
    const response=await api("/bot-config",{method:"POST",body:JSON.stringify({botId:id,modules,discordToken})});
    const bot=state.bots.find(b=>b.id===id);
+   if(!response.ok||!response.tokenStored||!response.hasDiscordToken){
+    throw new Error("O servidor não confirmou que o token ficou salvo. Mantenha esta janela aberta e tente novamente.");
+   }
+   const persisted=await api("/bots/"+encodeURIComponent(id));
+   if(!persisted.hasDiscordToken){
+    throw new Error("A gravação foi solicitada, mas a consulta seguinte não encontrou o token. O painel não vai marcar como salvo.");
+   }
    if(bot){
-    bot.modules=response.modules||modules;
-    bot.hasDiscordToken=!!response.hasDiscordToken;
-    bot.discordBotId=response.discordBotId||bot.discordBotId||null;
+    bot.modules=persisted.modules||response.modules||modules;
+    bot.hasDiscordToken=true;
+    bot.discordBotId=persisted.discordBotId||response.discordBotId||bot.discordBotId||null;
+    bot.discordBotName=persisted.discordBotName||bot.discordBotName||null;
    }
    window.__modalCloseGuard=null;
    closeModal(true);
-   toast(response.tokenUpdated?"Token validado e salvo com segurança.":"Alterações salvas. O token anterior foi mantido.");
+   toast(response.tokenUpdated?"Token validado, gravado e confirmado no banco.":"Alterações gravadas. O token anterior foi mantido.");
    await loadBots();
   }catch(e){
    toast(e.message);
