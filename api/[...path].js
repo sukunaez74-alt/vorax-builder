@@ -1039,7 +1039,7 @@ async function ensureBotDeployment(bot, userId, env) {
 }
 
 async function cogitRequest(token, path, method = "GET", payload = null, rawBody = false) {
-  const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.pterodactyl.v1+json, ...(payload !== null && !rawBody ? {"Content-Type":"application/json"} : {}) };
+  const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.pterodactyl.v1+json, application/json", ...(payload !== null && !rawBody ? {"Content-Type":"application/json"} : {}) };
   if (rawBody) headers["Content-Type"] = "text/plain";
   const response = await fetch("https://panel.cogitdev.net/api/client" + path, {
     method, headers,
