@@ -760,7 +760,8 @@ async function hostRequest(userId, env, path, method = "GET", data = null) {
   return parsed;
 }
 async function waitForHostReinstall(userId, env, deploymentId) {
-  const deadline = Date.now() + 45000;
+  // Keep each serverless request short. The browser retries while the host is installing.
+  const deadline = Date.now() + 4500;
   let lastState = "unknown";
   while (Date.now() < deadline) {
     const current = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId));
@@ -768,9 +769,12 @@ async function waitForHostReinstall(userId, env, deploymentId) {
     if (lastState && !["installing","starting","provisioning","reinstalling","creating","unknown"].includes(lastState)) {
       return { state: lastState };
     }
-    await new Promise(resolve => setTimeout(resolve, 1250));
+    await new Promise(resolve => setTimeout(resolve, 900));
   }
-  throw new Error("O Bot-Hosting ainda está preparando o ambiente (" + lastState + "). O painel não enviou o ZIP antes de terminar a reinstalação. Clique em Enviar ZIP novamente em alguns segundos; seus arquivos não serão apagados por uma nova reinstalação.");
+  const error = new Error("O Bot-Hosting ainda está preparando o ambiente (" + lastState + ").");
+  error.code = "hosting_installing";
+  error.retryAfterMs = 1800;
+  throw error;
 }
 const CAOS_REQUIREMENTS = "discord.py[voice]==2.7.1\nyt-dlp>=2026.10.26\nimageio-ffmpeg>=0.8.1\n";
 function runnerTemplate() {
@@ -2193,10 +2197,15 @@ export async function onRequest(context) {
               .bind(requestedRuntime, Date.now(), id, user.id).run();
             waitForReady = true;
           }
-          if (waitForReady) await waitForHostReinstall(user.id, env, deploymentId);
+          if (deploymentId) await waitForHostReinstall(user.id, env, deploymentId);
           const signed = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/upload-url", "POST", { path: root });
           return reply({ ...signed, deploymentId, path: root, runtime: requestedRuntime });
-        } catch (error) { return reply({ error: error.message || "Falha ao preparar envio." }, 502); }
+        } catch (error) {
+          if (error?.code === "hosting_installing") {
+            return reply({ code: "hosting_installing", error: error.message, retryAfterMs: Number(error.retryAfterMs || 1800) }, 202);
+          }
+          return reply({ error: error.message || "Falha ao preparar envio." }, 502);
+        }
       }
 
       if (action === "extract" && request.method === "POST") {
