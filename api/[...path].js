@@ -244,7 +244,7 @@ export async function onRequest(context) {
       const runtime = b.runtime === "nodejs" ? "nodejs" : "python";
       if (name.length < 2) return reply({ error: "Digite um nome com pelo menos 2 caracteres." }, 400);
       const discordToken = String(b.discordToken || "").trim();
-      if (discordToken.length < 30 || discordToken.length > 256 || /\\s/.test(discordToken)) {
+      if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
         return reply({ error: "Informe um token de bot Discord válido, sem espaços, com pelo menos 30 caracteres." }, 400);
       }
       const encryptedToken = await encryptSecret(discordToken, env);
@@ -283,7 +283,7 @@ export async function onRequest(context) {
         const b = await body(request);
         const discordToken = String(b.discordToken || "").trim();
         if (discordToken) {
-          if (discordToken.length < 30 || discordToken.length > 256 || /\\s/.test(discordToken)) {
+          if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
             return reply({ error: "O token Discord precisa ter pelo menos 30 caracteres e não pode conter espaços." }, 400);
           }
           const encryptedToken = await encryptSecret(discordToken, env);
