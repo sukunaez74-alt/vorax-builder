@@ -297,7 +297,7 @@ function makeDatabase(connectionString) {
   }
   return {
     async raw(statement, params = []) {
-      return sql(placeholders(statement), params);
+      return sql.query(placeholders(statement), params);
     },
     prepare(statement) {
       const query = placeholders(statement);
@@ -305,11 +305,11 @@ function makeDatabase(connectionString) {
         bind(...params) {
           return {
             async first() {
-              const rows = await sql(query, params);
+              const rows = await sql.query(query, params);
               return rows[0] || null;
             },
             async run() {
-              const rows = await sql(query, params);
+              const rows = await sql.query(query, params);
               return { success: true, results: rows };
             }
           };
