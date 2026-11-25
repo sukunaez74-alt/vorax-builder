@@ -809,3 +809,20 @@
  #app:not(.admin-portal) .fleet-bulk-actions .btn{flex:1}
  #app:not(.admin-portal) .fleet-project-status{font-size:8px}
 }
+
+/* Free hosting directory */
+#app:not(.admin-portal) .free-host-directory{margin-top:18px}
+#app:not(.admin-portal) .free-host-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:15px 0}
+#app:not(.admin-portal) .free-host-card{display:flex;flex-direction:column;gap:9px;padding:16px;border:1px solid #393149;border-radius:14px;background:linear-gradient(145deg,#1b1725,#12111a);min-width:0}
+#app:not(.admin-portal) .free-host-card.free-host-featured{border-color:#8765b9;box-shadow:0 0 0 1px #8765b922 inset}
+#app:not(.admin-portal) .free-host-card.free-host-caution{border-style:dashed}
+#app:not(.admin-portal) .free-host-top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+#app:not(.admin-portal) .free-host-top b{color:#f0e6fc;font-size:13px}
+#app:not(.admin-portal) .free-host-top span{color:#c5a9ed;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+#app:not(.admin-portal) .free-host-card>strong{color:#e8d9ff;font-size:13px}
+#app:not(.admin-portal) .free-host-card p{margin:0;color:#b4aabe;font-size:11px;line-height:1.7}
+#app:not(.admin-portal) .free-host-card small{color:#958ba5;font-size:10px;line-height:1.5}
+#app:not(.admin-portal) .free-host-card>a{color:#c9adff;font-size:11px;font-weight:800;text-decoration:none;margin-top:auto}
+#app:not(.admin-portal) .free-host-card>a:hover{text-decoration:underline}
+#app:not(.admin-portal) .free-host-card .text-action{align-self:flex-start;margin-top:auto}
+@media(max-width:640px){#app:not(.admin-portal) .free-host-grid{grid-template-columns:1fr}}
