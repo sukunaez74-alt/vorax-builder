@@ -173,11 +173,20 @@ function caosModal(targetId){
  if(!state.bots.length){toast("Primeiro crie um projeto em Meus bots.");navigate("bots");return}
  const options=state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===targetId?"selected":"")+'>'+escapeHtml(b.name||b.id)+'</option>').join("");
  openModal('<div class="modal-head"><h3>Configurar módulos</h3><button class="close" id="closeModal">×</button></div><p class="muted small">Escolha os módulos que deseja preparar para este projeto. Suas preferências serão salvas no banco.</p><div class="field"><label>PROJETO</label><select id="caosTarget">'+options+'</select></div>'+modulesMarkup()+'<div class="project-note" style="margin:15px 0"><strong>Sem chave de API.</strong><br>Você não precisa informar token nesta etapa. A configuração será guardada no projeto; a ligação com o Discord e a execução virão junto com o executor.</div><button class="btn wide" id="saveModules">Salvar módulos</button>');
- $("#saveModules").onclick=async()=>{
-   const modules={};document.querySelectorAll(".module-toggle").forEach(e=>modules[e.dataset.module]=e.checked);
-   const id=$("#caosTarget").value;
-   try{await api("/bots/"+encodeURIComponent(id)+"/config",{method:"POST",body:JSON.stringify({modules})});state.modules=modules;closeModal();toast("Módulos salvos no projeto.");await loadBots();}
-   catch(e){toast(e.message)}
+ const applySavedModules=()=>{
+ const selected=state.bots.find(b=>b.id===$("#caosTarget").value);
+ const saved=selected?.modules||{};
+ document.querySelectorAll(".module-toggle").forEach(e=>{
+  e.checked=Object.prototype.hasOwnProperty.call(saved,e.dataset.module)?!!saved[e.dataset.module]:false;
+ });
+};
+$("#caosTarget").onchange=applySavedModules;
+applySavedModules();
+$("#saveModules").onclick=async()=>{
+ const modules={};document.querySelectorAll(".module-toggle").forEach(e=>modules[e.dataset.module]=e.checked);
+ const id=$("#caosTarget").value;
+ try{await api("/bots/"+encodeURIComponent(id)+"/config",{method:"POST",body:JSON.stringify({modules})});state.modules=modules;closeModal();toast("Módulos salvos no projeto.");await loadBots();}
+ catch(e){toast(e.message)}
  };
 }
 async function loadSettings(){state.hosting=false}
