@@ -259,7 +259,7 @@ function caosModal(targetId){
    const discordToken=$("#discordToken").value.trim();
    const selected=state.bots.find(b=>b.id===id);
    if(!discordToken&&!selected?.hasDiscordToken){toast("Informe o token do bot Discord.");$("#discordToken").focus();return}
-   try{await api("/bots/"+encodeURIComponent(id)+"/config",{method:"POST",body:JSON.stringify({modules,discordToken})});closeModal();toast("Token protegido e módulos salvos.");await loadBots();}
+   try{await api("/bot-config",{method:"POST",body:JSON.stringify({botId:id,modules,discordToken})});closeModal();toast("Token protegido e módulos salvos.");await loadBots();}
    catch(e){toast(e.message)}
  };
 }
