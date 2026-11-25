@@ -595,3 +595,68 @@
  #app:not(.admin-portal) .dashboard-bot-stats{gap:7px}
  #app:not(.admin-portal) .dashboard-bot-stats b{font-size:6px}
 }
+
+
+/* Importação de projeto completo e exclusão direta de bots */
+#app:not(.admin-portal) .bot-action.action-delete{
+  color:#f0a9b8;
+  border-color:#8c52676b;
+  background:linear-gradient(145deg,#291620,#1b111a);
+}
+#app:not(.admin-portal) .bot-action.action-delete:not(:disabled):hover{
+  color:#ffe5eb;
+  border-color:#d17b93;
+  background:linear-gradient(145deg,#512332,#2a1520);
+}
+#app:not(.admin-portal) .file-import-panel{
+  gap:16px;
+  border-color:#9874ad50;
+}
+#app:not(.admin-portal) .file-package-name{
+  min-width:180px;
+  max-width:280px;
+}
+#app:not(.admin-portal) .file-import-actions{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:10px;
+  padding:14px;
+  border:1px dashed #a27bbd70;
+  border-radius:13px;
+  background:linear-gradient(110deg,#1b1425,#110d19);
+}
+#app:not(.admin-portal) .file-import-actions .btn{
+  min-width:175px;
+}
+#app:not(.admin-portal) .file-import-hint{
+  flex:1 1 220px;
+  min-width:180px;
+  color:#b9a9c4;
+  font-size:10px;
+  line-height:1.7;
+}
+#app:not(.admin-portal) .file-import-status{
+  border-color:#8b6ba44d;
+  background:linear-gradient(120deg,#1a1422,#110e18);
+  color:#d0c0d9;
+  line-height:1.8;
+}
+#app:not(.admin-portal) .file-import-status:empty{display:none}
+#app:not(.admin-portal) .file-package-name input{
+  width:100%;
+  min-width:0;
+}
+#app:not(.admin-portal) .file-toolbar .field label{
+  color:#cdb9da;
+}
+@media(max-width:760px){
+ #app:not(.admin-portal) .file-package-name{max-width:none}
+ #app:not(.admin-portal) .file-import-actions{
+   align-items:stretch;
+   display:grid;
+   grid-template-columns:1fr;
+ }
+ #app:not(.admin-portal) .file-import-actions .btn{width:100%;min-width:0}
+ #app:not(.admin-portal) .file-import-hint{min-width:0}
+}
