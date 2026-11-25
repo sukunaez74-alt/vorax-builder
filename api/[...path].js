@@ -165,7 +165,7 @@ async function hostingConnectUrl(request, user, env) {
   const scopes = [
     "deployments:read", "deployments:power", "deployments:write", "deployments:shell",
     "files:read", "files:write", "env:read", "env:write",
-    "backups:read", "backups:write", "offline_access"
+    "backups:read", "backups:write"
   ].join(" ");
   const url = new URL("https://bot-hosting.net/oauth/authorize");
   url.searchParams.set("client_id", clientId);
