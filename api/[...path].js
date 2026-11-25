@@ -2234,10 +2234,26 @@ export async function onRequest(context) {
         const resources = await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/resources");
         const current = String(resources.data?.attributes?.current_state || "").toLowerCase();
         const state = current === "running" ? "running" : "stopped";
+        let discordTokenConfigured = false;
+        if (bot.discord_token_enc) {
+          try {
+            const discordToken = await decryptSecret(bot.discord_token_enc, env);
+            const startup = await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/startup");
+            const variables = Array.isArray(startup.data?.data) ? startup.data.data : [];
+            const preferred = ["DISCORD_TOKEN","BOT_TOKEN","TOKEN"];
+            const variable = variables.find(item => item?.attributes?.is_editable && preferred.includes(String(item.attributes.env_variable || "").toUpperCase()));
+            if (discordToken && variable?.attributes?.env_variable) {
+              await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/startup/variable", "PUT", {
+                key: variable.attributes.env_variable, value: discordToken
+              });
+              discordTokenConfigured = true;
+            }
+          } catch {}
+        }
         const customProject = { packageName: bot.name, rootPath: "/", runtime: bot.runtime || "python", provider: "cogithost", linkedAt: Date.now() };
         await env.DB.prepare("UPDATE bots SET hosting_provider='cogithost',provider_app_id=?,hosting_deployment_id=NULL,project_type='custom',custom_project=?::jsonb,state=?,updated_at=? WHERE id=? AND user_id=?")
           .bind(serverId, JSON.stringify(customProject), state, Date.now(), botId, user.id).run();
-        return reply({ ok: true, provider: "cogithost", providerAppId: serverId, serverName: String(a.name || "Servidor Cogithost"), state, message: "Servidor Cogithost vinculado. Arquivos e controles disponíveis no Estúdio." });
+        return reply({ ok: true, provider: "cogithost", providerAppId: serverId, serverName: String(a.name || "Servidor Cogithost"), state, message: "Servidor Cogithost vinculado. Arquivos e controles disponíveis no Estúdio." + (discordTokenConfigured ? " Token Discord salvo na variável de inicialização." : " Confira a variável de token e o arquivo principal no painel Cogithost antes de iniciar.") });
       } catch (error) { return reply({ error: error.message || "Não consegui vincular esse servidor Cogithost." }, 502); }
     }
 
