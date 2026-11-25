@@ -17,11 +17,12 @@ function check(file) {
 
 for (const backend of backends) check(backend);
 const source = readFileSync(html, "utf8");
-const scripts = [...source.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
+const scripts = [...source.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)]
+  .filter(match => !/\btype\s*=\s*["']application\/ld\+json["']/i.test(match[1]));
 if (!scripts.length) throw new Error("Nenhum script encontrado em index.html");
 const temp = join(tmpdir(), "black-zone-inline-check.js");
 try {
-  writeFileSync(temp, scripts.map(match => match[1]).join("\n"));
+  writeFileSync(temp, scripts.map(match => match[2]).join("\n"));
   check(temp);
   console.log("OK: JavaScript incorporado em index.html");
 } finally {
