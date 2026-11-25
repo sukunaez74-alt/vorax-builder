@@ -849,6 +849,8 @@ function caosModal(targetId){
   const stateNote=$("#changesState");
   const current=state.bots.find(bot=>bot.id===$("#caosTarget")?.value);
   if(save){save.disabled=!dirty;save.textContent=dirty?"Salvar alterações":(current?.hasDiscordToken?"Salvo ✓":"Aguardando token");}
+  const tokenSave=$("#saveTokenOnly");
+  if(tokenSave)tokenSave.disabled=!(($("#discordToken")?.value||"").trim().length>0);
   if(stateNote){
    stateNote.textContent=dirty?"Há alterações não salvas. Clique em Salvar alterações ou em Cancelar.":"Tudo salvo. O token fica protegido e nunca é exibido novamente.";
    stateNote.classList.toggle("changes-pending",dirty);
@@ -879,6 +881,7 @@ function caosModal(targetId){
   '<div class="field"><label>PROJETO</label><select id="caosTarget">'+options+'</select></div>'+
   '<div class="field"><label>TOKEN DO BOT DISCORD</label><input id="discordToken" type="password" autocomplete="new-password" placeholder="'+(initialBot.hasDiscordToken?"Token já salvo — deixe vazio para manter":"Cole o token do seu bot Discord")+'" minlength="30" maxlength="256" '+(initialBot.hasDiscordToken?"":"required")+'></div>'+
   '<div id="tokenStatus" class="project-note" style="margin:12px 0"></div>'+
+  '<button class="btn secondary" id="saveTokenOnly" type="button" disabled>Salvar token</button>'+
   modulesMarkup()+
   '<div id="changesState" class="changes-state">Tudo salvo.</div>'+
   '<div class="config-actions"><button class="btn secondary" id="cancelModules" type="button">Cancelar</button><button class="btn" id="saveModules" type="button" disabled>Salvar alterações</button></div>'
@@ -894,6 +897,44 @@ function caosModal(targetId){
   applySavedModules();
  };
  token.addEventListener("input",updateDirty);
+ $("#saveTokenOnly").onclick=async()=>{
+  const id=select.value;
+  const discordToken=token.value.trim();
+  if(!discordToken){toast("Cole o novo Bot Token antes de salvar.");token.focus();return}
+  const button=$("#saveTokenOnly");
+  button.disabled=true;button.textContent="Validando token…";
+  try{
+   const saved=await api("/bot-token",{method:"POST",body:JSON.stringify({botId:id,discordToken})});
+   if(!saved.ok||!saved.tokenStored||!saved.hasDiscordToken){
+    throw new Error("O servidor não confirmou que o token foi salvo.");
+   }
+   const persisted=await api("/bots/"+encodeURIComponent(id));
+   if(!persisted.hasDiscordToken||persisted.discordBotId!==saved.discordBotId){
+    throw new Error("A segunda consulta não confirmou a mesma credencial. O token não será marcado como salvo.");
+   }
+   const bot=state.bots.find(item=>item.id===id);
+   if(bot){
+    bot.hasDiscordToken=true;
+    bot.discordBotId=persisted.discordBotId||saved.discordBotId||null;
+    bot.discordBotName=persisted.discordBotName||saved.discordBotName||null;
+   }
+   token.value="";
+   token.required=false;
+   token.placeholder="Cole um NOVO token apenas para substituir o atual";
+   const tokenLabel=token.parentElement?.querySelector("label");
+   if(tokenLabel)tokenLabel.textContent="TOKEN ATUAL PROTEGIDO · NOVO TOKEN OPCIONAL";
+   $("#tokenStatus").innerHTML='<div class="token-saved-card"><span class="token-saved-indicator"><i></i> TOKEN SALVO E PROTEGIDO</span><strong>TOKEN ATUAL</strong><code>••••••••••••••••••••••</code><small>Validado pelo Discord, gravado e confirmado no banco. O token ficará guardado se você fechar esta janela.</small></div>';
+   baseline=readState();
+   updateDirty();
+   button.textContent="Token salvo ✓";
+   toast("Token validado no Discord e gravado no banco com segurança.");
+   await loadBots();
+  }catch(error){
+   toast(error.message);
+   button.disabled=false;button.textContent="Tentar salvar token novamente";
+  }
+ };
+
  document.querySelectorAll(".module-toggle").forEach(e=>e.addEventListener("change",updateDirty));
  applySavedModules();
  $("#cancelModules").onclick=()=>{
