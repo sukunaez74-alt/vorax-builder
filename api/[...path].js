@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import JSZip from "jszip";
 import { CAOS_MAIN_PY } from "./caos-main.js";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -1036,9 +1037,154 @@ async function ensureBotDeployment(bot, userId, env) {
     packageUpdated: isNewDeployment || installedVersion !== bundleVersion
   };
 }
+async function providerToken(userId, provider, env) {
+  const row = await env.DB.prepare(
+    "SELECT encrypted_token FROM provider_connections WHERE user_id=? AND provider=?"
+  ).bind(userId, provider).first();
+  if (!row?.encrypted_token) return null;
+  try { return await decryptSecret(row.encrypted_token, env); } catch { return null; }
+}
+async function discloudRequest(token, path, method = "GET", form = null) {
+  const headers = { "api-token": token, accept: "application/json" };
+  if (!form) headers["content-type"] = "application/json";
+  const response = await fetch("https://api.discloud.app/v2" + path, {
+    method, headers, body: form || undefined, signal: AbortSignal.timeout(60000)
+  });
+  const raw = await response.text();
+  let data = {};
+  try { data = raw ? JSON.parse(raw) : {}; } catch { data = { message: raw.slice(0, 1200) }; }
+  if (!response.ok || data?.status === "error") {
+    const reason = externalErrorText(data?.message || data?.error || data?.details || data) || ("HTTP " + response.status);
+    throw new Error("Discloud · " + method + " " + path + " · HTTP " + response.status + ": " + reason);
+  }
+  return data;
+}
+function decodeBase64Bytes(value) {
+  const encoded = String(value || "");
+  if (!encoded || encoded.length > 8 * 1024 * 1024) throw new Error("O ZIP enviado está vazio ou excede o limite de 5 MB do painel.");
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+function cleanProjectEntry(value) {
+  const path = String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+  if (!path || path.length > 240 || path.split("/").some(part => !part || part === "." || part === "..") || /[\r\n\0]/.test(path)) return "";
+  return path;
+}
+function shellQuote(value) {
+  return "'" + String(value).replace(/'/g, "'\\''") + "'";
+}
+async function prepareDiscloudProject(archiveBytes, bot, requestedRuntime, env) {
+  const input = await JSZip.loadAsync(archiveBytes, { checkCRC32: false, createFolders: false });
+  const entries = Object.values(input.files).filter(file => !file.dir);
+  if (!entries.length) throw new Error("O ZIP não contém arquivos de projeto.");
+  if (entries.length > 6000) throw new Error("O ZIP contém arquivos demais para a importação automática (limite: 6.000).");
+  const cleanedNames = entries.map(file => String(file.name || "").replace(/\\/g, "/"));
+  for (const name of cleanedNames) {
+    if (!name || name.startsWith("/") || name.split("/").some(part => part === "..")) {
+      throw new Error("O ZIP contém um caminho de arquivo inválido. Compacte novamente a pasta do bot.");
+    }
+  }
+  const rootFiles = cleanedNames.filter(name => !name.includes("/") && !name.startsWith("__MACOSX"));
+  const topFolders = [...new Set(cleanedNames.filter(name => name.includes("/")).map(name => name.split("/")[0]))];
+  const wrapper = rootFiles.length === 0 && topFolders.length === 1 ? topFolders[0] + "/" : "";
+  const ignored = new Set([".git","node_modules",".venv","venv","__pycache__",".pytest_cache",".mypy_cache",".next","__macosx"]);
+  const output = new JSZip();
+  const filePaths = [];
+  let totalUnpacked = 0;
+  let directoryCount = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const originalName = cleanedNames[i];
+    let relative = wrapper && originalName.startsWith(wrapper) ? originalName.slice(wrapper.length) : originalName;
+    relative = cleanProjectEntry(relative);
+    if (!relative || relative.endsWith("/")) continue;
+    const parts = relative.split("/");
+    if (parts.some(part => ignored.has(part.toLowerCase())) || parts[parts.length - 1] === ".DS_Store" || parts[parts.length - 1].startsWith("._")) continue;
+    const expectedSize = Number(entries[i]._data?.uncompressedSize || entries[i]._data?.compressedSize || 0);
+    totalUnpacked += expectedSize;
+    if (totalUnpacked > 50 * 1024 * 1024) throw new Error("O conteúdo descompactado passa de 50 MB. Remova caches e dependências já instaladas e envie novamente.");
+    const bytes = await entries[i].async("uint8array");
+    output.file(relative, bytes);
+    filePaths.push(relative);
+    directoryCount += Math.max(0, parts.length - 1);
+  }
+  if (!filePaths.length) throw new Error("Não encontrei arquivos válidos no ZIP depois de remover caches e dependências locais.");
+  let packageJson = {};
+  const packagePath = filePaths.find(path => path.toLowerCase() === "package.json");
+  if (packagePath) {
+    try { packageJson = JSON.parse(await output.file(packagePath).async("string")); } catch { throw new Error("O package.json do projeto não é um JSON válido."); }
+  }
+  const hasJs = filePaths.some(path => /\.(?:js|mjs|cjs|ts|mts|cts)$/i.test(path));
+  const hasPython = filePaths.some(path => /\.py$/i.test(path)) || filePaths.some(path => /(?:^|\/)(?:requirements\.txt|pyproject\.toml|pipfile|setup\.py)$/i.test(path));
+  let runtime = String(requestedRuntime || bot.runtime || "").toLowerCase();
+  if (!["python","nodejs"].includes(runtime)) runtime = packagePath && hasJs ? "nodejs" : (hasPython && !hasJs ? "python" : (hasJs ? "nodejs" : "python"));
+  if (runtime === "nodejs" && !hasJs) runtime = "python";
+  if (runtime === "python" && !hasPython && hasJs) runtime = "nodejs";
+  const pathSet = new Set(filePaths);
+  let entryFile = "";
+  let startCommand = "";
+  if (runtime === "nodejs") {
+    const rawStart = String(packageJson?.scripts?.start || "").trim();
+    const scriptMatch = rawStart.match(/(?:^|\s)(?:node|tsx|ts-node|nodemon|bun)\s+(?:--[^\s]+\s+)*["']?([^"'\s;&|]+)/i);
+    const candidates = [
+      cleanProjectEntry(packageJson?.main),
+      cleanProjectEntry(scriptMatch?.[1]),
+      "index.js","bot.js","main.js","app.js","start.js","src/index.js","src/bot.js","src/main.js","bot/index.js"
+    ].filter(Boolean);
+    entryFile = candidates.find(path => pathSet.has(path)) || filePaths.find(path => /\.(?:js|mjs|cjs)$/i.test(path)) || "";
+    if (rawStart) startCommand = rawStart;
+    else if (entryFile) startCommand = "node " + shellQuote(entryFile);
+  } else {
+    const candidates = ["main.py","bot.py","run.py","app.py","index.py","start.py","src/main.py","src/bot.py","bot/main.py"];
+    entryFile = candidates.find(path => pathSet.has(path)) || filePaths.find(path => /\.py$/i.test(path)) || "";
+    if (entryFile) startCommand = "python " + shellQuote(entryFile);
+  }
+  if (!entryFile) throw new Error("Não consegui identificar o arquivo principal. Inclua main.py, bot.py, index.js, bot.js ou indique a inicialização pelo package.json.");
+  const botName = String(bot.name || "Discord Bot").normalize("NFKD").replace(/[^\w -]/g, "").trim().slice(0, 30) || "Discord Bot";
+  const token = bot.discord_token_enc ? await decryptSecret(bot.discord_token_enc, env) : null;
+  let envText = output.file(".env") ? await output.file(".env").async("string") : "";
+  const envValues = new Map();
+  for (const line of envText.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*)\s*$/);
+    if (match) envValues.set(match[1], match[2]);
+  }
+  if (token) {
+    for (const key of ["DISCORD_TOKEN","BOT_TOKEN","TOKEN"]) envValues.set(key, token);
+  }
+  envValues.set("APP_URL", "https://black-zone-estudio.vercel.app");
+  envValues.set("BOT_NAME", bot.name || "Discord Bot");
+  output.file(".env", [...envValues.entries()].map(([key, value]) => key + "=" + JSON.stringify(String(value))).join("\n") + "\n");
+  const shell = "set -a; [ ! -f .env ] || . ./.env; set +a; " + startCommand;
+  const config = [
+    "NAME=" + botName,
+    "TYPE=bot",
+    "MAIN=" + entryFile,
+    "RAM=100",
+    "VERSION=latest",
+    "START=sh -c " + shellQuote(shell)
+  ].join("\n") + "\n";
+  output.file("discloud.config", config);
+  const bytes = await output.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  const imageCount = filePaths.filter(path => /\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f)$/i.test(path)).length;
+  const resourceCount = filePaths.filter(path => /\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f|mp3|wav|ogg|m4a|flac|mp4|webm|mov|woff2?|ttf|otf)$/i.test(path)).length;
+  const dependencyFile = filePaths.find(path => /(?:^|\/)(?:requirements\.txt|pyproject\.toml|pipfile|package\.json|gemfile|cargo\.toml)$/i.test(path)) || null;
+  return {
+    bytes, runtime, entryFile, startCommand, fileCount: filePaths.length,
+    directoryCount, imageCount, resourceCount, dependencyFile, tokenIncluded: !!token,
+    customProject: {
+      packageName: String(bot.name || "meu-bot").slice(0, 64), rootPath: "/",
+      runtime, entryFile, startCommand: null, dependencyFile,
+      fileCount: filePaths.length, directoryCount, imageCount, resourceCount,
+      commandFileCount: filePaths.filter(path => /(?:^|\/)(?:commands|cogs|extensions|plugins|handlers|events|slash_commands|text_commands)\//i.test(path)).length,
+      detectedFolders: [...new Set(filePaths.map(path => path.split("/")[0]))].filter(folder => filePaths.some(path => path.startsWith(folder + "/"))).slice(0, 20),
+      importedAt: Date.now()
+    }
+  };
+}
 async function getOwnedBot(id, userId, env) {
   return env.DB.prepare(
-    "SELECT id,name,runtime,state,modules,project_type,custom_project,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE id=? AND user_id=?"
+    "SELECT id,name,runtime,state,modules,project_type,custom_project,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,hosting_provider,provider_app_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE id=? AND user_id=?"
   ).bind(id, userId).first();
 }
 function validClock(value) { return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value); }
@@ -1654,6 +1800,38 @@ export async function onRequest(context) {
         return reply({ error: error.message || "Não consegui validar a conta Discloud." }, 502);
       }
     }
+
+    if (path === "/hosting/pool/status" && request.method === "GET") {
+      const [discloudRow, hostingRow] = await Promise.all([
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
+        env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(user.id).first()
+      ]);
+      let discloud = { connected: false, provider: "discloud" };
+      if (discloudRow) {
+        try {
+          const token = await providerToken(user.id, "discloud", env);
+          const data = token ? await discloudRequest(token, "/user") : null;
+          if (data?.user) discloud = {
+            connected: true, valid: true, provider: "discloud",
+            accountLabel: data.user.username || discloudRow.account_label || null,
+            plan: data.user.plan || discloudRow.plan || null,
+            appsCount: Array.isArray(data.user.apps) ? data.user.apps.length : null,
+            totalRamMb: Number(data.user.totalRamMb || 0),
+            ramUsedMb: Number(data.user.ramUsedMb || 0)
+          };
+          else discloud = { connected: true, valid: false, provider: "discloud", error: "A Discloud não confirmou a chave salva." };
+        } catch (error) {
+          discloud = { connected: true, valid: false, provider: "discloud", error: error.message || "Falha de validação." };
+        }
+      }
+      const scopes = String(hostingRow?.scope || "").split(/\\s+/).filter(Boolean);
+      return reply({
+        providers: [
+          { id: "bot-hosting", name: "Bot-Hosting", connected: !!hostingRow, canCreate: !!hostingRow && scopes.includes("deployments:write") && scopes.includes("credits:spend"), role: "principal" },
+          { id: "discloud", name: "Discloud", connected: !!discloud.connected, canCreate: !!discloud.valid, role: "reserva", ...discloud }
+        ]
+      });
+    }
     if (path === "/hosting/disconnect" && request.method === "POST") {
       await env.DB.prepare("DELETE FROM hosting_connections WHERE user_id=?").bind(user.id).run();
       return reply({ ok: true, connected: false });
@@ -1870,7 +2048,7 @@ export async function onRequest(context) {
       }, 201);
     }
 
-    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|import|config|resources|files|shell|schedule|diagnose|backups)(?:\/([A-Za-z0-9._-]{1,120})(?:\/(restore))?)?)?$/);
+    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|auto-upload|extract|import|config|resources|files|shell|schedule|diagnose|backups)(?:\/([A-Za-z0-9._-]{1,120})(?:\/(restore))?)?)?$/);
     if (match) {
       const id = match[1];
       const action = match[2] || "";
@@ -2536,6 +2714,17 @@ async function ensureSchema(db) {
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_bot_id TEXT");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_bot_name TEXT");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS hosting_deployment_id TEXT");
+      await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS hosting_provider TEXT NOT NULL DEFAULT 'bot-hosting'");
+      await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS provider_app_id TEXT");
+      await db.raw(`CREATE TABLE IF NOT EXISTS provider_connections (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        encrypted_token TEXT NOT NULL,
+        account_label TEXT,
+        plan TEXT,
+        updated_at BIGINT NOT NULL,
+        PRIMARY KEY (user_id, provider)
+      )`);
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS schedule_enabled BOOLEAN NOT NULL DEFAULT FALSE");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS schedule_start TEXT NOT NULL DEFAULT '00:00'");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS schedule_end TEXT NOT NULL DEFAULT '23:59'");
