@@ -791,38 +791,103 @@ async function connectHosting(){
  try{const r=await api("/hosting/connect");window.location.assign(r.authorizationUrl)}
  catch(e){toast(e.message);if(b){b.disabled=false;b.textContent="Conectar conta ↗"}}
 }
-function openModal(content){$("#modalRoot").innerHTML='<div class="modal-wrap" id="modalWrap"><div class="modal">'+content+'</div></div>';$("#modalWrap").onclick=e=>{if(e.target.id==="modalWrap")closeModal()};const c=$("#closeModal");if(c)c.onclick=closeModal}
-function closeModal(){$("#modalRoot").innerHTML=""}
+function openModal(content){window.__modalCloseGuard=null;$("#modalRoot").innerHTML='<div class="modal-wrap" id="modalWrap"><div class="modal">'+content+'</div></div>';$("#modalWrap").onclick=e=>{if(e.target.id==="modalWrap")closeModal()};const c=$("#closeModal");if(c)c.onclick=()=>closeModal()}
+function closeModal(force=false){if(!force&&window.__modalCloseGuard&&!window.__modalCloseGuard())return;window.__modalCloseGuard=null;$("#modalRoot").innerHTML=""}
 function createBotModal(){openModal('<div class="modal-head"><h3>Criar novo bot</h3><button class="close" id="closeModal">×</button></div><form id="createBotForm"><div class="field"><label>NOME DO PROJETO</label><input name="name" value="CAOS" required maxlength="48"></div><div class="field"><label>LINGUAGEM</label><select name="runtime"><option value="python">Python</option><option value="nodejs">Node.js</option></select></div><div class="field"><label>TOKEN DO BOT DISCORD</label><input name="discordToken" type="password" autocomplete="new-password" placeholder="Cole o Bot Token da seção Bot do Discord Developer Portal" minlength="30" maxlength="256" required></div><div class="project-note"><strong>Use o Bot Token, não a Public Key.</strong><br>O token será conferido diretamente com o Discord e guardado criptografado no servidor. Não use Client ID, Client Secret ou Public Key.</div><button class="btn wide">Criar projeto e proteger token ↗</button></form>');$("#createBotForm").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api("/bots",{method:"POST",body:JSON.stringify({name:f.get("name"),runtime:f.get("runtime"),discordToken:f.get("discordToken")})});closeModal();toast("Projeto criado e token Discord protegido.");await loadBots();navigate("bots")}catch(err){toast(err.message)}}}
 function caosModal(targetId){
  if(!state.bots.length){toast("Primeiro crie um projeto em Meus bots.");navigate("bots");return}
  const options=state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===targetId?"selected":"")+'>'+escapeHtml(b.name||b.id)+'</option>').join("");
  const initialBot=state.bots.find(b=>b.id===targetId)||state.bots[0];
- const tokenSaved=!!initialBot?.hasDiscordToken;
- openModal('<div class="modal-head"><h3>Configurar bot e módulos</h3><button class="close" id="closeModal">×</button></div><p class="muted small">Use o Bot Token em Developer Portal → Application → Bot. Não cole Client Secret, Client ID ou Public Key. O servidor valida com o Discord antes de salvar.</p><div class="field"><label>PROJETO</label><select id="caosTarget">'+options+'</select></div><div class="field"><label>TOKEN DO BOT DISCORD</label><input id="discordToken" type="password" autocomplete="new-password" placeholder="'+(tokenSaved?"Deixe em branco para manter o token salvo":"Cole o token do seu bot Discord")+'" minlength="30" maxlength="256" '+(tokenSaved?"":"required")+'></div><div id="tokenStatus" class="project-note" style="margin:12px 0">'+(tokenSaved?"<strong>Token já protegido.</strong><br>Deixe o campo vazio para manter o token atual ou informe outro para substituí-lo.":"<strong>Token obrigatório.</strong><br>Informe o token deste bot para salvar a configuração.")+'</div>'+modulesMarkup()+'<button class="btn wide" id="saveModules">Salvar token e módulos</button>');
- const applySavedModules=()=>{
-   const selected=state.bots.find(b=>b.id===$("#caosTarget").value);
-   const saved=selected?.modules||{};
-   document.querySelectorAll(".module-toggle").forEach(e=>{
-     e.checked=Object.prototype.hasOwnProperty.call(saved,e.dataset.module)?!!saved[e.dataset.module]:false;
-   });
-   const input=$("#discordToken");
-   const hasToken=!!selected?.hasDiscordToken;
-   input.required=!hasToken;
-   input.value="";
-   input.placeholder=hasToken?"Deixe em branco para manter o token salvo":"Cole o token do seu bot Discord";
-   $("#tokenStatus").innerHTML=hasToken?"<strong>Token já protegido.</strong><br>Deixe o campo vazio para manter o token atual ou informe outro para substituí-lo.":"<strong>Token obrigatório.</strong><br>Informe o token deste bot para salvar a configuração.";
+ let activeId=initialBot.id;
+ let dirty=false;
+ let baseline="";
+ const readState=()=>JSON.stringify({
+  id:$("#caosTarget")?.value||"",
+  token:$("#discordToken")?.value.trim()||"",
+  modules:[...document.querySelectorAll(".module-toggle")].map(e=>[e.dataset.module,e.checked])
+ });
+ const updateDirty=()=>{
+  dirty=readState()!==baseline;
+  const save=$("#saveModules");
+  const stateNote=$("#changesState");
+  if(save)save.disabled=!dirty;
+  if(stateNote){
+   stateNote.textContent=dirty?"Há alterações não salvas. Clique em Salvar alterações ou em Cancelar.":"Tudo salvo. O token fica protegido e nunca é exibido novamente.";
+   stateNote.classList.toggle("changes-pending",dirty);
+  }
  };
- $("#caosTarget").onchange=applySavedModules;
+ const applySavedModules=()=>{
+  const selected=state.bots.find(b=>b.id===activeId);
+  const saved=selected?.modules||{};
+  document.querySelectorAll(".module-toggle").forEach(e=>{
+   e.checked=Object.prototype.hasOwnProperty.call(saved,e.dataset.module)?!!saved[e.dataset.module]:false;
+  });
+  const input=$("#discordToken");
+  const hasToken=!!selected?.hasDiscordToken;
+  input.required=!hasToken;
+  input.value="";
+  input.placeholder=hasToken?"Token já salvo — deixe vazio para manter":"Cole o token do seu bot Discord";
+  $("#tokenStatus").innerHTML=hasToken
+   ?"<strong>Token protegido e salvo.</strong><br>Por segurança, o valor não é mostrado. Deixe o campo vazio para manter o token atual ou digite um novo para substituí-lo."
+   :"<strong>Token ainda não salvo.</strong><br>Informe o Bot Token para concluir a configuração.";
+  baseline=readState();
+  updateDirty();
+ };
+ openModal(
+  '<div class="modal-head"><h3>Configurar bot e módulos</h3><button class="close" id="closeModal" aria-label="Fechar">×</button></div>'+
+  '<p class="muted small">Use o Bot Token em Developer Portal → Application → Bot. Não cole Client Secret, Client ID ou Public Key. O servidor valida o token com o Discord antes de salvar.</p>'+
+  '<div class="field"><label>PROJETO</label><select id="caosTarget">'+options+'</select></div>'+
+  '<div class="field"><label>TOKEN DO BOT DISCORD</label><input id="discordToken" type="password" autocomplete="new-password" placeholder="'+(initialBot.hasDiscordToken?"Token já salvo — deixe vazio para manter":"Cole o token do seu bot Discord")+'" minlength="30" maxlength="256" '+(initialBot.hasDiscordToken?"":"required")+'></div>'+
+  '<div id="tokenStatus" class="project-note" style="margin:12px 0"></div>'+
+  modulesMarkup()+
+  '<div id="changesState" class="changes-state">Tudo salvo.</div>'+
+  '<div class="config-actions"><button class="btn secondary" id="cancelModules" type="button">Cancelar</button><button class="btn" id="saveModules" type="button" disabled>Salvar alterações</button></div>'
+ );
+ window.__modalCloseGuard=()=>!dirty||window.confirm("Você tem alterações não salvas. Deseja descartá-las?");
+ const select=$("#caosTarget");
+ const token=$("#discordToken");
+ select.onchange=()=>{
+  if(dirty&&!window.confirm("Descartar as alterações deste projeto e trocar de bot?")){
+   select.value=activeId;return;
+  }
+  activeId=select.value;
+  applySavedModules();
+ };
+ token.addEventListener("input",updateDirty);
+ document.querySelectorAll(".module-toggle").forEach(e=>e.addEventListener("change",updateDirty));
  applySavedModules();
+ $("#cancelModules").onclick=()=>{
+  if(!dirty||window.confirm("Cancelar e descartar as alterações?"))closeModal(true);
+ };
  $("#saveModules").onclick=async()=>{
-   const modules={};document.querySelectorAll(".module-toggle").forEach(e=>modules[e.dataset.module]=e.checked);
-   const id=$("#caosTarget").value;
-   const discordToken=$("#discordToken").value.trim();
-   const selected=state.bots.find(b=>b.id===id);
-   if(!discordToken&&!selected?.hasDiscordToken){toast("Informe o token do bot Discord.");$("#discordToken").focus();return}
-   try{await api("/bot-config",{method:"POST",body:JSON.stringify({botId:id,modules,discordToken})});closeModal();toast("Token protegido e módulos salvos.");await loadBots();}
-   catch(e){toast(e.message)}
+  const modules={};
+  document.querySelectorAll(".module-toggle").forEach(e=>modules[e.dataset.module]=e.checked);
+  const id=select.value;
+  const discordToken=token.value.trim();
+  const selected=state.bots.find(b=>b.id===id);
+  if(!discordToken&&!selected?.hasDiscordToken){
+   toast("Informe o token do bot Discord antes de salvar.");
+   token.focus();return;
+  }
+  const save=$("#saveModules");
+  save.disabled=true;save.textContent="Validando e salvando...";
+  try{
+   const response=await api("/bot-config",{method:"POST",body:JSON.stringify({botId:id,modules,discordToken})});
+   const bot=state.bots.find(b=>b.id===id);
+   if(bot){
+    bot.modules=response.modules||modules;
+    bot.hasDiscordToken=!!response.hasDiscordToken;
+    bot.discordBotId=response.discordBotId||bot.discordBotId||null;
+   }
+   window.__modalCloseGuard=null;
+   closeModal(true);
+   toast(response.tokenUpdated?"Token validado e salvo com segurança.":"Alterações salvas. O token anterior foi mantido.");
+   await loadBots();
+  }catch(e){
+   toast(e.message);
+   save.disabled=false;save.textContent="Salvar alterações";
+   updateDirty();
+  }
  };
 }
 async function loadSettings(){
@@ -867,7 +932,7 @@ async function openBot(id){
  '<button class="btn wide" id="saveBotSchedule">Salvar horário</button></section>'+
  '<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
  '<p class="muted small" style="margin-top:12px">O CAOS registra os comandos de aplicativo globalmente ao iniciar. O Discord pode levar alguns minutos para disponibilizá-los na lista de comandos.</p><div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative os intents Server Members Intent e Message Content Intent para este bot. O bot deve estar adicionado ao servidor em que será utilizado.</div></section>'+
- '<div class="hero-actions" style="margin-top:14px"><button class="btn secondary" id="botClose">Fechar</button></div>'
+ '<div class="hero-actions" style="margin-top:14px;justify-content:space-between"><button class="btn danger" id="botDelete">Excluir bot</button><button class="btn secondary" id="botClose">Fechar</button></div>'
  );
  const connect=$("#connectHosting");
  if(connect)connect.onclick=async()=>{
@@ -877,6 +942,17 @@ async function openBot(id){
  };
  const modules=$("#botModules");if(modules)modules.onclick=()=>caosModal(id);
  const close=$("#botClose");if(close)close.onclick=closeModal;
+ const deleteButton=$("#botDelete");
+ if(deleteButton)deleteButton.onclick=async()=>{
+  if(!window.confirm("Excluir o bot \""+(b.name||"Projeto")+"\" do Estúdio? Esta ação não pode ser desfeita."))return;
+  deleteButton.disabled=true;deleteButton.textContent="Excluindo...";
+  try{
+   const result=await api("/bots/"+encodeURIComponent(id),{method:"DELETE"});
+   closeModal(true);
+   await loadBots();
+   toast(result.stopConfirmed===false?"Bot removido do painel. A hospedagem não estava conectada; confira o provedor para confirmar que o processo foi parado.":"Bot removido do painel.");
+  }catch(error){toast(error.message);deleteButton.disabled=false;deleteButton.textContent="Excluir bot";}
+ };
  const runPower=async(action)=>{
    const btn=$("#bot"+(action==="start"?"Start":action==="stop"?"Stop":"Restart"));
    if(btn){btn.disabled=true;btn.textContent=action==="start"?"Iniciando...":action==="stop"?"Parando...":"Reiniciando...";}
