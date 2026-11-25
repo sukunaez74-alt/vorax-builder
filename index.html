@@ -1157,6 +1157,9 @@ async function openBot(id){
  const connected=!!state.hosting;
  const botId=b.discordBotId||null;
  const serverRunning=b.state==="running";const isRunning=b.discordOnline===true;
+ const discordStatus=b.discordStatus||{};
+ const commandErrors=Array.isArray(discordStatus.commandSyncErrors)?discordStatus.commandSyncErrors:[];
+ const commandSummary=discordStatus.commandsTotal!=null?("Comandos publicados: "+Number(discordStatus.commandsRegistered||0)+"/"+Number(discordStatus.commandsTotal||0)+" em "+Number(discordStatus.commandsSyncedGuilds||0)+" servidor(es)."):"Aguardando a primeira publicação dos comandos.";
  const schedule=b.scheduleEnabled;
  const scheduleText=schedule?(b.scheduleStart+" até "+b.scheduleEnd+" • America/Bahia"):"Sem horário limitado (conforme a disponibilidade da hospedagem)";
  const connectPanel=connected
@@ -1171,7 +1174,7 @@ async function openBot(id){
  connectPanel+
  (b.discordStatus?.status==='token_error'?'<div class="project-note changes-pending"><strong>O Discord recusou o token durante a inicialização.</strong><br>Abra a configuração, substitua o token e salve novamente.</div>':b.discordStatus?.status==='intents_error'?'<div class="project-note changes-pending"><strong>Intents privilegiados não habilitados.</strong><br>Ative Server Members Intent e Message Content Intent no Developer Portal.</div>':(serverRunning&&!isRunning?'<div class="project-note"><strong>O processo da hospedagem está ativo, mas o login no Discord ainda não foi confirmado.</strong><br>Consulte o terminal para ver se o token foi aceito ou se faltam intents.</div>':''))+
  '<div class="hero-actions" style="margin-top:14px;flex-wrap:wrap">'+
- (connected?'<button class="btn" id="botStart" '+(serverRunning?"disabled":"")+'>▶ Iniciar</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!serverRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar Bot-Hosting</button>')+
+ (connected?'<button class="btn" id="botStart" '+(isRunning?"disabled":"")+'>'+(serverRunning&&!isRunning?"↻ Tentar iniciar novamente":"▶ Iniciar") +'</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!serverRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar Bot-Hosting</button>')+
  '<button class="btn secondary" id="botModules">Configurar token e módulos</button></div>'+
  '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Horário de funcionamento</h3><span class="status off">'+(schedule?"Agendado":"Sem agenda")+'</span></div>'+
  '<label class="module" style="display:flex;align-items:center;gap:12px"><input id="scheduleEnabled" type="checkbox" class="toggle" '+(schedule?"checked":"")+'><span><strong>Ativar horário diário</strong><small>O supervisor liga e desliga o processo do bot automaticamente</small></span></label>'+
@@ -1180,7 +1183,9 @@ async function openBot(id){
  '<button class="btn wide" id="saveBotSchedule">Salvar horário</button></section>'+
  '<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
  (botId?'<button class="btn secondary wide" id="botInvite">Adicionar este bot ao servidor Discord ↗</button>':'<p class="muted small">Salve o Bot Token para gerar o convite de instalação deste bot.</p>')+
- '<p class="muted small" style="margin-top:12px">O CAOS registra os comandos de aplicativo globalmente ao iniciar. O Discord pode levar alguns minutos para disponibilizá-los na lista de comandos.</p><div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative os intents Server Members Intent e Message Content Intent. Se o bot ainda não estiver instalado, use o convite acima; a vinculação da conta pessoal é uma autorização separada.</div></section>'+
+ '<div class="project-note" style="margin-top:12px"><strong>'+escapeHtml(commandSummary)+'</strong><br>Os comandos são publicados diretamente em cada servidor onde este bot está instalado.</div>'+
+ (commandErrors.length?'<div class="project-note changes-pending"><strong>Falha ao publicar comandos:</strong><br>'+escapeHtml(commandErrors.map(x=>x.error||"Erro de sincronização").join(" · "))+'</div>':'')+
+ '<div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative Server Members Intent e Message Content Intent. Use o convite com os escopos bot e applications.commands.</div></section>'+
  '<div class="hero-actions" style="margin-top:14px;justify-content:space-between"><button class="btn danger" id="botDelete">Excluir bot</button><button class="btn secondary" id="botClose">Fechar</button></div>'
  );
  const connect=$("#connectHosting");
@@ -1229,7 +1234,7 @@ async function openBot(id){
  if($("#botStop"))$("#botStop").onclick=()=>runPower("stop");
  if($("#botRestart"))$("#botRestart").onclick=()=>runPower("restart");
  if($("#botLogs"))$("#botLogs").onclick=async()=>{
-   try{const r=await api("/bots/"+encodeURIComponent(id)+"/logs");const lines=r.lines||[];openModal('<div class="modal-head"><h3>Logs do bot</h3><button class="close" id="closeModal">×</button></div><pre class="log-line" style="max-height:55vh;overflow:auto;white-space:pre-wrap">'+escapeHtml(lines.join("\n")||"Sem saída recente.")+'</pre>');}
+   try{const r=await api("/bots/"+encodeURIComponent(id)+"/logs");const lines=r.lines||r.logs||[];openModal('<div class="modal-head"><h3>Logs do bot</h3><button class="close" id="closeModal">×</button></div><pre class="log-line" style="max-height:55vh;overflow:auto;white-space:pre-wrap">'+escapeHtml(lines.join("\n")||"Sem saída recente.")+'</pre>');}
    catch(e){toast(e.message)}
  };
  if($("#saveBotSchedule"))$("#saveBotSchedule").onclick=async()=>{
