@@ -585,13 +585,13 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
   <div class="nav-group"><div class="nav-title caps">Principal</div>
    <button class="nav-btn active" data-view="overview"><span>⌂</span> Painel</button>
    <button class="nav-btn" data-view="bots"><span>◈</span> Meus Bots</button>
-   <button class="nav-btn" data-view="files"><span>▤</span> Arquivos <span class="nav-soon">UPLOAD EM BREVE</span></button>
+   <button class="nav-btn" data-view="files"><span>▤</span> Arquivos</button>
    <button class="nav-btn" data-view="logs"><span>›_</span> Terminal / Logs</button>
    <button class="nav-btn" data-view="settings"><span>▤</span> Banco de Dados</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Gerenciamento</div>
    <button class="nav-btn" data-view="schedules"><span>◷</span> Agendamentos</button>
-   <button class="nav-btn" disabled><span>▣</span> Backups <span class="nav-soon">EM BREVE</span></button>
+   <button class="nav-btn" data-view="backups"><span>▣</span> Backups</button>
    <button class="nav-btn" data-view="templates"><span>▧</span> Modelos</button>
    <button class="nav-btn" disabled><span>✧</span> Marketplace <span class="nav-soon">EM BREVE</span></button>
   </div>
@@ -656,9 +656,9 @@ $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#regi
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();const labels={overview:"Início",bots:"Meus servidores",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos prontos",files:"Arquivos e pacotes",schedules:"Agendamentos",docs:"Documentação",integrations:"Integrações",logs:"Registros",settings:"Configurações"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();const labels={overview:"Painel",bots:"Meus Bots",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
-function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
+function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 function overviewView(){
  const bots=state.bots||[];
  const online=bots.filter(b=>b.state==="running"&&b.botOnlineNow!==false).length;
@@ -754,16 +754,34 @@ function integrationsView(){
  '<div class="integration-explainer"><b>Por que conectar?</b><p>O site e o painel são uma parte. Para manter um bot online, é necessário um processo ativo em um serviço de hospedagem. A disponibilidade, os limites e eventuais cobranças são definidos pelo provedor.</p></div>';
 }
 
-function filesView(){return pageHead("Pacotes e arquivos","A área de envio será ativada junto com o executor de bots.")+'<section class="card"><div class="project-note"><strong>Seu projeto já pode ser criado e configurado.</strong><br>O envio de ZIP e a publicação de arquivos ainda precisam do executor de bots. Por enquanto, você pode organizar o projeto e os módulos sem vincular nenhuma chave de API.</div></section>'}
-function schedulesView(){
+function filesView(){
+ const bots=state.bots||[];const bot=bots.find(b=>b.id===state.activeBot)||bots.find(b=>b.hostingDeploymentId)||bots[0];
+ if(!bot)return pageHead("Arquivos do bot","Crie um projeto para enviar e organizar seus arquivos.")+'<div class="dashboard-empty"><b>Nenhum bot cadastrado</b><br>Crie um bot para começar.</div><button class="btn" data-action="create-bot">＋ Criar bot</button>';
+ const choices=bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("");
+ if(!bot.hostingDeploymentId)return pageHead("Arquivos do bot","Envie ZIPs, navegue pelo projeto e edite arquivos da hospedagem.")+'<section class="dashboard-panel"><div class="project-note"><strong>Este projeto ainda não tem uma implantação.</strong><br>Conecte o Bot-Hosting e clique em Iniciar uma vez para preparar a hospedagem. Depois você poderá enviar ZIPs e gerenciar arquivos.</div><button class="btn" data-openbot="'+escapeHtml(bot.id)+'">Abrir configuração e iniciar ↗</button></section>';
+ return pageHead("Arquivos do bot","Envie arquivos, extraia ZIPs e edite arquivos de texto diretamente no servidor.")+
+ '<section class="dashboard-panel file-manager"><div class="file-toolbar"><div class="field"><label>PROJETO</label><select id="filesBotSelect">'+choices+'</select></div><div class="file-toolbar-actions"><button class="btn secondary" id="fileRefresh">↻ Atualizar</button><button class="btn" id="fileUploadButton">⇧ Enviar arquivo / ZIP</button><input id="fileUploadInput" type="file" hidden accept=".zip,.py,.txt,.json,.js,.mjs,.cjs,.yaml,.yml,.toml,.md,.html,.css,.sql,.sh"></div></div>'+
+ '<div class="file-path-row"><span>CAMINHO</span><input id="filePath" value="/" spellcheck="false"><button class="btn secondary" id="fileGo">Abrir</button><button class="btn ghost" id="fileUp">↑ Subir pasta</button></div><div id="fileStatus" class="project-note">Preparando o gerenciador de arquivos…</div><div class="file-entry-list" id="fileEntries"><div class="dashboard-empty">Carregando arquivos…</div></div>'+
+ '<section class="file-editor hidden" id="fileEditor"><div class="file-editor-head"><div><small>EDITOR DE TEXTO</small><b id="fileEditorName">Arquivo</b></div><div><button class="btn secondary" id="fileCloseEditor">Fechar</button><button class="btn" id="fileSaveEditor">Salvar arquivo</button></div></div><textarea id="fileEditorText" spellcheck="false" rows="18"></textarea></section></section>';
+}function schedulesView(){
  return pageHead("Agendamentos","Defina a janela diária em que cada bot deve ficar conectado ao Discord.")+
  '<div class="card"><div class="section-head"><h3>Rotinas dos seus bots</h3></div>'+
  (state.bots.length?'<div class="list">'+state.bots.map(b=>'<div class="bot-row"><div class="bot-logo">◷</div><div class="bot-info"><strong>'+escapeHtml(b.name)+'</strong><span>'+(b.scheduleEnabled?'Online entre '+escapeHtml(b.scheduleStart)+' e '+escapeHtml(b.scheduleEnd):'Sem agendamento diário')+' • America/Bahia</span></div><button class="btn secondary" data-schedule="'+escapeHtml(b.id)+'">Configurar horário</button></div>').join('')+'</div>':'<div class="empty"><b>Nenhum bot cadastrado</b>Crie um bot antes de configurar os horários.</div>')+
  '</div>';
 }
 function logsView(){
- return pageHead("Terminal e registros","Saída real retornada pelo provedor de hospedagem.",'<button class="btn secondary" id="refreshLogs">↻ Atualizar logs</button>')+
- '<section class="dashboard-panel logs-full"><div class="field"><label>PROJETO</label><select id="logsBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'">'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="terminal-window"><div class="terminal-top"><i></i><i></i><i></i><span>black-zone · logs</span></div><div id="logsArea" class="terminal-content"><div class="dashboard-empty">Selecione um projeto e atualize os logs.</div></div></div></section>';
+ const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
+ if(!bot)return pageHead("Terminal e registros","A saída do processo aparecerá quando houver um bot cadastrado.")+'<div class="dashboard-empty">Nenhum bot cadastrado.</div>';
+ return pageHead("Terminal e registros","Consulte os logs e execute comandos no container da hospedagem.",'<button class="btn secondary" id="refreshLogs">↻ Atualizar logs</button>')+
+ '<section class="dashboard-panel logs-full"><div class="field"><label>PROJETO</label><select id="logsBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div>'+
+ '<div class="terminal-window"><div class="terminal-top"><i></i><i></i><i></i><span>black-zone · logs do processo</span></div><div id="logsArea" class="terminal-content"><div class="dashboard-empty">Selecione um projeto e atualize os logs.</div></div></div>'+
+ '<div class="shell-panel"><div class="dashboard-panel-head"><div><small>TERMINAL DO CONTAINER</small><h2>Executar comando</h2></div><span class="small-muted">Shell da hospedagem</span></div><div class="shell-command-row"><input id="shellCommand" spellcheck="false" placeholder="Ex.: python --version ou ls -la"><button class="btn" id="shellRun">Executar ↗</button></div><pre class="shell-output" id="shellOutput">O terminal executa comandos no container deste bot; não é o stdin do processo Discord.</pre></div></section>';
+}function backupsView(){
+ const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
+ if(!bot)return pageHead("Backups e restauração","Nenhum bot cadastrado.")+'<div class="dashboard-empty">Crie um bot para usar esta área.</div>';
+ if(!bot.hostingDeploymentId)return pageHead("Backups e restauração","Consulte pontos automáticos e restaure versões anteriores.")+'<div class="dashboard-empty">Prepare a hospedagem deste bot primeiro.</div>';
+ return pageHead("Backups e restauração","Pontos de restauração disponibilizados pelo Bot-Hosting. Restaurar pode substituir os arquivos atuais.",'<button class="btn secondary" id="backupRefresh">↻ Atualizar</button>')+
+ '<section class="dashboard-panel"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div id="backupStatus" class="project-note">Consultando pontos de restauração…</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Carregando backups…</div></div></section>';
 }
 function settingsView(){return pageHead("Configurações","Gerencie sua conta e veja a situação do ambiente.")+'<div class="grid settings-grid"><section class="card"><div class="section-head"><h3>Seu espaço de criação</h3><span class="status">Sem chave de API</span></div><p class="muted small">Você pode criar projetos, escolher a linguagem e salvar os módulos sem vincular Bot-Hosting ou informar uma chave externa.</p><div class="project-note"><strong>Sobre a execução dos bots</strong><br>O painel e o banco já funcionam. Para iniciar bots Discord e mantê-los ativos 24 horas, ainda será necessário ligar um executor de processos. Isso é diferente de uma chave de API para entrar no painel.</div></section><section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">Sessões protegidas por cookie HttpOnly. As senhas são armazenadas com hash seguro no servidor.</p></section><section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API e a conexão real com o PostgreSQL.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>'}
 function bindView(){
