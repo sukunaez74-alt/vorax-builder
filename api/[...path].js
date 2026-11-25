@@ -1245,6 +1245,23 @@ export async function onRequest(context) {
           }
           if (!deploymentId) return reply({ error: "Este bot ainda não tem um servidor de execução." }, 409);
 
+          if (signal !== "stop") {
+            await hostRequest(
+              user.id, env,
+              "/deployments/" + encodeURIComponent(deploymentId) + "/files/content",
+              "POST",
+              {
+                path: "/caos-status.json",
+                content: JSON.stringify({
+                  status: "starting",
+                  updatedAt: new Date(requestStartedAt).toISOString(),
+                  source: "black-zone-estudio"
+                }),
+                mode: "overwrite"
+              }
+            );
+          }
+
           let result = null;
           if (signal === "stop") {
             result = await hostRequest(
