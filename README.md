@@ -1,45 +1,73 @@
 # ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio
 
-Painel web em português para organizar projetos de bots Discord e seus módulos.
+Painel web em português para criar e gerenciar bots Discord com a identidade visual anime/cósmica do Estúdio.
 
-## Produção na Vercel
+## Produção
 
-- `index.html`: interface responsiva e página pública do estúdio.
-- `api/[...path].js`: API Node.js para cadastro, login, sessões e gestão dos projetos no PostgreSQL.
-- `@neondatabase/serverless`: conexão serverless com PostgreSQL (Neon).
-- `schema.postgres.sql`: esquema relacional do banco.
-- `robots.txt` e `sitemap.xml`: arquivos de descoberta para mecanismos de busca.
+- Hospedagem da interface e API: Vercel.
+- Dados de contas, sessões e bots: PostgreSQL/Neon.
+- index.html: site público, painel e controles de bots.
+- studio-ui.css, studio-dashboard.css, studio-extra.css: tema e componentes.
+- api/[...path].js: API de conta, credenciais, projetos, hospedagem, arquivos, shell, agendamento e backups.
+- api/bridge.js e vercel.json: roteamento de chamadas /api/*.
 
-O esquema PostgreSQL é inicializado automaticamente na primeira chamada à API.
+O esquema PostgreSQL é criado e atualizado pela API. A produção não deve receber tokens ou códigos privados pelo repositório público.
 
-## Tokens de cada bot Discord
+## Bot Token do Discord
 
-A criação de cada projeto solicita o token do bot Discord correspondente. Antes de guardar, o backend consulta `GET /api/v10/users/@me` usando `Authorization: Bot <token>` e exige que o Discord confirme um usuário do tipo bot. O token é então salvo criptografado com AES-GCM na coluna `bots.discord_token_enc`. A API retorna apenas o indicador `hasDiscordToken`; nunca devolve o segredo ao navegador. O token pode ser substituído na configuração do projeto; deixar o campo vazio mantém o token atual.
+O usuário cola o Bot Token da seção Bot do Discord Developer Portal. A API aceita o token puro ou o exemplo com prefixo Bot, normaliza esse prefixo, valida com GET /api/v10/users/@me, criptografa com AES-GCM e confirma a gravação por leitura de volta do banco. A rota GET /api/bot-token/status abre a credencial protegida e verifica novamente com o Discord, sem devolver o segredo ao navegador.
 
-Esse token é a credencial do bot para autenticar no Discord. Ele não é uma chave de API de hospedagem. Nunca coloque tokens em HTML, JavaScript público, logs ou no repositório.
+O painel mostra o token apenas mascarado. Campo vazio significa manter a credencial atual. Um token novo só substitui o anterior depois que o Discord o valida e a gravação é confirmada.
 
-## Autenticação e proteção
+Nunca registre tokens em HTML, JavaScript público, logs ou repositórios.
 
-As senhas são derivadas com PBKDF2-SHA-256 (210.000 iterações); os tokens de sessão são armazenados apenas como hash e os cookies são HttpOnly, Secure e SameSite=Lax. O primeiro cadastro válido recebe o papel owner, com reivindicação atômica da instalação; os seguintes recebem member.
+## Execução do CAOS
 
-A frase de entrada é opcional no backend. Quando configurada, ela é validada pelo servidor antes do login/cadastro. Nunca coloque a frase no HTML ou no GitHub.
+A integração automática prepara o modelo CAOS em Python 3.11, obtido do repositório privado na etapa de publicação, sem incluir o código-fonte privado no repositório público.
 
-## Workspace e execução
+Ao iniciar, a API:
+1. Confere novamente o Bot Token salvo.
+2. Cria ou reutiliza uma implantação Python no Bot-Hosting.
+3. Envia main.py, requirements.txt e o supervisor de agenda.
+4. Define DISCORD_TOKEN como variável secreta e configura módulos e horários.
+5. Configura o comando de inicialização e solicita que o provedor ligue o container.
+6. Consulta diagnóstico e o heartbeat caos-status.json para diferenciar container iniciado de sessão Discord realmente online.
 
-Os usuários podem criar projetos e organizar módulos sem conectar uma chave individual de Bot-Hosting. Todos os módulos começam desativados; o usuário escolhe apenas os que o código do bot realmente implementa. Projetos e preferências são guardados na tabela `bots`.
+O botão de iniciar não deve apresentar o bot como conectado só porque o container iniciou. A confirmação de Discord depende do heartbeat do próprio CAOS.
 
-**Importante:** guardar o token do Discord não inicia o processo do bot. A produção atual ainda não tem um executor persistente conectado. Inicialização, logs, terminal, métricas, envio de arquivos e execução 24/7 só devem ser habilitados depois de conectar um executor de processos real; a API responde com `runtime_not_connected` em vez de simular execução.
+**Limite atual:** o fluxo automático do CAOS é Python 3.11. Outros runtimes não são apresentados como executáveis pelo criador enquanto não houver um fluxo próprio para implantar seus arquivos.
 
-## OAuth Discord
+## Hospedagem e OAuth
 
-O login OAuth por conta Discord é opcional e depende de `DISCORD_CLIENT_ID` e `DISCORD_CLIENT_SECRET`. O token individual do bot não substitui essas credenciais de OAuth.
+A conexão com Bot-Hosting é por OAuth/PKCE. Os tokens de acesso e renovação são guardados criptografados no PostgreSQL e renovados no servidor. O usuário não precisa colar chave de API manualmente.
 
-## Descoberta em mecanismos de busca
+A execução contínua depende dos limites, disponibilidade, quota e política de renovação do plano Bot-Hosting. O painel não promete 24/7 quando o plano do provedor não garante isso.
 
-A página inicial possui title, descrição, canonical, Open Graph, WebSite JSON-LD, `robots.txt` e `sitemap.xml`. A indexação e a apresentação do nome são decisões automáticas dos buscadores e não têm prazo ou posição garantidos.
+## Recursos do painel
+
+- Criar e excluir projetos (com tentativa de parar e remover a implantação antes de excluir).
+- Salvar, verificar e substituir Bot Tokens.
+- Selecionar módulos CAOS por projeto.
+- Iniciar, parar e reiniciar containers.
+- Horários diários no fuso America/Bahia.
+- Logs, diagnóstico e recursos quando o provedor os disponibiliza.
+- Gerenciador de arquivos, upload de ZIP, extração, edição e exclusão segura de arquivos.
+- Terminal do container.
+- Exportação ZIP manual e consulta/restauração de pontos de backup oferecidos pelo provedor.
+- Documentação e diagnóstico do ambiente.
+
+Marketplace e alertas avançados ainda não estão habilitados; não devem ser apresentados como recursos prontos.
+
+## Segurança
+
+As senhas usam PBKDF2-SHA-256; tokens de sessão são armazenados como hash e os cookies são HttpOnly, Secure e SameSite=Lax. O primeiro cadastro válido reivindica o papel owner da instalação.
+
+A frase de entrada e as chaves de sessão e criptografia ficam exclusivamente em variáveis de ambiente da Vercel. Nunca as coloque no HTML ou no repositório.
+
+## Login por conta Discord
+
+O login OAuth por conta Discord é opcional e separado do Bot Token. Ele depende de DISCORD_CLIENT_ID e DISCORD_CLIENT_SECRET; o token individual de cada bot não substitui essas credenciais.
 
 ## Arquivos legados Cloudflare
 
-`functions/api/[[path]].js`, `schema.sql` e `wrangler.toml` são mantidos como material da implementação anterior Cloudflare Pages/D1. A produção atual na Vercel utiliza `api/[...path].js` e PostgreSQL/Neon.
-
-Nunca coloque `.env`, tokens Discord, chaves API ou credenciais no repositório.
+functions/api/[[path]].js, schema.sql e wrangler.toml são mantidos como material da implementação anterior Cloudflare Pages/D1. A produção atual usa api/[...path].js e PostgreSQL/Neon.
