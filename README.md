@@ -14,7 +14,7 @@ O esquema PostgreSQL é inicializado automaticamente na primeira chamada à API.
 
 ## Tokens de cada bot Discord
 
-A criação de cada projeto solicita o token do bot Discord correspondente. O token é enviado ao backend e salvo criptografado com AES-GCM na coluna `bots.discord_token_enc`. A API retorna apenas o indicador `hasDiscordToken`; nunca devolve o segredo ao navegador. O token pode ser substituído na configuração do projeto, deixando o campo vazio mantém o token atual.
+A criação de cada projeto solicita o token do bot Discord correspondente. Antes de guardar, o backend consulta `GET /api/v10/users/@me` usando `Authorization: Bot <token>` e exige que o Discord confirme um usuário do tipo bot. O token é então salvo criptografado com AES-GCM na coluna `bots.discord_token_enc`. A API retorna apenas o indicador `hasDiscordToken`; nunca devolve o segredo ao navegador. O token pode ser substituído na configuração do projeto; deixar o campo vazio mantém o token atual.
 
 Esse token é a credencial do bot para autenticar no Discord. Ele não é uma chave de API de hospedagem. Nunca coloque tokens em HTML, JavaScript público, logs ou no repositório.
 
@@ -26,7 +26,7 @@ A frase de entrada é opcional no backend. Quando configurada, ela é validada p
 
 ## Workspace e execução
 
-Os usuários podem criar projetos e organizar módulos sem conectar uma chave individual de Bot-Hosting. Projetos e preferências são guardados na tabela `bots`.
+Os usuários podem criar projetos e organizar módulos sem conectar uma chave individual de Bot-Hosting. Todos os módulos começam desativados; o usuário escolhe apenas os que o código do bot realmente implementa. Projetos e preferências são guardados na tabela `bots`.
 
 **Importante:** guardar o token do Discord não inicia o processo do bot. A produção atual ainda não tem um executor persistente conectado. Inicialização, logs, terminal, métricas, envio de arquivos e execução 24/7 só devem ser habilitados depois de conectar um executor de processos real; a API responde com `runtime_not_connected` em vez de simular execução.
 
