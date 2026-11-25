@@ -763,7 +763,7 @@ function filesView(){
  const choices=bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("");
  if(!bot.hostingDeploymentId)return pageHead("Arquivos do bot","Envie ZIPs, navegue pelo projeto e edite arquivos da hospedagem.")+'<section class="dashboard-panel"><div class="project-note"><strong>Este projeto ainda não tem uma implantação.</strong><br>Conecte o Bot-Hosting e clique em Iniciar uma vez para preparar a hospedagem. Depois você poderá enviar ZIPs e gerenciar arquivos.</div><button class="btn" data-openbot="'+escapeHtml(bot.id)+'">Abrir configuração e iniciar ↗</button></section>';
  return pageHead("Arquivos do bot","Envie arquivos, extraia ZIPs e edite arquivos de texto diretamente no servidor.")+
- '<section class="dashboard-panel file-manager"><div class="file-toolbar"><div class="field"><label>PROJETO</label><select id="filesBotSelect">'+choices+'</select></div><div class="file-toolbar-actions"><button class="btn secondary" id="fileRefresh">↻ Atualizar</button><button class="btn" id="fileUploadButton">⇧ Enviar arquivo / ZIP</button><input id="fileUploadInput" type="file" hidden accept=".zip,.py,.txt,.json,.js,.mjs,.cjs,.yaml,.yml,.toml,.md,.html,.css,.sql,.sh"></div></div>'+
+ '<section class="dashboard-panel file-manager"><div class="file-toolbar"><div class="field"><label>PROJETO</label><select id="filesBotSelect">'+choices+'</select></div><div class="file-toolbar-actions"><button class="btn secondary" id="fileRefresh">↻ Atualizar</button><button class="btn secondary" id="fileExportZip">▣ Exportar ZIP</button><button class="btn" id="fileUploadButton">⇧ Enviar arquivo / ZIP</button><input id="fileUploadInput" type="file" hidden accept=".zip,.py,.txt,.json,.js,.mjs,.cjs,.yaml,.yml,.toml,.md,.html,.css,.sql,.sh"></div></div>'+
  '<div class="file-path-row"><span>CAMINHO</span><input id="filePath" value="/" spellcheck="false"><button class="btn secondary" id="fileGo">Abrir</button><button class="btn ghost" id="fileUp">↑ Subir pasta</button></div><div id="fileStatus" class="project-note">Preparando o gerenciador de arquivos…</div><div class="file-entry-list" id="fileEntries"><div class="dashboard-empty">Carregando arquivos…</div></div>'+
  '<section class="file-editor hidden" id="fileEditor"><div class="file-editor-head"><div><small>EDITOR DE TEXTO</small><b id="fileEditorName">Arquivo</b></div><div><button class="btn secondary" id="fileCloseEditor">Fechar</button><button class="btn" id="fileSaveEditor">Salvar arquivo</button></div></div><textarea id="fileEditorText" spellcheck="false" rows="18"></textarea></section></section>';
 }function schedulesView(){
@@ -810,6 +810,7 @@ function bindView(){
  const fileUp=$("#fileUp");if(fileUp)fileUp.onclick=()=>{const parts=($("#filePath").value||"/").split("/").filter(Boolean);parts.pop();loadFiles(undefined,"/"+parts.join("/"))};
  const filesBot=$("#filesBotSelect");if(filesBot)filesBot.onchange=()=>loadFiles(filesBot.value,"/");
  const fileUploadButton=$("#fileUploadButton");if(fileUploadButton)fileUploadButton.onclick=()=>$("#fileUploadInput").click();
+ const fileExport=$("#fileExportZip");if(fileExport)fileExport.onclick=exportSelectedFiles;
  const fileUploadInput=$("#fileUploadInput");if(fileUploadInput)fileUploadInput.onchange=uploadBotFile;
  const fileSave=$("#fileSaveEditor");if(fileSave)fileSave.onclick=saveBotFile;
  const fileClose=$("#fileCloseEditor");if(fileClose)fileClose.onclick=()=>$("#fileEditor").classList.add("hidden");
@@ -1111,12 +1112,13 @@ async function loadFiles(botId,path){
    const pathValue=(folder==="/"?"":folder.replace(/\/$/,""))+"/"+e.name;
    const isDir=e.type==="directory"||e.type==="folder";
    return '<div class="file-entry"><span class="file-entry-icon">'+(isDir?"▰":"▤")+'</span><div class="file-entry-main"><b>'+escapeHtml(e.name)+'</b><small>'+(isDir?"Pasta":formatBytes(e.sizeBytes||0))+(e.modifiedAt?" · "+escapeHtml(new Date(e.modifiedAt).toLocaleString("pt-BR")):"")+'</small></div>'+
-    (isDir?'<button class="btn secondary" data-file-open="'+escapeHtml(pathValue)+'">Abrir</button>':'<button class="btn secondary" data-file-edit="'+escapeHtml(pathValue)+'">Editar</button>')+
+    (isDir?'<button class="btn secondary" data-file-open="'+escapeHtml(pathValue)+'">Abrir</button>':'<button class="btn secondary" data-file-edit="'+escapeHtml(pathValue)+'">Editar</button><button class="btn ghost" data-file-download="'+escapeHtml(pathValue)+'">Baixar</button><label class="file-pick"><input type="checkbox" data-file-select="'+escapeHtml(entry.name)+'"> ZIP</label>')+
     '<button class="btn ghost" data-file-delete="'+escapeHtml(pathValue)+'" '+(["/main.py","/runner.py"].includes(pathValue)?"disabled":"")+'>Excluir</button></div>';
   }).join(""):'<div class="dashboard-empty">Esta pasta está vazia.</div>';
   document.querySelectorAll("[data-file-open]").forEach(b=>b.onclick=()=>loadFiles(id,b.dataset.fileOpen));
   document.querySelectorAll("[data-file-edit]").forEach(b=>b.onclick=()=>openTextFile(id,b.dataset.fileEdit));
   document.querySelectorAll("[data-file-delete]").forEach(b=>b.onclick=()=>deleteBotFile(id,b.dataset.fileDelete));
+  document.querySelectorAll("[data-file-download]").forEach(b=>b.onclick=()=>downloadBotFile(id,b.dataset.fileDownload));
  }catch(e){if(status)status.textContent=e.message;if(list)list.innerHTML='<div class="dashboard-empty">'+escapeHtml(e.message)+'</div>'}
 }
 async function uploadBotFile(){
@@ -1160,6 +1162,25 @@ async function saveBotFile(){
   await loadFiles(id,$("#filePath").value);
  }catch(e){toast(e.message)}
  finally{b.disabled=false;b.textContent="Salvar arquivo"}
+}
+async function downloadBotFile(id,path){
+ try{
+  const result=await api("/bots/"+encodeURIComponent(id)+"/files/download-url?path="+encodeURIComponent(path));
+  if(!result.url)throw new Error("O provedor não retornou um link de download.");
+  window.location.assign(result.url);
+ }catch(error){toast(error.message)}
+}
+async function exportSelectedFiles(){
+ const id=$("#filesBotSelect")?.value,root=$("#filePath")?.value||"/";
+ const files=[...document.querySelectorAll("[data-file-select]:checked")].map(input=>input.dataset.fileSelect);
+ if(!id||!files.length)return toast("Marque ao menos um arquivo na lista para exportar.");
+ const button=$("#fileExportZip");button.disabled=true;button.textContent="Compactando…";
+ try{
+  const result=await api("/bots/"+encodeURIComponent(id)+"/files/compress",{method:"POST",body:JSON.stringify({root,files})});
+  toast("ZIP criado na hospedagem: "+(result.archive||"arquivo compactado")+".");
+  await loadFiles(id,root);
+ }catch(error){toast(error.message)}
+ finally{button.disabled=false;button.textContent="▣ Exportar ZIP"}
 }
 async function deleteBotFile(id,path){
  if(!window.confirm("Excluir "+path+" da hospedagem?"))return;
