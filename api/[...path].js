@@ -697,49 +697,26 @@ export async function onRequest(context) {
         const enabled = !!b.enabled;
         const startClock = String(b.start || "00:00");
         const endClock = String(b.end || "23:59");
-        const serverInput = String(b.guildId || "").trim();
-        let guildId = serverInput;
-        let inviteResolved = false;
         if (!validClock(startClock) || !validClock(endClock) || (enabled && startClock === endClock)) {
           return reply({ error: "Informe horários válidos e diferentes, no formato HH:MM." }, 400);
         }
-        if (serverInput) {
-          const invite = serverInput.match(/^(?:https?:\/\/)?(?:www\.)?(?:discord\.gg\/|discord(?:app)?\.com\/invite\/)([A-Za-z0-9-]{2,100})(?:[/?#].*)?$/i);
-          if (invite) {
-            try {
-              const inviteResponse = await fetch("https://discord.com/api/v10/invites/" + encodeURIComponent(invite[1]) + "?with_counts=true", {
-                headers: { accept: "application/json" },
-                signal: AbortSignal.timeout(10000)
-              });
-              const inviteData = await inviteResponse.json().catch(() => ({}));
-              if (!inviteResponse.ok || !inviteData.guild?.id) {
-                return reply({ error: "Não consegui localizar o servidor por esse convite. Confira se o link está válido e se não expirou." }, 400);
-              }
-              guildId = String(inviteData.guild.id);
-              inviteResolved = true;
-            } catch {
-              return reply({ error: "Não consegui consultar o convite do Discord agora. Tente novamente ou cole o ID numérico do servidor." }, 503);
-            }
-          }
-          if (!/^\d{17,20}$/.test(guildId)) {
-            return reply({ error: "Cole um ID numérico do servidor ou um convite válido do Discord, como discord.gg/abc123." }, 400);
-          }
-        }
+        // Guild-specific sync is intentionally disabled: the bot is expected to
+        // already be installed in the user's server. Use Discord global commands.
         await env.DB.prepare(
-          "UPDATE bots SET schedule_enabled=?,schedule_start=?,schedule_end=?,schedule_timezone='America/Bahia',guild_id=?,updated_at=? WHERE id=? AND user_id=?"
-        ).bind(enabled, startClock, endClock, guildId || null, Date.now(), id, user.id).run();
+          "UPDATE bots SET schedule_enabled=?,schedule_start=?,schedule_end=?,schedule_timezone='America/Bahia',guild_id=NULL,updated_at=? WHERE id=? AND user_id=?"
+        ).bind(enabled, startClock, endClock, Date.now(), id, user.id).run();
         if (bot.hosting_deployment_id && await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first()) {
           const deploymentId = bot.hosting_deployment_id;
           await setHostEnv(user.id, env, deploymentId, "CAOS_SCHEDULE_ENABLED", enabled ? "1" : "0", false);
           await setHostEnv(user.id, env, deploymentId, "CAOS_SCHEDULE_START", startClock, false);
           await setHostEnv(user.id, env, deploymentId, "CAOS_SCHEDULE_END", endClock, false);
-          await setHostEnv(user.id, env, deploymentId, "GUILD_ID", guildId, false);
+          await setHostEnv(user.id, env, deploymentId, "GUILD_ID", "", false);
           const live = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=0");
           if ((live.state || live.deployment?.state) === "running") {
             await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "restart", waitSeconds: 35 });
           }
         }
-        return reply({ ok: true, scheduleEnabled: enabled, start: startClock, end: endClock, timezone: "America/Bahia", guildId, inviteResolved });
+        return reply({ ok: true, scheduleEnabled: enabled, start: startClock, end: endClock, timezone: "America/Bahia" });
       }
 
       if (action === "power" && request.method === "POST") {
