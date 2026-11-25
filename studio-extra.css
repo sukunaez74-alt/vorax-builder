@@ -73,3 +73,81 @@
 #saveTokenOnly:disabled{opacity:.6;cursor:default}
 #discordToken{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.02em}
 #settingsHostingState{margin:12px 0}
+
+
+/* DECORAÇÃO PERSONALIZÁVEL — temas inspirados nas quatro referências BLACK ZONE */
+#app[data-decoration="sakura"]{--bz-decor-accent:#c06aff;--bz-decor-soft:#edb2ff;--bz-decor-glow:#5c1c9d}
+#app[data-decoration="samurai"]{--bz-decor-accent:#ef4d5b;--bz-decor-soft:#ffaaa5;--bz-decor-glow:#7c1527}
+#app[data-decoration="neon"]{--bz-decor-accent:#ed55d5;--bz-decor-soft:#ffb0e9;--bz-decor-glow:#73208f}
+#app[data-decoration="mono"]{--bz-decor-accent:#c8d0e4;--bz-decor-soft:#f1f3ff;--bz-decor-glow:#4c526b}
+#app[data-decoration] .nav-title,
+#app[data-decoration] .breadcrumb-mark,
+#app[data-decoration] .cosmic-kicker,
+#app[data-decoration] .cosmic-hero h1 em,
+#app[data-decoration] .dashboard-panel-head small,
+#app[data-decoration] .rail-title span,
+#app[data-decoration] .server-clock{color:var(--bz-decor-accent)!important}
+#app[data-decoration] .nav-btn.active,
+#app[data-decoration] .nav-btn:hover{
+ background:linear-gradient(100deg,color-mix(in srgb,var(--bz-decor-accent) 30%,transparent),color-mix(in srgb,var(--bz-decor-glow) 28%,transparent));
+ border-color:color-mix(in srgb,var(--bz-decor-accent) 52%,transparent);
+ box-shadow:inset 3px 0 var(--bz-decor-accent),0 0 18px color-mix(in srgb,var(--bz-decor-accent) 18%,transparent)
+}
+#app[data-decoration] .sidebar .brand-mark{
+ background:radial-gradient(circle at 35% 28%,var(--bz-decor-soft),var(--bz-decor-accent) 38%,var(--bz-decor-glow) 76%);
+ border-color:color-mix(in srgb,var(--bz-decor-accent) 72%,white);
+ box-shadow:0 0 24px color-mix(in srgb,var(--bz-decor-accent) 42%,transparent)
+}
+#app[data-decoration] .cosmic-hero{
+ border-color:color-mix(in srgb,var(--bz-decor-accent) 58%,transparent);
+ background:
+  radial-gradient(ellipse at 78% 10%,color-mix(in srgb,var(--bz-decor-accent) 28%,transparent),transparent 42%),
+  radial-gradient(ellipse at 94% 90%,color-mix(in srgb,var(--bz-decor-glow) 70%,transparent),transparent 55%),
+  linear-gradient(105deg,#090b1c 2%,#151036 53%,#090a1a);
+ box-shadow:0 18px 48px #0008,inset 0 1px #fff2,0 0 26px color-mix(in srgb,var(--bz-decor-accent) 9%,transparent)
+}
+#app[data-decoration] .cosmic-hero:after{opacity:.32;background:radial-gradient(ellipse at 73% 46%,color-mix(in srgb,var(--bz-decor-accent) 38%,transparent),transparent 58%)}
+#app[data-decoration] .cosmic-kicker i,
+#app[data-decoration] .planet-core,
+#app[data-decoration] .time-orbit i{background:var(--bz-decor-accent);box-shadow:0 0 14px color-mix(in srgb,var(--bz-decor-accent) 65%,transparent)}
+#app[data-decoration] .planet-ring{border-color:color-mix(in srgb,var(--bz-decor-accent) 60%,transparent)}
+#app[data-decoration] .quick-action.quick-purple,
+#app[data-decoration] .btn-bright{border-color:color-mix(in srgb,var(--bz-decor-accent) 60%,transparent);background:linear-gradient(110deg,var(--bz-decor-glow),color-mix(in srgb,var(--bz-decor-accent) 72%,#16102b));box-shadow:0 5px 18px color-mix(in srgb,var(--bz-decor-accent) 22%,transparent)}
+#app[data-decoration="samurai"] .cosmic-hero{background:radial-gradient(ellipse at 80% 10%,#ef4d5b45,transparent 42%),radial-gradient(ellipse at 94% 90%,#7c1527,transparent 55%),linear-gradient(105deg,#10080d,#21101b 53%,#090a1a)}
+#app[data-decoration="neon"] .cosmic-hero{background:radial-gradient(ellipse at 78% 10%,#ed55d54c,transparent 42%),radial-gradient(ellipse at 94% 90%,#73208f,transparent 55%),linear-gradient(105deg,#10091c,#231033 53%,#090a1a)}
+#app[data-decoration="mono"] .cosmic-hero{background:radial-gradient(ellipse at 78% 10%,#c8d0e444,transparent 42%),radial-gradient(ellipse at 94% 90%,#4c526b,transparent 55%),linear-gradient(105deg,#090a10,#1a1b25 53%,#07080d)}
+
+/* Seletor de decoração */
+.decoration-intro{display:flex;align-items:center;gap:15px;margin-bottom:18px;padding:18px 20px}
+.decoration-intro-mark{width:46px;height:46px;flex:none;display:grid;place-items:center;border-radius:14px;color:#e4c7ff;background:#8b35ff26;font-size:25px}
+.decoration-intro b{display:block;font-size:14px;color:#f4f1ff}
+.decoration-intro p{margin:4px 0 0;color:#a6a4c5;font-size:11px;line-height:1.6}
+.decoration-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.decoration-card{display:block;overflow:hidden;padding:0;text-align:left;border:1px solid #a69aff26;border-radius:17px;background:linear-gradient(145deg,#15152d,#0c1022);color:#f4f1ff;cursor:pointer;transition:border-color .18s,transform .18s,box-shadow .18s}
+.decoration-card:hover{transform:translateY(-2px);border-color:#9c71ff88}
+.decoration-card.is-selected{border-color:var(--bz-decor-accent,#b66aff);box-shadow:0 0 0 1px var(--bz-decor-accent,#b66aff),0 12px 32px #0007}
+.decor-scene{height:176px;position:relative;display:block;overflow:hidden;background:#0c1022}
+.decor-scene:before{content:"";position:absolute;width:112px;height:112px;right:13%;top:8px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff,#e7c4ff 23%,#a85bff 58%,#6e32a5 76%,transparent 78%);box-shadow:0 0 46px #b05aff55}
+.decor-scene:after{content:"";position:absolute;left:-4%;right:-4%;bottom:-1px;height:47%;background:linear-gradient(180deg,#090a17,#05060d);clip-path:polygon(0 62%,9% 62%,15% 30%,20% 62%,26% 62%,32% 12%,38% 62%,47% 62%,53% 37%,60% 62%,67% 62%,74% 20%,80% 62%,90% 62%,96% 43%,100% 62%,100% 100%,0 100%)}
+.decor-moon{position:absolute;inset:0;background:linear-gradient(125deg,transparent 20%,#ffffff08 48%,transparent 78%)}
+.decor-landscape{position:absolute;z-index:1;left:10%;right:10%;bottom:22%;height:2px;background:#d9adff;box-shadow:0 0 12px #c677ff}
+.decor-symbol{position:absolute;z-index:2;right:18%;top:34px;font-size:56px;filter:drop-shadow(0 0 18px #d6a3ff77)}
+.decor-tag{position:absolute;z-index:3;left:16px;top:14px;padding:5px 8px;border:1px solid #ffffff35;border-radius:7px;background:#090b20aa;color:#f6edff;font:800 8px Manrope,sans-serif;letter-spacing:.12em}
+.decor-card-copy{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 15px}
+.decor-card-copy b{display:block;font-size:13px}
+.decor-card-copy small{display:block;margin-top:4px;color:#9e9cbd;font-size:10px;line-height:1.5}
+.decor-check{width:26px;height:26px;flex:none;display:grid;place-items:center;border:1px solid #62577f;border-radius:50%;color:transparent}
+.decoration-card.is-selected .decor-check{border-color:var(--bz-decor-accent,#b66aff);background:var(--bz-decor-accent,#b66aff);color:#080916}
+.decor-scene-sakura{background:radial-gradient(ellipse at 72% 25%,#68329c,#211038 50%,#090817)}
+.decor-scene-sakura .decor-symbol{color:#f8cbff}
+.decor-scene-samurai{background:radial-gradient(ellipse at 72% 26%,#ae233b,#32101b 48%,#09070c)}
+.decor-scene-samurai:before{background:radial-gradient(circle at 40% 40%,#fff0d6,#ff9c5d 32%,#ed3c4f 64%,transparent 75%);box-shadow:0 0 45px #ff445c66}
+.decor-scene-samurai .decor-symbol{color:#ffc2a7;filter:drop-shadow(0 0 18px #ff3c4f88)}
+.decor-scene-neon{background:radial-gradient(ellipse at 72% 24%,#7c2789,#28113f 52%,#090817)}
+.decor-scene-neon:before{background:radial-gradient(circle at 35% 35%,#fff,#ffb4ed 25%,#ea4acb 62%,#73258d 78%,transparent 80%);box-shadow:0 0 48px #e94bd466}
+.decor-scene-neon .decor-symbol{color:#ffc2f0;filter:drop-shadow(0 0 18px #ee5bd799)}
+.decor-scene-mono{background:radial-gradient(ellipse at 72% 24%,#70778a,#282a38 54%,#090a10)}
+.decor-scene-mono:before{background:radial-gradient(circle at 38% 38%,#fff,#d9ddec 34%,#a2abc2 62%,#697186 77%,transparent 80%);box-shadow:0 0 48px #c3cce555}
+.decor-scene-mono .decor-symbol{color:#eef1ff;filter:drop-shadow(0 0 18px #d2d9ec99)}
+.decoration-footnote{margin-top:16px;color:#8e91b4;font-size:10px;line-height:1.6}
+@media(max-width:760px){.decoration-grid{grid-template-columns:1fr}.decor-scene{height:165px}.decoration-intro{align-items:flex-start}}
