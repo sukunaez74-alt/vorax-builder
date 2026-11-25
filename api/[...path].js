@@ -2321,6 +2321,16 @@ export async function onRequest(context) {
             return reply({ error: "Não consegui remover a aplicação da Discloud. O projeto continua salvo no painel. " + (error.message || "") }, 502);
           }
         }
+        if (bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "squarecloud", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Square Cloud antes de excluir a aplicação para não deixar recursos abandonados." }, 409);
+            await squareCloudRequest(token, "/apps/" + encodeURIComponent(squareAppId(bot.provider_app_id)), "DELETE");
+            deploymentDeleted = true;
+          } catch (error) {
+            return reply({ error: "Não consegui remover a aplicação da Square Cloud. O projeto continua salvo no painel. " + (error.message || "") }, 502);
+          }
+        }
         if (bot.hosting_deployment_id && bot.hosting_provider !== "discloud") {
           const otherReference = await env.DB.prepare("SELECT id FROM bots WHERE hosting_deployment_id=? AND id<>? LIMIT 1").bind(bot.hosting_deployment_id, id).first();
           const centralSettings = await verificationBotSettings(env);
@@ -2871,49 +2881,137 @@ export async function onRequest(context) {
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const archiveBytes = decodeBase64Bytes(b.archiveBase64);
           if (archiveBytes.byteLength > 3 * 1024 * 1024) {
-            return reply({ code: "fallback_zip_too_large", error: "Este ZIP passa de 3 MB. O envio direto ao provedor alternativo precisa ficar abaixo desse tamanho por limite da conexão segura do painel. O arquivo original continua no seu computador." }, 413);
+            return reply({
+              code: "fallback_zip_too_large",
+              error: "Este ZIP passa de 3 MB para o envio pela rota alternativa. Remova node_modules, venv e caches e tente novamente. O arquivo original continua no seu computador."
+            }, 413);
           }
-          const token = await providerToken(user.id, "discloud", env);
-          if (!token) return reply({
-            code: "provider_not_connected",
-            error: "O Bot-Hosting está sem vaga. Conecte a Discloud em Configurações para o Estúdio tentar a próxima hospedagem automaticamente."
-          }, 409);
 
-          const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
-          const form = new FormData();
-          form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
-          let uploaded;
-          let appId = bot.hosting_provider === "discloud" && bot.provider_app_id ? String(bot.provider_app_id) : "";
-          if (appId) {
-            uploaded = await discloudRequest(token, "/app/" + encodeURIComponent(appId) + "/commit", "PUT", form);
-          } else {
-            uploaded = await discloudRequest(token, "/upload", "POST", form);
-            appId = String(uploaded.app?.id || "");
+          const currentProvider = String(bot.hosting_provider || "bot-hosting");
+          const currentAppId = bot.provider_app_id ? String(bot.provider_app_id) : "";
+          const squareToken = await providerToken(user.id, "squarecloud", env);
+          const discloudToken = await providerToken(user.id, "discloud", env);
+
+          // Existing projects stay on their current provider. New projects prefer
+          // Square Cloud when the connected account has the required memory budget.
+          if (currentProvider === "squarecloud" && currentAppId) {
+            if (!squareToken) return reply({ code: "provider_not_connected", error: "Reconecte a conta Square Cloud nas Configurações para atualizar este bot." }, 409);
+            const prepared = await prepareSquareCloudProject(archiveBytes, bot, b.runtime, env);
+            const form = new FormData();
+            form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
+            await squareCloudRequest(squareToken, "/apps/" + encodeURIComponent(squareAppId(currentAppId)) + "/commit", "POST", null, form);
+            if (Object.keys(prepared.envs).length) {
+              await squareCloudRequest(squareToken, "/apps/" + encodeURIComponent(squareAppId(currentAppId)) + "/envs", "POST", { envs: prepared.envs });
+            }
+            await env.DB.prepare(
+              "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='squarecloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
+            ).bind(currentAppId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
+            await squareCloudRequest(squareToken, "/apps/" + encodeURIComponent(squareAppId(currentAppId)) + "/restart", "POST");
+            return reply({
+              ok: true, provider: "squarecloud", providerAppId: currentAppId,
+              runtime: prepared.runtime, customProject: prepared.customProject,
+              message: "Arquivos atualizados na Square Cloud, variáveis seguras aplicadas e reinicialização solicitada."
+            });
+          }
+
+          if (currentProvider === "discloud" && currentAppId) {
+            if (!discloudToken) return reply({ code: "provider_not_connected", error: "Reconecte a Discloud nas Configurações para atualizar este bot." }, 409);
+            const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
+            const form = new FormData();
+            form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
+            const uploaded = await discloudRequest(discloudToken, "/app/" + encodeURIComponent(currentAppId) + "/commit", "PUT", form);
+            await env.DB.prepare(
+              "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
+            ).bind(currentAppId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
+            try { await discloudRequest(discloudToken, "/app/" + encodeURIComponent(currentAppId) + "/restart", "PUT"); }
+            catch (error) {
+              if (!/already|online|running|process|in process|409/i.test(String(error?.message || ""))) throw error;
+            }
+            return reply({
+              ok: true, provider: "discloud", providerAppId: currentAppId,
+              runtime: prepared.runtime, customProject: prepared.customProject,
+              app: uploaded.app || null,
+              message: "Arquivos atualizados na Discloud e reinicialização solicitada."
+            });
+          }
+
+          let squareCapacityMessage = "";
+          if (squareToken) {
+            try {
+              const account = await squareCloudRequest(squareToken, "/users/me");
+              const availableMb = Number(account.user?.plan?.memory?.available || 0);
+              if (availableMb >= 512) {
+                const prepared = await prepareSquareCloudProject(archiveBytes, bot, b.runtime, env);
+                const form = new FormData();
+                form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
+                const created = await squareCloudRequest(squareToken, "/apps", "POST", null, form);
+                const appId = String(created.id || "");
+                if (!appId) throw new Error("A Square Cloud recebeu o ZIP, mas não retornou o ID da aplicação.");
+                await env.DB.prepare(
+                  "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='squarecloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
+                ).bind(appId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
+                if (Object.keys(prepared.envs).length) {
+                  await squareCloudRequest(squareToken, "/apps/" + encodeURIComponent(squareAppId(appId)) + "/envs", "POST", { envs: prepared.envs });
+                }
+                await squareCloudRequest(squareToken, "/apps/" + encodeURIComponent(squareAppId(appId)) + "/restart", "POST");
+                return reply({
+                  ok: true, provider: "squarecloud", providerAppId: appId,
+                  runtime: prepared.runtime, customProject: prepared.customProject,
+                  application: created,
+                  message: "ZIP enviado à Square Cloud, variáveis seguras aplicadas e inicialização confirmada pelo provedor."
+                });
+              }
+              squareCapacityMessage = "Sua conta Square Cloud tem apenas " + availableMb + " MB livres; são necessários 512 MB para criar este bot.";
+            } catch (error) {
+              const capacityCodes = new Set([
+                "APPLICATIONS_LIMIT_REACHED","INSUFFICIENT_MEMORY","CLUSTER_SELECTION_FAILED",
+                "CLUSTER_MAINTENANCE_TRY_LATER","CLUSTER_UNAVAILABLE","LOAD_BALANCER_LIMIT_REACHED"
+              ]);
+              if (!capacityCodes.has(String(error?.code || ""))) throw error;
+              squareCapacityMessage = error.message || "A Square Cloud não tem capacidade disponível.";
+            }
+          }
+
+          if (discloudToken) {
+            const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
+            const form = new FormData();
+            form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
+            const uploaded = await discloudRequest(discloudToken, "/upload", "POST", form);
+            const appId = String(uploaded.app?.id || "");
             if (!appId) throw new Error("A Discloud recebeu o ZIP, mas não retornou o ID da aplicação.");
+            await env.DB.prepare(
+              "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
+            ).bind(appId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
+            try { await discloudRequest(discloudToken, "/app/" + encodeURIComponent(appId) + "/start", "PUT"); }
+            catch (error) {
+              if (!/already|online|running|process|in process|409/i.test(String(error?.message || ""))) throw error;
+            }
+            return reply({
+              ok: true, provider: "discloud", providerAppId: appId,
+              runtime: prepared.runtime, customProject: prepared.customProject,
+              app: uploaded.app || null,
+              fallbackReason: squareCapacityMessage || "Square Cloud não conectada ou sem capacidade.",
+              message: "ZIP enviado à Discloud. O provedor recebeu o projeto e a inicialização foi solicitada."
+            });
           }
-          await env.DB.prepare(
-            "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
-          ).bind(appId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
 
-          let startResult = null;
-          try { startResult = await discloudRequest(token, "/app/" + encodeURIComponent(appId) + "/start", "PUT"); }
-          catch (startError) {
-            const text = String(startError?.message || "");
-            if (!/already|online|running|process|in process|409/i.test(text)) throw startError;
-          }
           return reply({
-            ok: true, provider: "discloud", providerAppId: appId,
-            runtime: prepared.runtime, customProject: prepared.customProject,
-            app: uploaded.app || null, start: startResult,
-            message: "ZIP enviado à Discloud. O provedor recebeu o projeto e o Estúdio solicitou a inicialização."
-          });
+            code: squareCapacityMessage ? "provider_capacity_full" : "provider_not_connected",
+            error: squareCapacityMessage
+              ? squareCapacityMessage + " A Discloud também não está conectada. Nenhum bot existente foi alterado."
+              : "O Bot-Hosting está sem vaga. Conecte uma conta Square Cloud (gerenciador completo, plano pago) ou Discloud nas Configurações para habilitar a próxima hospedagem."
+          }, squareCapacityMessage ? 402 : 409);
         } catch (error) {
           const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
-          const capacity = /capacity|limit|maximum|plan|app limit|ram|quota|slots|applications/i.test(message);
+          const code = String(error?.code || "");
+          const capacity = [
+            "APPLICATIONS_LIMIT_REACHED","INSUFFICIENT_MEMORY","CLUSTER_SELECTION_FAILED",
+            "CLUSTER_MAINTENANCE_TRY_LATER","CLUSTER_UNAVAILABLE","LOAD_BALANCER_LIMIT_REACHED"
+          ].includes(code) || /capacity|limit|maximum|plan|app limit|ram|quota|slots|applications/i.test(message);
           return reply({
-            code: capacity ? "discloud_capacity_full" : "discloud_upload_failed",
+            code: capacity ? "provider_capacity_full" : "provider_upload_failed",
             error: capacity
-              ? "A Discloud também recusou a criação por limite do plano ou de recursos. Nenhum bot existente foi alterado. Conecte outra hospedagem compatível ou amplie o plano."
+              ? "Os provedores conectados estão sem memória ou vagas para este bot. Nenhuma implantação existente foi substituída. Verifique os limites ou conecte outro provedor compatível."
               : message
           }, capacity ? 402 : 502);
         }
