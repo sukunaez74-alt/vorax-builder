@@ -217,7 +217,7 @@ async def link_servidor(interaction: discord.Interaction):
         await interaction.response.send_message("O convite ainda não foi configurado no painel administrativo.", ephemeral=True)
         return
     view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label="Entrar e verificar", style=discord.ButtonStyle.link, url=INVITE_URL))
+    view.add_item(discord.ui.Button(label="Entrar e verificar", style=discord.ButtonStyle.link, url=VERIFY_URL))
     await interaction.response.send_message("Inicie o login Discord pelo botão abaixo para receber o convite:", view=view, ephemeral=True)
 
 @bot.event
