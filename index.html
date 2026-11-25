@@ -95,6 +95,281 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 .showcase-bottom strong{font-size:12px;color:#e9e5ff}
 .showcase-bottom span:not(.pill){font-size:10px;color:#a7aed0;margin-top:3px}
 @media(max-width:700px){.public-showcase{padding-top:8px}.showcase-grid{grid-template-columns:1fr}.showcase-card{padding:16px}.showcase-bottom{align-items:flex-start;flex-direction:column}.showcase-heading{text-align:left}.showcase-heading p{margin:0}}
+
+/* NIGHT BLOSSOM — anime-inspired visual system */
+:root{
+ --bg:#070916;--panel:rgba(15,19,43,.86);--panel2:rgba(22,27,57,.88);
+ --line:rgba(179,164,255,.17);--muted:#9ca6ca;--text:#f8f6ff;
+ --violet:#a58aff;--cyan:#80e7f4;--pink:#ff9bc9;--green:#72e7bd;
+ --radius:20px;
+}
+html{scroll-behavior:smooth}
+body{
+ background:
+  radial-gradient(ellipse at 78% 0%,#34245d88 0,transparent 32%),
+  radial-gradient(ellipse at 5% 80%,#172e5480 0,transparent 36%),
+  linear-gradient(135deg,#070916 0%,#10142b 54%,#0b1021 100%);
+}
+body:before{
+ opacity:.48;
+ background-image:
+  radial-gradient(1px 1px at 12% 18%,#fff 98%,transparent),
+  radial-gradient(1px 1px at 70% 28%,#f6c8e5 98%,transparent),
+  radial-gradient(2px 2px at 38% 78%,#b9b2ff 98%,transparent),
+  radial-gradient(1px 1px at 91% 74%,#fff 98%,transparent),
+  radial-gradient(1px 1px at 57% 61%,#a5edff 98%,transparent),
+  radial-gradient(1px 1px at 23% 54%,#fff 98%,transparent);
+ background-size:420px 390px;
+}
+body:after{
+ content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.18;
+ background:
+  radial-gradient(ellipse 6px 13px at 12% 28%,#ff9bc9 98%,transparent 100%),
+  radial-gradient(ellipse 6px 13px at 80% 62%,#ff9bc9 98%,transparent 100%),
+  radial-gradient(ellipse 5px 11px at 45% 90%,#9c9cff 98%,transparent 100%);
+ background-size:310px 270px;
+ transform:rotate(-22deg);
+}
+::selection{background:#a58aff55;color:#fff}
+button,input,select,textarea{font-family:inherit}
+:focus-visible{outline:2px solid var(--cyan)!important;outline-offset:3px}
+#gateScreen,#authScreen{
+ gap:22px;align-content:center;padding:34px 22px 46px;
+}
+.auth-card{
+ width:min(510px,100%);padding:38px 38px 30px;
+ border:1px solid #b6a5ff35;border-radius:27px;
+ background:
+  linear-gradient(145deg,#191b3af2 0%,#10152df0 58%,#101c31f2 100%);
+ box-shadow:0 32px 110px #03040dbb,0 0 70px #a58aff12,inset 0 1px 0 #ffffff13;
+}
+.auth-card:after{
+ width:260px;height:260px;right:-145px;top:-145px;
+ background:radial-gradient(circle,#ff9bc933 0,#a58aff13 40%,transparent 72%);
+}
+.auth-card:before{
+ content:"";position:absolute;width:185px;height:185px;right:-86px;bottom:-108px;
+ border:1px solid #9bdbff28;border-radius:50%;
+ box-shadow:0 0 0 17px #9bdbff08,0 0 0 37px #9bdbff06;
+ pointer-events:none;
+}
+.brand{position:relative;z-index:1;gap:14px}
+.brand-mark{
+ width:50px;height:50px;border-radius:17px;
+ background:linear-gradient(145deg,#b28aff 0%,#7b83fa 53%,#57d6e9 100%);
+ box-shadow:0 10px 34px #8f77ff55,inset 0 1px 0 #ffffff70;
+ position:relative;
+}
+.brand-mark:after{
+ content:"";position:absolute;inset:-5px;border:1px solid #d7ccff33;
+ border-radius:20px;transform:rotate(8deg);
+}
+.brand-name{font-size:15px;letter-spacing:.11em}
+.brand-name .caps{color:#c5b8ff}
+.auth-card h1{
+ font-size:clamp(29px,5vw,37px);line-height:1.08;
+ letter-spacing:-.055em;margin:30px 0 11px;max-width:420px;
+}
+#gateScreen .auth-card>p{
+ color:#bac2e0;font-size:13px;line-height:1.75;max-width:440px;
+}
+#gateScreen .auth-card>p.muted.small{
+ color:#99a5c8;font-size:11px;
+}
+#gateScreen .field{margin-top:24px;gap:9px}
+.field label{font-size:10px;letter-spacing:.12em;color:#c9c7e8}
+.field input,.field select,.field textarea{
+ background:#090e21;border:1px solid #46466d;border-radius:14px;
+ min-height:48px;color:#f8f7ff;transition:border .2s,box-shadow .2s,background .2s;
+}
+.field input:focus,.field select:focus,.field textarea:focus{
+ border-color:#b09aff;box-shadow:0 0 0 4px #a58aff1c,0 0 24px #9276ff14;
+ background:#0c1128;
+}
+.btn{
+ border-radius:13px;font-weight:800;letter-spacing:.01em;
+ background:linear-gradient(110deg,#a17bff 0%,#777cf4 58%,#62cde7 100%);
+ box-shadow:0 9px 28px #7565ea2b,inset 0 1px 0 #ffffff45;
+ transition:transform .2s ease,filter .2s ease,box-shadow .2s ease;
+}
+.btn:hover{filter:brightness(1.08);transform:translateY(-2px);box-shadow:0 13px 34px #8c75fa42}
+.btn.secondary{
+ color:#e5e4ff;background:linear-gradient(135deg,#25294b,#1a2240);
+ border:1px solid #a99bff2a;box-shadow:inset 0 1px 0 #ffffff08;
+}
+.btn.ghost{border-color:#a99bff33;color:#dcd9ff}
+#gateScreen .btn.wide{min-height:54px;font-size:14px;letter-spacing:.01em}
+.notice{border-radius:13px;line-height:1.6}
+.public-seo{border-top:1px solid #b9abff20;padding-top:18px}
+.public-seo h2{font-size:12px;letter-spacing:.04em;color:#e9e3ff}
+.public-seo p{font-size:11px;color:#9da8ca;line-height:1.7}
+.pill{background:#a48aff12;border-color:#b3a2ff30;color:#d8d0ff;letter-spacing:.03em}
+.public-showcase{padding-top:8px;gap:16px}
+.showcase-heading .caps{color:#ffadd3}
+.showcase-heading h2{font-size:clamp(25px,4.2vw,39px);letter-spacing:-.05em}
+.showcase-heading p{font-size:13px;color:#aab4d4}
+.showcase-grid{gap:14px}
+.showcase-card{
+ position:relative;overflow:hidden;padding:22px 21px;
+ border:1px solid #a89aff27;border-radius:19px;
+ background:linear-gradient(145deg,#1c2042eb,#10162de8);
+ box-shadow:0 18px 44px #02030b35,inset 0 1px 0 #ffffff0a;
+ transition:transform .22s,border-color .22s,box-shadow .22s;
+}
+.showcase-card:after{
+ content:"";position:absolute;width:100px;height:100px;border:1px solid #ff9bc91c;
+ border-radius:50%;right:-42px;top:-50px;box-shadow:0 0 0 12px #ff9bc908;
+}
+.showcase-card:hover{transform:translateY(-4px);border-color:#c0adff55;box-shadow:0 22px 50px #05061177}
+.showcase-icon{
+ width:44px;height:44px;border-radius:15px;
+ border:1px solid #b6a5ff2c;background:linear-gradient(140deg,#a58aff2b,#ff9bc917);
+ color:#f1d8ff;box-shadow:inset 0 1px 0 #ffffff18;
+}
+.showcase-card h3{font-size:14px;letter-spacing:.01em}
+.showcase-card p{font-size:11px;color:#aab3d2;line-height:1.75}
+.showcase-bottom{
+ background:linear-gradient(100deg,#191d3ddd,#111a2edd);
+ border-color:#aa9aff26;border-radius:17px;
+}
+.showcase-bottom strong{font-size:12px;color:#f1ecff}
+.showcase-bottom span:not(.pill){color:#aeb8d7}
+#app{
+ background:radial-gradient(ellipse at 84% 0%,#39265a28,transparent 33%);
+}
+.sidebar{
+ background:linear-gradient(180deg,#0a0e22f5,#0b1021f2);
+ border-right:1px solid #b2a2ff1d;box-shadow:12px 0 45px #02030b22;
+}
+.sidebar .brand{padding:2px 9px}
+.sidebar .brand-mark{width:43px;height:43px;border-radius:14px}
+.nav-title{color:#b59bdb;letter-spacing:.17em}
+.nav-btn{
+ border-radius:12px;color:#adb7d4;padding:12px 13px;
+ border:1px solid transparent;transition:all .2s ease;
+}
+.nav-btn.active,.nav-btn:hover{
+ background:linear-gradient(100deg,#a58aff24,#ff9bc90c 75%,#70dcf30b);
+ border-color:#b7a0ff36;color:#fff;box-shadow:inset 3px 0 0 #b89bff;
+}
+.host-card{
+ background:linear-gradient(145deg,#222044,#121a31);
+ border-color:#ba9fff30;position:relative;overflow:hidden;
+}
+.host-card:after{
+ content:"✿";position:absolute;right:12px;top:7px;font-size:33px;
+ color:#ff9bc9;opacity:.17;transform:rotate(17deg);
+}
+.main{padding:29px 34px 54px}
+.topbar{
+ padding:0 0 17px;margin-bottom:30px;
+ border-bottom:1px solid #a99aff20;
+}
+.breadcrumb{letter-spacing:.07em;text-transform:uppercase;font-size:10px;color:#8e9abf}
+.breadcrumb span{color:#e8dfff}
+.user-chip{
+ background:linear-gradient(130deg,#1c2141,#121a31);
+ border-color:#b8a6ff2a;color:#e5e4ff;
+}
+.avatar{box-shadow:0 0 0 3px #ad96ff20,0 0 22px #a58aff33}
+.page-head{margin-bottom:25px}
+.page-head .caps{color:#ffa9d2}
+.page-head h1{font-size:clamp(28px,3vw,35px);letter-spacing:-.055em}
+.page-head p{color:#9da9ca;font-size:12px}
+.hero{
+ min-height:232px;padding:31px;
+ border:1px solid #a998ff3d;border-radius:24px;
+ background:
+  radial-gradient(ellipse at 84% 30%,#9d75ff30,transparent 32%),
+  radial-gradient(ellipse at 97% 95%,#ff9bc91c,transparent 30%),
+  linear-gradient(115deg,#28224f 0%,#1c3157 57%,#13233b 100%);
+ box-shadow:0 23px 64px #03040e66,inset 0 1px 0 #ffffff12;
+}
+.hero:before{
+ width:300px;height:300px;right:5%;top:-110px;
+ border-color:#d6c5ff3a;
+ box-shadow:0 0 0 18px #d2c3ff0b,0 0 0 46px #c5dfff08,0 0 90px #987aff14;
+}
+.hero:after{
+ content:"月";right:11%;top:20px;font-size:138px;font-weight:900;
+ font-family:ui-sans-serif,system-ui,sans-serif;line-height:1;
+ color:transparent;background:linear-gradient(145deg,#f3ddff,#a6c8ff 58%,#ffadd1);
+ -webkit-background-clip:text;background-clip:text;
+ filter:drop-shadow(0 12px 30px #03071699);transform:rotate(-9deg);
+}
+.hero .caps{color:#ffbedc}
+.hero h2{font-size:clamp(28px,3vw,38px);line-height:1.08;max-width:560px}
+.hero p{color:#d1d8ef;font-size:12px;line-height:1.8}
+.card{
+ background:linear-gradient(145deg,#171c38eb,#10162beF);
+ border:1px solid #a99aff22;border-radius:19px;
+ box-shadow:0 17px 44px #02030a3b,inset 0 1px 0 #ffffff0a;
+ backdrop-filter:blur(18px);
+}
+.card:hover{border-color:#b7a3ff36}
+.stat-card{min-height:92px}
+.stat-icon{
+ background:linear-gradient(145deg,#a58aff2c,#ff9bc915);
+ border:1px solid #baa6ff2a;color:#f2dfff;
+}
+.stat-value{font-size:25px;letter-spacing:-.04em}
+.stat-label{color:#9daaca}
+.section-head h3{font-size:15px;letter-spacing:-.015em}
+.bot-row{
+ background:linear-gradient(110deg,#1a2140e8,#111a2fe8);
+ border-color:#a99aff24;border-radius:15px;
+}
+.bot-logo{
+ background:linear-gradient(145deg,#a17bff,#7185ec 58%,#58c7df);
+ box-shadow:0 7px 22px #7f73ed35;
+}
+.status.off{background:#292747;color:#d2c7ff;border:1px solid #af9eff22}
+.module{
+ background:linear-gradient(145deg,#171c38,#11172d);
+ border-color:#ad9cff25;border-radius:14px;transition:border-color .2s,background .2s;
+}
+.module:has(.toggle:checked){border-color:#a990ff77;background:linear-gradient(145deg,#27214d,#151d35)}
+.toggle:checked{background:linear-gradient(90deg,#9d7cff,#6fd7e8)}
+.log-line{background:#0b1226;border:1px solid #a9a2ff12;border-radius:10px}
+.empty{border-color:#a99aff42;background:#11182b75}
+.drop{background:#11182e;border-color:#b39dff66}
+.modal-wrap{background:#040611e8;backdrop-filter:blur(8px)}
+.modal{
+ background:linear-gradient(150deg,#1d2041,#10172d);
+ border-color:#b3a0ff3b;box-shadow:0 32px 100px #000b,0 0 60px #9e80ff12;
+}
+.close:hover{color:#fff}
+.toast{
+ background:linear-gradient(130deg,#252344,#15213a);
+ border-color:#b49fff4a;box-shadow:0 20px 55px #0009;
+}
+.project-note{
+ border-color:#b39dff35;
+ background:linear-gradient(110deg,#9d7aff17,#ff9bc90a,#62cfe70a);
+}
+@keyframes animeFloat{0%,100%{transform:translateY(0) rotate(-9deg)}50%{transform:translateY(-8px) rotate(-6deg)}}
+.hero:after{animation:animeFloat 7s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){
+ *,*:before,*:after{scroll-behavior:auto!important;animation:none!important;transition:none!important}
+}
+@media(max-width:760px){
+ .main{padding:17px 14px 38px}
+ .topbar{padding-bottom:14px}
+ .hero{padding:23px;min-height:215px}
+ .hero:after{font-size:100px;right:4%;top:26px;opacity:.65}
+ .hero:before{right:-8%;opacity:.7}
+ .showcase-heading h2{font-size:27px}
+}
+@media(max-width:520px){
+ #gateScreen,#authScreen{padding:22px 14px 32px;gap:17px}
+ .auth-card{padding:27px 23px 23px;border-radius:23px}
+ #gateScreen .auth-card{padding:27px 23px 23px}
+ .auth-card h1{font-size:29px;margin-top:24px}
+ .hero:after{font-size:84px;right:0;top:34px;opacity:.42}
+ .page-head h1{font-size:28px}
+ .stat-card{min-height:82px}
+}
+
 </style></head>
 <body>
 <section id="gateScreen">
@@ -109,8 +384,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
    <p>Uma central web para organizar projetos de bots, escolher módulos, acompanhar a preparação das aplicações e manter as configurações reunidas em um só lugar.</p>
    <div class="pill-row"><span class="pill">Projetos Discord</span><span class="pill">Módulos CAOS</span><span class="pill">Painel em português</span></div>
   </div>
-  <div class="auth-links"><span class="muted">Área privada • acesso protegido</span><span class="muted">v1.2</span></div>
- </div>
+  <div class="auth-links"><span class="muted">Área privada • acesso protegido</span><span class="muted">v1.3 • NIGHT BLOSSOM</span></div>
  </div>
  <section class="public-showcase" aria-labelledby="public-title">
   <div class="showcase-heading">
