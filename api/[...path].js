@@ -2171,7 +2171,7 @@ export async function onRequest(context) {
           if (!deploymentId) {
             const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(user.id).first();
             if (!hosting) return reply({ code: "hosting_not_connected", error: "Conecte o Bot-Hosting antes de enviar o pacote do bot." }, 409);
-            const scopes = String(hosting.scope || "").split(/\\s+/).filter(Boolean);
+            const scopes = String(hosting.scope || "").split(/\s+/).filter(Boolean);
             if (!scopes.includes("deployments:write") || !scopes.includes("credits:spend") || !scopes.includes("files:write")) {
               return reply({ code: "hosting_scope_missing", error: "A autorização do Bot-Hosting precisa liberar criação e envio de arquivos. Reconecte a hospedagem nas Configurações." }, 403);
             }
