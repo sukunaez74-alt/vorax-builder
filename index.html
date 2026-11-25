@@ -788,20 +788,42 @@ function logsView(){
  '<section class="dashboard-panel"><div class="backup-toolbar"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="backup-toolbar-actions"><button class="btn" id="backupManualCreate">↓ Criar e baixar ZIP</button><button class="btn secondary" id="backupRefresh">↻ Atualizar pontos</button></div></div><div id="backupStatus" class="project-note">O ZIP manual é uma cópia dos arquivos atuais. Os pontos de restauração automáticos são fornecidos pelo Bot-Hosting.</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Consultando pontos de restauração…</div></div></section>';
 }
 async function loadSettingsHostingState(){
- const node=$("#settingsHostingState");if(!node)return;
- node.innerHTML="<strong>Consultando autorização…</strong><br>Verificando a conexão com o Bot-Hosting.";
- try{
-  const result=await api("/hosting/status");
-  if(result.connected){
-   node.innerHTML='<strong>Hospedagem conectada.</strong><br>Esta conta autorizou o executor. Você já pode preparar o container de um bot.';
-   node.classList.remove("changes-pending");
-  }else{
-   node.innerHTML="<strong>Autorização pendente.</strong><br>Conecte sua conta Bot-Hosting para criar e controlar os containers.";
+ const node=$("#settingsHostingState"),discordNode=$("#settingsDiscordOAuthState"),discordButton=$("#connectDiscordAccount");
+ if(node){
+  node.innerHTML="<strong>Consultando autorização…</strong><br>Verificando a conexão com o Bot-Hosting.";
+  try{
+   const result=await api("/hosting/status");
+   if(result.connected){
+    node.innerHTML='<strong>Hospedagem conectada.</strong><br>Esta conta autorizou o executor. Você já pode preparar o container de um bot.';
+    node.classList.remove("changes-pending");
+   }else{
+    node.innerHTML="<strong>Autorização pendente.</strong><br>Conecte sua conta Bot-Hosting para criar e controlar os containers.";
+    node.classList.add("changes-pending");
+   }
+  }catch(error){
+   node.innerHTML="<strong>Não consegui conferir a autorização.</strong><br>"+escapeHtml(error.message);
    node.classList.add("changes-pending");
   }
- }catch(error){
-  node.innerHTML="<strong>Não consegui conferir a autorização.</strong><br>"+escapeHtml(error.message);
-  node.classList.add("changes-pending");
+ }
+ if(discordNode){
+  try{
+   const response=await fetch("/api/health",{credentials:"same-origin",cache:"no-store"});
+   const health=await response.json();
+   const configured=!!health.secretsConfigured?.discordOAuth;
+   if(configured){
+    discordNode.innerHTML="<strong>OAuth do Discord configurado.</strong><br>O botão de vinculação pode iniciar a autorização oficial.";
+    discordNode.classList.remove("changes-pending");
+    if(discordButton)discordButton.disabled=false;
+   }else{
+    discordNode.innerHTML='<strong>Falta configurar o aplicativo OAuth do Discord.</strong><br>No Vercel, adicione as variáveis secretas <code>DISCORD_CLIENT_ID</code> e <code>DISCORD_CLIENT_SECRET</code>. No Discord Developer Portal, cadastre este Redirect URI:<br><code class="discord-redirect-uri">https://black-zone-estudio.vercel.app/api/discord/link/callback</code><br>Depois faça um novo deploy para habilitar a vinculação.';
+    discordNode.classList.add("changes-pending");
+    if(discordButton)discordButton.disabled=true;
+   }
+  }catch(error){
+   discordNode.innerHTML="<strong>Não consegui verificar a configuração OAuth.</strong><br>"+escapeHtml(error.message);
+   discordNode.classList.add("changes-pending");
+   if(discordButton)discordButton.disabled=true;
+  }
  }
 }
 function settingsView(){
@@ -812,7 +834,8 @@ function settingsView(){
  '<section class="card"><div class="section-head"><h3>Conta Discord</h3><span class="status '+(linked?"":"off")+'">'+(linked?"VINCULADA":"NÃO VINCULADA")+'</span></div>'+
  '<p class="muted small">Vincule o Discord da pessoa que está usando o Estúdio. A autorização acontece na página oficial do Discord; não peça senha nem token pessoal.</p>'+
  '<div class="project-note"><strong>'+(linked?"Conta conectada: "+escapeHtml(linkedName):"Nenhuma conta Discord vinculada.")+'</strong><br>'+(linked?"O ID Discord está associado ao perfil atual do Estúdio.":"Apenas o perfil Discord será compartilhado com o Estúdio, usando o escopo identify.")+'</div>'+
- '<button class="btn" id="connectDiscordAccount">'+(linked?"Trocar conta vinculada":"Vincular minha conta Discord ↗")+'</button></section>'+
+ '<div id="settingsDiscordOAuthState" class="project-note changes-pending"><strong>Conferindo configuração OAuth…</strong></div>'+
+ '<button class="btn" id="connectDiscordAccount" disabled>'+(linked?"Trocar conta vinculada":"Vincular minha conta Discord ↗")+'</button></section>'+
  '<section class="card"><div class="section-head"><h3>Executor de bots</h3><span class="status">OAuth · sem chave manual</span></div><p class="muted small">Conecte sua conta Bot-Hosting uma vez. O Estúdio usa autorização OAuth e guarda os tokens de acesso criptografados; você não precisa copiar uma chave de API.</p><div id="settingsHostingState" class="project-note"><strong>Consultando autorização…</strong><br>Verificando se esta conta já autorizou o executor.</div><button class="btn" id="settingsHostingConnect">Conectar / reconectar Bot-Hosting</button><p class="muted small" style="margin-top:10px">Depois da autorização, abra um bot e clique em Iniciar. O Estúdio prepara o container Python do CAOS, instala as dependências e verifica a conexão real com o Discord.</p></section>'+
  '<section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">As sessões usam cookies HttpOnly. Os Bot Tokens são criptografados no servidor e nunca são devolvidos ao navegador em texto aberto.</p></section>'+
  '<section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API, o PostgreSQL e a configuração do ambiente.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>';
@@ -1359,7 +1382,26 @@ async function loadBotResources(id){const area=$("#botResources");if(!area)retur
 function terminalModal(id){openModal('<div class="modal-head"><h3>Terminal do bot</h3><button class="close" id="closeModal">×</button></div><p class="muted small">Comandos são executados dentro do contêiner desta implantação. Evite comandos que apaguem arquivos ou alterem credenciais.</p><form id="shellForm"><div class="field"><label>COMANDO</label><textarea id="shellCommand" rows="2" required maxlength="1200" placeholder="Ex.: python --version"></textarea></div><button class="btn">Executar comando</button></form><pre id="terminalOutput" class="log-line" style="margin-top:14px;max-height:280px;overflow:auto;white-space:pre-wrap">Terminal pronto.</pre>');$("#shellForm").onsubmit=async e=>{e.preventDefault();const command=$("#shellCommand").value.trim();if(!command)return;const out=$("#terminalOutput");out.textContent+="\n$ "+command+"\nExecutando…";$("#shellCommand").value="";try{const r=await api("/bots/"+encodeURIComponent(id)+"/shell",{method:"POST",body:JSON.stringify({command})});out.textContent=out.textContent.replace("Executando…",(r.output||"Sem saída do comando.")+"\nCódigo de saída: "+(r.exitCode??"—")+(r.timedOut?"\nTempo limite atingido.":"")+(r.truncated?"\nA saída foi reduzida pela hospedagem.":""));}catch(err){out.textContent=out.textContent.replace("Executando…","Erro: "+err.message)}}}
 async function loadFileList(){const id=$("#fileBot")?.value,area=$("#fileList");if(!id)return toast("Crie ou selecione uma implantação primeiro.");if(!area)return;area.innerHTML='<div class="log-line">Carregando arquivos…</div>';try{const r=await api("/bots/"+encodeURIComponent(id)+"/files?path=/");const entries=r.entries||[];area.innerHTML=entries.length?entries.map(x=>'<div class="bot-row"><div class="bot-logo">'+(x.type==="directory"?"📁":"📄")+'</div><div class="bot-info"><strong>'+escapeHtml(x.name||"sem nome")+'</strong><span>'+escapeHtml(x.type||"arquivo")+' • '+formatBytes(x.sizeBytes||0)+'</span></div></div>').join(""):'<div class="empty">Nenhum arquivo encontrado no diretório principal.</div>'}catch(e){area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
 async function uploadZip(){const file=$("#zipFile")?.files?.[0],id=$("#fileBot")?.value;if(!file||!id)return toast("Escolha o bot e um arquivo ZIP.");if(file.size>25*1024*1024)return toast("O arquivo excede o limite inicial de 25 MB.");try{const r=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({filename:file.name})});const form=new FormData();form.append(r.field||"files",file,file.name);const sent=await fetch(r.url,{method:"POST",body:form});if(!sent.ok)throw new Error("Falha ao enviar o arquivo para a hospedagem.");await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({filename:file.name})});toast("Pacote enviado. Confira os logs antes de iniciar.");}catch(e){toast(e.message)}}
-async function healthCheck(){const area=$("#healthResult");if(area)area.innerHTML='<div class="log-line">Verificando…</div>';try{const r=await fetch("/api/health",{credentials:"same-origin"});const d=await r.json();if(!r.ok)throw new Error(d.error||"Falha no diagnóstico.");const rows=[["API do painel",d.ok],["PostgreSQL conectado",d.databaseConfigured],["Consulta real ao banco",d.databaseQuery],["Segredo de sessão",d.secretsConfigured?.session],["Criptografia de credenciais",d.secretsConfigured?.encryption]];if(area)area.innerHTML=rows.map(([name,ok])=>'<div class="log-line">'+escapeHtml(name)+': <strong style="color:'+(ok?'#8aefc5':'#ffb2c0')+'">'+(ok?'Configurado':'Pendente')+'</strong></div>').join("");}catch(e){if(area)area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
+async function healthCheck(){
+ const area=$("#healthResult");
+ if(area)area.innerHTML='<div class="log-line">Verificando…</div>';
+ try{
+  const response=await fetch("/api/health",{credentials:"same-origin",cache:"no-store"});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.error||"Falha no diagnóstico.");
+  const rows=[
+   ["API do painel",data.ok],
+   ["PostgreSQL conectado",data.databaseConfigured],
+   ["Consulta real ao banco",data.databaseQuery],
+   ["Segredo de sessão",data.secretsConfigured?.session],
+   ["Criptografia de credenciais",data.secretsConfigured?.encryption],
+   ["OAuth de conta Discord",data.secretsConfigured?.discordOAuth]
+  ];
+  if(area)area.innerHTML=rows.map(([name,ok])=>'<div class="log-line">'+escapeHtml(name)+': <strong style="color:'+(ok?'#8aefc5':'#ffb2c0')+'">'+(ok?'Configurado':'Pendente')+'</strong></div>').join("");
+ }catch(error){
+  if(area)area.innerHTML='<div class="log-line">'+escapeHtml(error.message)+'</div>';
+ }
+}
 function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 boot();
 window.__botStatusPoll=setInterval(()=>{if(state.user&&state.view==="overview")loadBots()},30000);
