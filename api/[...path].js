@@ -1603,6 +1603,57 @@ export async function onRequest(context) {
       const missingScopes = ["deployments:write", "credits:spend"].filter(scope => !scopes.includes(scope));
       return reply({ connected: !!row, expiresAt: row?.expires_at || null, scope: row?.scope || "", canCreateDeployments: missingScopes.length === 0, missingScopes });
     }
+    if (path === "/hosting/discloud/status" && request.method === "GET") {
+      const row = await env.DB.prepare("SELECT encrypted_token,account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first();
+      if (!row) return reply({ connected: false, provider: "discloud" });
+      try {
+        const token = await decryptSecret(row.encrypted_token, env);
+        const response = await fetch("https://api.discloud.app/v2/user", {
+          headers: { "api-token": token, accept: "application/json" },
+          signal: AbortSignal.timeout(12000)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data?.status !== "ok" || !data?.user) {
+          return reply({ connected: true, valid: false, provider: "discloud", accountLabel: row.account_label || null, plan: row.plan || null, error: "A Discloud não confirmou a chave salva. Atualize a API Key no painel." });
+        }
+        return reply({
+          connected: true, valid: true, provider: "discloud",
+          accountLabel: data.user.username || row.account_label || null,
+          plan: data.user.plan || row.plan || null,
+          appsCount: Array.isArray(data.user.apps) ? data.user.apps.length : null,
+          updatedAt: row.updated_at
+        });
+      } catch (error) {
+        return reply({ connected: true, valid: false, provider: "discloud", accountLabel: row.account_label || null, plan: row.plan || null, error: error.message || "Não consegui validar a conexão da Discloud." });
+      }
+    }
+    if (path === "/hosting/discloud/connect" && request.method === "POST") {
+      const b = await body(request);
+      const token = String(b.apiToken || "").trim();
+      if (token.length < 16 || token.length > 512) return reply({ error: "Informe uma API Key válida da Discloud." }, 400);
+      try {
+        const response = await fetch("https://api.discloud.app/v2/user", {
+          headers: { "api-token": token, accept: "application/json" },
+          signal: AbortSignal.timeout(12000)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data?.status !== "ok" || !data?.user) {
+          return reply({ error: "A Discloud recusou essa API Key. Confira a chave no Dashboard da Discloud e tente novamente." }, 401);
+        }
+        const encrypted = await encryptSecret(token, env);
+        await env.DB.prepare(
+          "INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,'discloud',?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at"
+        ).bind(user.id, encrypted, String(data.user.username || ""), String(data.user.plan || ""), Date.now()).run();
+        return reply({
+          ok: true, connected: true, provider: "discloud",
+          accountLabel: data.user.username || null, plan: data.user.plan || null,
+          appsCount: Array.isArray(data.user.apps) ? data.user.apps.length : null,
+          message: "Conta Discloud validada e chave guardada com criptografia."
+        });
+      } catch (error) {
+        return reply({ error: error.message || "Não consegui validar a conta Discloud." }, 502);
+      }
+    }
     if (path === "/hosting/disconnect" && request.method === "POST") {
       await env.DB.prepare("DELETE FROM hosting_connections WHERE user_id=?").bind(user.id).run();
       return reply({ ok: true, connected: false });
