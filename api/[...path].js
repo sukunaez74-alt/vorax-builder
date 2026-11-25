@@ -148,7 +148,7 @@ from discord.ext import commands, tasks
 TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 APP_URL = os.getenv("APP_URL", "https://black-zone-estudio.vercel.app").rstrip("/")
 INVITE_URL = os.getenv("SERVER_INVITE", "").strip()
-VERIFY_URL = INVITE_URL
+VERIFY_URL = APP_URL + "/api/verification/start"
 STATUS_FILE = Path("verification-status.json")
 
 def write_status(status, **extra):
@@ -185,16 +185,16 @@ async def heartbeat():
     if bot.user:
         write_status("online", botId=str(bot.user.id), botName=str(bot.user), guilds=len(bot.guilds))
 
-@bot.tree.command(name="verificar", description="Receba o convite para entrar no servidor")
+@bot.tree.command(name="verificar", description="Faça login para verificar sua conta e receber o convite")
 async def verificar(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Verificação de conta",
-        description="Clique no botão abaixo para entrar no servidor. Se precisar, conclua as etapas de verificação do próprio servidor.",
+        description="Entre com sua conta Discord para confirmar sua identidade. Depois da autorização, você receberá o convite para entrar no servidor.",
         color=discord.Color.blurple()
     )
     embed.set_footer(text="BLACK ZONE • Verificação segura")
     view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label="Entrar no servidor", style=discord.ButtonStyle.link, url=VERIFY_URL))
+    view.add_item(discord.ui.Button(label="Entrar e verificar", style=discord.ButtonStyle.link, url=VERIFY_URL))
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 @bot.tree.command(name="painel_verificacao", description="Publica o painel de verificação neste canal")
@@ -203,22 +203,22 @@ async def verificar(interaction: discord.Interaction):
 async def painel_verificacao(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Seja bem-vindo(a)! ✦",
-        description="Clique no botão abaixo para entrar no servidor. Siga as instruções de verificação exibidas pela equipe.",
+        description="Entre com sua conta Discord para confirmar sua identidade. Depois da autorização, você receberá o convite para entrar no servidor.",
         color=discord.Color.blurple()
     )
     embed.set_footer(text="BLACK ZONE • Central de verificação")
     view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label="Entrar no servidor", style=discord.ButtonStyle.link, url=VERIFY_URL))
+    view.add_item(discord.ui.Button(label="Entrar e verificar", style=discord.ButtonStyle.link, url=VERIFY_URL))
     await interaction.response.send_message(embed=embed, view=view)
 
-@bot.tree.command(name="link_servidor", description="Mostra o convite do servidor BLACK ZONE")
+@bot.tree.command(name="link_servidor", description="Verifica sua conta Discord e libera o convite do servidor")
 async def link_servidor(interaction: discord.Interaction):
     if not INVITE_URL:
         await interaction.response.send_message("O convite ainda não foi configurado no painel administrativo.", ephemeral=True)
         return
     view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label="Entrar no servidor", style=discord.ButtonStyle.link, url=INVITE_URL))
-    await interaction.response.send_message("Aqui está o convite do servidor:", view=view, ephemeral=True)
+    view.add_item(discord.ui.Button(label="Entrar e verificar", style=discord.ButtonStyle.link, url=INVITE_URL))
+    await interaction.response.send_message("Inicie o login Discord pelo botão abaixo para receber o convite:", view=view, ephemeral=True)
 
 @bot.event
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -252,7 +252,8 @@ async function ensureVerificationBotDeployment(userId, env) {
   const isNew = !deploymentId;
   if (isNew) {
     const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(userId).first();
-    if (!String(hosting?.scope || "").split(/\s+/).includes("credits:spend")) {
+    const granted = String(hosting?.scope || "").split(/\s+/).filter(Boolean);
+    if (!granted.includes("credits:spend") || !granted.includes("deployments:write")) {
       throw new Error("A autorização atual do Bot-Hosting não permite criar o servidor do ADM. Vá em Configurações, clique em Conectar / reconectar Bot-Hosting e aprove a permissão de criação de implantações.");
     }
     const created = await hostRequest(userId, env, "/deployments", "POST", {
@@ -343,11 +344,40 @@ async function saveVerificationBotSettings(user, input, env) {
   const identity = await validateDiscordBotToken(token);
   if (!identity.valid) return { ok: false, status: identity.unavailable ? 503 : 400, error: identity.unavailable ? "Não consegui validar com o Discord agora. Tente novamente." : "O Discord recusou o Bot Token informado." };
   const tokenEnc = await encryptSecret(token, env);
-  const previousSecretEnc = old?.oauth_client_secret_enc || null;
+  const previousSecretEnc = old?.oauth_client_id === identity.botId ? (old?.oauth_client_secret_enc || null) : null;
   await env.DB.prepare(
-    "INSERT INTO verification_bot_settings (id,owner_user_id,bot_token_enc,bot_id,bot_name,oauth_client_id,oauth_client_secret_enc,invite_url,state,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,bot_token_enc=EXCLUDED.bot_token_enc,bot_id=EXCLUDED.bot_id,bot_name=EXCLUDED.bot_name,oauth_client_id=COALESCE(EXCLUDED.oauth_client_id,verification_bot_settings.oauth_client_id),oauth_client_secret_enc=COALESCE(EXCLUDED.oauth_client_secret_enc,verification_bot_settings.oauth_client_secret_enc),invite_url=EXCLUDED.invite_url,state=CASE WHEN verification_bot_settings.hosting_deployment_id IS NULL THEN 'configured' ELSE verification_bot_settings.state END,updated_at=EXCLUDED.updated_at"
-  ).bind(user.id, tokenEnc, identity.botId, identity.botName || null, (old?.oauth_client_id || env.DISCORD_CLIENT_ID || null), previousSecretEnc, inviteUrl, old?.state || "configured", Date.now()).run();
+    "INSERT INTO verification_bot_settings (id,owner_user_id,bot_token_enc,bot_id,bot_name,oauth_client_id,oauth_client_secret_enc,invite_url,state,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,bot_token_enc=EXCLUDED.bot_token_enc,bot_id=EXCLUDED.bot_id,bot_name=EXCLUDED.bot_name,oauth_client_id=EXCLUDED.oauth_client_id,oauth_client_secret_enc=CASE WHEN verification_bot_settings.oauth_client_id=EXCLUDED.oauth_client_id THEN COALESCE(EXCLUDED.oauth_client_secret_enc,verification_bot_settings.oauth_client_secret_enc) ELSE EXCLUDED.oauth_client_secret_enc END,invite_url=EXCLUDED.invite_url,state=CASE WHEN verification_bot_settings.hosting_deployment_id IS NULL THEN 'configured' ELSE verification_bot_settings.state END,updated_at=EXCLUDED.updated_at"
+  ).bind(user.id, tokenEnc, identity.botId, identity.botName || null, identity.botId, previousSecretEnc, inviteUrl, old?.state || "configured", Date.now()).run();
   return { ok: true, configured: true, botId: identity.botId, botName: identity.botName || null, inviteUrl, hasToken: true, message: "Bot Token validado e convite salvos com segurança." };
+ }
+async function saveVerificationOAuthSettings(user, input, env) {
+  const settings = await verificationBotSettings(env);
+  if (!settings?.bot_id || !settings?.bot_token_enc) {
+    return { ok: false, status: 409, error: "Salve primeiro o Bot Token do bot central." };
+  }
+  const clientId = String(input.clientId || settings.bot_id).trim();
+  if (clientId !== String(settings.bot_id)) {
+    return { ok: false, status: 400, error: "O Client ID OAuth2 precisa ser o mesmo ID da aplicação do Bot Token salvo." };
+  }
+  let secret = String(input.clientSecret || "").trim();
+  if (!secret && settings.oauth_client_secret_enc) {
+    try { secret = await decryptSecret(settings.oauth_client_secret_enc, env) || ""; } catch {}
+  }
+  if (!secret || secret.length < 16 || secret.length > 256 || /\s/.test(secret)) {
+    return { ok: false, status: 400, error: "Informe o Client Secret OAuth2 da mesma aplicação Discord, sem espaços." };
+  }
+  let encrypted;
+  try {
+    encrypted = await encryptSecret(secret, env);
+    const check = await decryptSecret(encrypted, env);
+    if (!check || !same(check, secret)) throw new Error("integrity");
+  } catch {
+    return { ok: false, status: 503, error: "Não foi possível proteger o Client Secret. Confira a chave de criptografia do Estúdio." };
+  }
+  await env.DB.prepare(
+    "UPDATE verification_bot_settings SET oauth_client_id=?,oauth_client_secret_enc=?,updated_at=? WHERE id='main'"
+  ).bind(settings.bot_id, encrypted, Date.now()).run();
+  return { ok: true, oauthConfigured: true, clientId: settings.bot_id, message: "Login Discord configurado e Client Secret armazenado criptografado." };
 }
 async function verificationStart(request, env) {
   const settings = await verificationBotSettings(env);
@@ -1205,6 +1235,7 @@ export async function onRequest(context) {
       const hostingScopes = String(hosting?.scope || "").split(/\s+/).filter(Boolean);
       return reply({
         configured: !!settings?.bot_token_enc && !!settings?.invite_url,
+        oauthRedirectUri: new URL("/api/verification/callback", request.url).href,
         hasToken: !!settings?.bot_token_enc,
         botId: settings?.bot_id || null,
         botName: settings?.bot_name || null,
@@ -1221,6 +1252,12 @@ export async function onRequest(context) {
     if (path === "/admin/verification-bot/config" && request.method === "POST") {
       if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
       const result = await saveVerificationBotSettings(user, await body(request), env);
+      if (!result.ok) return reply({ error: result.error }, result.status);
+      return reply(result);
+    }
+    if (path === "/admin/verification-bot/oauth" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const result = await saveVerificationOAuthSettings(user, await body(request), env);
       if (!result.ok) return reply({ error: result.error }, result.status);
       return reply(result);
     }
@@ -1264,7 +1301,8 @@ export async function onRequest(context) {
     if (path === "/hosting/status" && request.method === "GET") {
       const row = await env.DB.prepare("SELECT expires_at,scope FROM hosting_connections WHERE user_id=?").bind(user.id).first();
       const scopes = String(row?.scope || "").split(/\s+/).filter(Boolean);
-      return reply({ connected: !!row, expiresAt: row?.expires_at || null, scope: row?.scope || "", canCreateDeployments: scopes.includes("credits:spend") });
+      const missingScopes = ["deployments:write", "credits:spend"].filter(scope => !scopes.includes(scope));
+      return reply({ connected: !!row, expiresAt: row?.expires_at || null, scope: row?.scope || "", canCreateDeployments: missingScopes.length === 0, missingScopes });
     }
     if (path === "/hosting/disconnect" && request.method === "POST") {
       await env.DB.prepare("DELETE FROM hosting_connections WHERE user_id=?").bind(user.id).run();
