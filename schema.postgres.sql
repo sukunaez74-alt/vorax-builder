@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS bots (
   runtime TEXT NOT NULL CHECK (runtime IN ('python','nodejs')),
   state TEXT NOT NULL DEFAULT 'draft',
   modules JSONB NOT NULL DEFAULT '{}'::jsonb,
+  discord_token_enc TEXT,
   created_at BIGINT NOT NULL,
   updated_at BIGINT NOT NULL
 );
