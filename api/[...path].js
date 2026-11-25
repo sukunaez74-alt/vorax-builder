@@ -2067,7 +2067,7 @@ export async function onRequest(context) {
       }
 
       if (action === "upload-url" && request.method === "POST") {
-        if (bot.project_type !== "custom") return reply({ error: "Envio de código próprio só está disponível em projetos criados como \"Meu próprio bot\"." }, 409);
+        if (bot.project_type !== "custom" && !bot.custom_project) return reply({ error: "Envio de código próprio só está disponível em projetos criados como \"Meu próprio bot\"." }, 409);
         try {
           const b = await body(request);
           const root = safeVolumePath(b.path || "/");
@@ -2117,7 +2117,7 @@ export async function onRequest(context) {
       }
 
       if (action === "import" && request.method === "POST") {
-        if (bot.project_type !== "custom") return reply({ error: "Este é um projeto do bot padrão do Estúdio. Para importar seu próprio código, crie um projeto na opção \"Meu próprio bot\"." }, 409);
+        if (bot.project_type !== "custom" && !bot.custom_project) return reply({ error: "Este é um projeto do bot padrão do Estúdio. Para importar seu próprio código, crie um projeto na opção \"Meu próprio bot\"." }, 409);
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Envie o pacote para preparar a hospedagem primeiro." }, 409);
         try {
           const importBody = await body(request);
@@ -2145,7 +2145,7 @@ export async function onRequest(context) {
               await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/delete", "POST", { root: "/", files: ["/runner.py", "/caos-version.txt"] });
             }
           } catch {}
-          await env.DB.prepare("UPDATE bots SET runtime=?,custom_project=?::jsonb,state='stopped',updated_at=? WHERE id=? AND user_id=?")
+          await env.DB.prepare("UPDATE bots SET runtime=?,project_type='custom',custom_project=?::jsonb,state='stopped',updated_at=? WHERE id=? AND user_id=?")
             .bind(analysis.runtime, JSON.stringify(customProject), Date.now(), id, user.id).run();
           await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/startup", "PATCH", {
             runtime: analysis.runtime, runtimeVersion: analysis.runtime === "nodejs" ? "22" : "3.11",
