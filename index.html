@@ -714,8 +714,9 @@ function botCard(b){
   '<div class="dashboard-bot-meta">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' · '+(b.hostingDeploymentId?"Implantado":"Ainda não publicado")+' · '+(b.hasDiscordToken?"Token salvo e protegido":"Token pendente")+'</div>'+
   '<div class="dashboard-bot-stats"><span><b>CPU ALOCADA</b><small>'+(allocation.cpuPercent!=null?escapeHtml(String(allocation.cpuPercent))+"%":"—")+'</small></span><span><b>RAM ALOCADA</b><small>'+(allocation.ramMB!=null?escapeHtml(String(allocation.ramMB))+" MB":"—")+'</small></span><span><b>ARMAZENAMENTO</b><small>'+(allocation.storageMB!=null?escapeHtml(String(allocation.storageMB))+" MB":"—")+'</small></span></div></div>'+
   '<div class="dashboard-bot-actions">'+
-   '<button class="bot-action action-start" data-bot-power="start" data-bot-id="'+safeId+'" '+(online||!state.hosting||!b.hasDiscordToken?"disabled":"")+'><span>▶</span>Iniciar</button>'+
-   '<button class="bot-action action-restart" data-bot-power="restart" data-bot-id="'+safeId+'" '+(!b.hostingDeploymentId||!state.hosting?"disabled":"")+'><span>↻</span>Reiniciar</button>'+
+   '<button class="bot-action action-start" data-bot-power="start" data-bot-id="'+safeId+'" '+(online?"disabled":"")+'><span>▶</span>Iniciar</button>'+
+   '<button class="bot-action action-config" data-config-bot="'+safeId+'"><span>＋</span>Token / módulos</button>'+
+   '<button class="bot-action action-restart" data-bot-power="restart" data-bot-id="'+safeId+'" '+(!b.hostingDeploymentId?"disabled":"")+'><span>↻</span>Reiniciar</button>'+
    '<button class="bot-action action-stop" data-bot-power="stop" data-bot-id="'+safeId+'" '+(!b.hostingDeploymentId||!processActive||!state.hosting?"disabled":"")+'><span>■</span>Parar</button>'+
    '<button class="bot-action action-more" data-openbot="'+safeId+'"><span>•••</span>Mais</button>'+
   '</div></article>';
@@ -838,6 +839,15 @@ async function loadSettingsHostingState(){
  }
 }
 
+async function loadVerificationBotAdmin(){
+ try{
+  state.verificationAdmin=await api("/admin/verification-bot/status");
+  if(state.view==="verificationAdmin"&&state.adminPortal)render();
+ }catch(error){
+  state.verificationAdmin={loadError:error.message||"Não foi possível consultar o painel administrativo."};
+  if(state.view==="verificationAdmin"&&state.adminPortal){render();toast(state.verificationAdmin.loadError);}
+ }
+}
 function verificationAdminView(){
  const r=state.verificationAdmin||{},runtime=r.runtime||{},live=runtime.online===true;
  const status=live?"ONLINE":runtime.state==="not_deployed"?"NÃO IMPLANTADO":String(runtime.state||"PENDENTE").toUpperCase();
@@ -930,7 +940,12 @@ function bindView(){
  const settingsHost=$("#settingsHostingConnect");if(settingsHost)settingsHost.onclick=connectHosting;
  if(state.view==="settings")loadSettingsHostingState();
 
- document.querySelectorAll("[data-bot-power]").forEach(button=>{button.onclick=()=>refreshBotPower(button.dataset.botId,button.dataset.botPower,button)});
+ document.querySelectorAll("[data-bot-power]").forEach(button=>{button.onclick=()=>{
+  const id=button.dataset.botId,action=button.dataset.botPower,bot=state.bots.find(item=>item.id===id);
+  if(action!=="stop"&&!state.hosting){toast("Antes de iniciar o servidor, conecte sua conta Bot-Hosting. Vou abrir Integrações.");navigate("integrations");return;}
+  if(action!=="stop"&&!bot?.hasDiscordToken){toast("Este projeto ainda não tem Bot Token salvo. Abra a configuração para adicionar o token.");caosModal(id);return;}
+  refreshBotPower(id,action,button);
+ }});
  const refreshLogs=$("#refreshLogs");if(refreshLogs)refreshLogs.onclick=loadLogs;
  const fileRefresh=$("#fileRefresh");if(fileRefresh)fileRefresh.onclick=()=>loadFiles();
  const fileGo=$("#fileGo");if(fileGo)fileGo.onclick=()=>loadFiles(undefined,$("#filePath").value);
