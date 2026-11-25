@@ -250,6 +250,7 @@ async function ensureVerificationBotDeployment(userId, env) {
   if (!connected) throw new Error("Conecte sua conta Bot-Hosting nas Configurações do Estúdio antes de iniciar o bot central.");
   let deploymentId = settings.hosting_deployment_id || null;
   const isNew = !deploymentId;
+  let reusedCaosBot = null;
   if (isNew) {
     const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(userId).first();
     const granted = String(hosting?.scope || "").split(/\s+/).filter(Boolean);
@@ -262,20 +263,45 @@ async function ensureVerificationBotDeployment(userId, env) {
     if (recovered) {
       deploymentId = String(recovered.id);
     } else {
-      const created = await hostRequest(userId, env, "/deployments", "POST", {
-        name: "black-zone-verificacao",
-        source: "blank",
-        runtime: "python",
-        runtimeVersion: "3.11"
-      });
-      const deployment = created.deployment || created;
-      deploymentId = String(deployment.id || "");
-      if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID da implantação do bot de verificação.");
+      try {
+        const created = await hostRequest(userId, env, "/deployments", "POST", {
+          name: "black-zone-verificacao",
+          source: "blank",
+          runtime: "python",
+          runtimeVersion: "3.11"
+        });
+        const deployment = created.deployment || created;
+        deploymentId = String(deployment.id || "");
+        if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID da implantação do bot de verificação.");
+      } catch (createError) {
+        if (!/HTTP 402\\b/.test(String(createError?.message || ""))) throw createError;
+        reusedCaosBot = await env.DB.prepare(
+          "SELECT id,name,hosting_deployment_id,state FROM bots WHERE user_id=? AND lower(name)=lower('CAOS') AND hosting_deployment_id IS NOT NULL AND state IN ('stopped','draft') ORDER BY updated_at DESC LIMIT 1"
+        ).bind(userId).first();
+        if (!reusedCaosBot?.hosting_deployment_id) throw createError;
+        deploymentId = String(reusedCaosBot.hosting_deployment_id);
+        const current = await hostRequest(
+          userId, env,
+          "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=2"
+        );
+        const currentState = String(current.state || current.deployment?.state || "").toLowerCase();
+        if (!currentState) throw new Error("Encontrei a hospedagem do CAOS, mas não consegui confirmar o estado dela. Nenhum arquivo foi alterado.");
+        if (!["offline","stopped","terminated"].includes(currentState)) {
+          await hostRequest(
+            userId, env,
+            "/deployments/" + encodeURIComponent(deploymentId) + "/power",
+            "POST",
+            { action: "stop", waitSeconds: 0 }
+          );
+        }
+      }
     }
-    await env.DB.prepare("UPDATE verification_bot_settings SET hosting_deployment_id=?,bot_id=?,bot_name=?,state='starting',updated_at=? WHERE id='main'")
-      .bind(deploymentId, identity.botId, identity.botName || null, Date.now()).run();
+    if (!reusedCaosBot) {
+      await env.DB.prepare("UPDATE verification_bot_settings SET hosting_deployment_id=?,bot_id=?,bot_name=?,state='starting',updated_at=? WHERE id='main'")
+        .bind(deploymentId, identity.botId, identity.botName || null, Date.now()).run();
+    }
   }
-  const version = "bz-verification-bot-v2-2026-11";
+  const version = "bz-verification-bot-v3-reuse-caos-2026-11";
   let installed = "";
   if (!isNew) {
     try {
@@ -306,9 +332,17 @@ async function ensureVerificationBotDeployment(userId, env) {
   await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
     runtime: "python", runtimeVersion: "3.11", entryFile: "verification_bot.py", startCommand: null
   });
-  await env.DB.prepare("UPDATE verification_bot_settings SET bot_id=?,bot_name=?,state='starting',updated_at=? WHERE id='main'")
-    .bind(identity.botId, identity.botName || null, Date.now()).run();
-  return { deploymentId, botId: identity.botId, botName: identity.botName || null };
+  await env.DB.prepare("UPDATE verification_bot_settings SET hosting_deployment_id=?,bot_id=?,bot_name=?,state='starting',updated_at=? WHERE id='main'")
+    .bind(deploymentId, identity.botId, identity.botName || null, Date.now()).run();
+  if (reusedCaosBot?.id) {
+    await env.DB.prepare("UPDATE bots SET hosting_deployment_id=NULL,state='stopped',updated_at=? WHERE id=? AND user_id=? AND hosting_deployment_id=?")
+      .bind(Date.now(), reusedCaosBot.id, userId, deploymentId).run();
+  }
+  return {
+    deploymentId, botId: identity.botId, botName: identity.botName || null,
+    reusedCaosDeployment: !!reusedCaosBot,
+    replacedBotName: reusedCaosBot?.name || null
+  };
 }
 async function readVerificationBotStatus(userId, env, settings) {
   if (!settings?.hosting_deployment_id) return { state: "not_deployed", online: false, deploymentId: null };
