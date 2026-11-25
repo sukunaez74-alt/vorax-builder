@@ -98,7 +98,10 @@ async function hostRequest(userId, env, path, method = "GET", data = null) {
     body: data ? JSON.stringify(data) : undefined
   });
   const text = await response.text(); let parsed; try { parsed = JSON.parse(text); } catch { parsed = { error: text.slice(0, 600) }; }
-  if (!response.ok) throw new Error(parsed.error || parsed.message || parsed.detail || ("Bot-Hosting retornou HTTP " + response.status) + (parsed.hint ? " — " + parsed.hint : ""));
+  if (!response.ok) {
+    const reason = parsed.error || parsed.message || parsed.detail || ("Bot-Hosting retornou HTTP " + response.status);
+    throw new Error(reason + (parsed.hint ? " — " + parsed.hint : ""));
+  }
   return parsed;
 }
 async function startDiscord(request, env) {
