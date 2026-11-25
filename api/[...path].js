@@ -274,7 +274,7 @@ async function ensureVerificationBotDeployment(userId, env) {
         deploymentId = String(deployment.id || "");
         if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID da implantação do bot de verificação.");
       } catch (createError) {
-        if (!/HTTP 402\\b/.test(String(createError?.message || ""))) throw createError;
+        if (!/HTTP 402\b/.test(String(createError?.message || ""))) throw createError;
         reusedCaosBot = await env.DB.prepare(
           "SELECT id,name,hosting_deployment_id,state FROM bots WHERE user_id=? AND lower(name)=lower('CAOS') AND hosting_deployment_id IS NOT NULL AND state IN ('stopped','draft') ORDER BY updated_at DESC LIMIT 1"
         ).bind(userId).first();
