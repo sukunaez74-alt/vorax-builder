@@ -3247,7 +3247,15 @@ export async function onRequest(context) {
                 : (result.hint || "Inicialização solicitada. Acompanhe a instalação, o login no Discord e a publicação dos comandos nos logs."))
           });
         } catch (error) {
-          return reply({ ok: false, error: error.message || "Falha ao controlar o bot no Bot-Hosting." }, 502);
+          const rawMessage = String(error?.message || "");
+          const noSlots = /HTTP 402\b|all slots|plan.*in use|slots.*use/i.test(rawMessage);
+          return reply({
+            ok: false,
+            code: noSlots ? "free_hosting_capacity_full" : "provider_action_failed",
+            error: noSlots
+              ? "A Bot-Hosting está sem vagas no seu plano (HTTP 402). O Estúdio não vai contratar nem selecionar hospedagem paga. Para ligar este bot, conecte uma vaga gratuita compatível em Configurações → Integrações. A Cube Hosting pode receber o ZIP pelo Estúdio depois que sua vaga Free estiver liberada. Nenhum arquivo ou bot existente foi alterado."
+              : (rawMessage || "Falha ao controlar o bot na hospedagem.")
+          }, noSlots ? 402 : 502);
         }
       }
 
