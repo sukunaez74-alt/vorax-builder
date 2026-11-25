@@ -17,7 +17,7 @@ function check(file) {
 
 for (const backend of backends) check(backend);
 const apiSource = readFileSync(backends[0], "utf8");
-const verificationBot = apiSource.match(new RegExp("function verificationBotSource\\\\(\\\\)\\\\s*\\\\{\\\\s*return String\\\\.raw`([\\\\s\\\\S]*?)`;\\\\s*\\\\}"));
+const verificationBot = apiSource.match(/function verificationBotSource\(\)\s*\{\s*return String\.raw`([\s\S]*?)`;\s*\}/);
 if (!verificationBot) throw new Error("Código-fonte do bot de verificação não encontrado");
 const botFile = join(tmpdir(), "black-zone-verification-bot.py");
 try {
