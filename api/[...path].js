@@ -260,6 +260,58 @@ export async function onRequest(context) {
       return reply({ ok: true }, 200, { "set-cookie": clearCookie("bz_session") });
     }
     const auth = await requireUser(request, env); if (auth.error) return auth.error; const user = auth.user;
+    if (path === "/bot-config" && request.method === "POST") {
+      const b = await body(request);
+      const id = String(b.botId || "").trim();
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return reply({ error: "Projeto inválido. Atualize a lista e tente novamente." }, 400);
+      const ownedBot = await env.DB.prepare(
+        "SELECT id,discord_token_enc FROM bots WHERE id=? AND user_id=?"
+      ).bind(id, user.id).first();
+      if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta. Atualize a lista de bots." }, 404);
+
+      const discordToken = String(b.discordToken || "").trim();
+      if (discordToken) {
+        if (discordToken.length < 30 || discordToken.length > 256 || /\\s/.test(discordToken)) {
+          return reply({ error: "O Bot Token parece incompleto. Copie o token inteiro, sem espaços." }, 400);
+        }
+        const verifiedToken = await validateDiscordBotToken(discordToken);
+        if (verifiedToken.unavailable) {
+          const message = verifiedToken.reason === "rate_limited"
+            ? "O Discord limitou temporariamente as verificações. Aguarde um minuto e tente novamente."
+            : "Não foi possível alcançar o Discord para validar o token. Verifique a conexão e tente novamente.";
+          return reply({ error: message, code: verifiedToken.reason || "discord_unavailable" }, 503);
+        }
+        if (!verifiedToken.valid) {
+          const message = verifiedToken.reason === "not_a_bot"
+            ? "A credencial foi aceita, mas não pertence a um usuário Bot. Use o Bot Token da seção Bot no Discord Developer Portal."
+            : "O Discord recusou o token. Gere ou copie novamente o Bot Token na seção Bot do Discord Developer Portal; não use Client Secret, Client ID ou Public Key.";
+          return reply({ error: message, code: verifiedToken.reason || "invalid_discord_token" }, 400);
+        }
+        const encryptedToken = await encryptSecret(discordToken, env);
+        await env.DB.prepare(
+          "UPDATE bots SET discord_token_enc=?, updated_at=? WHERE id=? AND user_id=?"
+        ).bind(encryptedToken, Date.now(), id, user.id).run();
+      } else if (!ownedBot.discord_token_enc) {
+        return reply({ error: "Informe o Bot Token do Discord para este projeto." }, 400);
+      }
+
+      const allowed = ["music","tickets","attendance","team","goals","warnings","recruitment","logs"];
+      const modules = {};
+      for (const key of allowed) modules[key] = !!(b.modules && b.modules[key]);
+      await env.DB.prepare(
+        "UPDATE bots SET modules=?::jsonb, updated_at=? WHERE id=? AND user_id=?"
+      ).bind(JSON.stringify(modules), Date.now(), id, user.id).run();
+
+      return reply({
+        ok: true,
+        modules,
+        hasDiscordToken: true,
+        tokenUpdated: !!discordToken,
+        state: "draft",
+        executionAvailable: false,
+        note: "Token validado pelo Discord, armazenado criptografado e módulos salvos. A execução ainda depende do executor de bots."
+      });
+    }
     if (path === "/bots" && request.method === "GET") {
       const rows = await env.DB.prepare(
         "SELECT id,name,runtime,state,modules,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token FROM bots WHERE user_id=? ORDER BY created_at DESC"
