@@ -2224,10 +2224,15 @@ export async function onRequest(context) {
       if (!/^[A-Za-z0-9_-]{1,80}$/.test(botId)) return reply({ error: "Selecione um projeto válido do Estúdio." }, 400);
       const bot = await getOwnedBot(botId, user.id, env);
       if (!bot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
+      if (bot.hosting_deployment_id || bot.provider_app_id) {
+        return reply({ error: "Este projeto já está vinculado a uma hospedagem. Crie um novo projeto vazio no Estúdio para não perder a referência da hospedagem atual." }, 409);
+      }
       try {
         const config = await cogitConfig(user.id, env);
         if (!config) return reply({ code: "provider_not_connected", error: "Conecte o Cogithost em Configurações." }, 409);
         const serverId = cogitIdentifier(b.serverId);
+        const alreadyLinked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='cogithost' AND provider_app_id=? LIMIT 1").bind(user.id, serverId).first();
+        if (alreadyLinked) return reply({ error: "Este servidor Cogithost já está vinculado a outro projeto do Estúdio." }, 409);
         const result = await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId));
         const a = result.data?.attributes || {};
         if (String(a.identifier || "") !== serverId) return reply({ error: "O Cogithost não confirmou o identificador deste servidor." }, 502);
