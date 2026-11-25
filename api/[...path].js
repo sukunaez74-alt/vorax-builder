@@ -271,7 +271,7 @@ export async function onRequest(context) {
 
       const discordToken = String(b.discordToken || "").trim();
       if (discordToken) {
-        if (discordToken.length < 30 || discordToken.length > 256 || /\\s/.test(discordToken)) {
+        if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
           return reply({ error: "O Bot Token parece incompleto. Copie o token inteiro, sem espaços." }, 400);
         }
         const verifiedToken = await validateDiscordBotToken(discordToken);
