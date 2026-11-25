@@ -850,10 +850,11 @@ function caosModal(targetId){
   const current=state.bots.find(bot=>bot.id===$("#caosTarget")?.value);
   if(save){save.disabled=!dirty;save.textContent=dirty?"Salvar alterações":(current?.hasDiscordToken?"Salvo ✓":"Aguardando token");}
   const tokenSave=$("#saveTokenOnly");
-  if(tokenSave)tokenSave.disabled=!(($("#discordToken")?.value||"").trim().length>0);
+  const hasNewToken=(($("#discordToken")?.value||"").trim().length>0);
+  if(tokenSave){tokenSave.disabled=!hasNewToken;tokenSave.textContent=hasNewToken?"Salvar novo token":(current?.hasDiscordToken?"Token salvo ✓":"Salvar token");}
   if(stateNote){
-   stateNote.textContent=dirty?"Há alterações não salvas. Clique em Salvar alterações ou em Cancelar.":"Tudo salvo. O token fica protegido e nunca é exibido novamente.";
-   stateNote.classList.toggle("changes-pending",dirty);
+   stateNote.textContent=dirty?"Há alterações não salvas. Clique em Salvar alterações ou em Cancelar.":(current?.hasDiscordToken?"Tudo salvo. O token fica protegido e não é exibido em texto aberto.":"Token pendente. Cole o Bot Token e clique em Salvar token.");
+   stateNote.classList.toggle("changes-pending",dirty||!current?.hasDiscordToken);
   }
  };
  const applySavedModules=()=>{
