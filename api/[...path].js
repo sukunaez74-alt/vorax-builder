@@ -147,7 +147,7 @@ from discord.ext import commands, tasks
 TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 APP_URL = os.getenv("APP_URL", "https://black-zone-estudio.vercel.app").rstrip("/")
 INVITE_URL = os.getenv("SERVER_INVITE", "").strip()
-VERIFY_URL = APP_URL + "/api/verification/start"
+VERIFY_URL = INVITE_URL
 STATUS_FILE = Path("verification-status.json")
 
 def write_status(status, **extra):
@@ -184,16 +184,16 @@ async def heartbeat():
     if bot.user:
         write_status("online", botId=str(bot.user.id), botName=str(bot.user), guilds=len(bot.guilds))
 
-@bot.tree.command(name="verificar", description="Receba o link oficial para verificar sua conta Discord")
+@bot.tree.command(name="verificar", description="Receba o convite para entrar no servidor")
 async def verificar(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Verificação de conta",
-        description="Clique no botão abaixo para confirmar sua conta pela página oficial do Discord. Nunca informe sua senha ou token.",
+        description="Clique no botão abaixo para entrar no servidor. Se precisar, conclua as etapas de verificação do próprio servidor.",
         color=discord.Color.blurple()
     )
     embed.set_footer(text="BLACK ZONE • Verificação segura")
     view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label="Verificar minha conta", style=discord.ButtonStyle.link, url=VERIFY_URL))
+    view.add_item(discord.ui.Button(label="Entrar no servidor", style=discord.ButtonStyle.link, url=VERIFY_URL))
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 @bot.tree.command(name="painel_verificacao", description="Publica o painel de verificação neste canal")
@@ -202,12 +202,12 @@ async def verificar(interaction: discord.Interaction):
 async def painel_verificacao(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Seja bem-vindo(a)! ✦",
-        description="Para continuar, verifique sua conta Discord no botão abaixo. A autorização acontece diretamente no Discord e, ao concluir, você recebe o convite do servidor.",
+        description="Clique no botão abaixo para entrar no servidor. Siga as instruções de verificação exibidas pela equipe.",
         color=discord.Color.blurple()
     )
     embed.set_footer(text="BLACK ZONE • Central de verificação")
     view = discord.ui.View(timeout=None)
-    view.add_item(discord.ui.Button(label="Verificar conta", style=discord.ButtonStyle.link, url=VERIFY_URL))
+    view.add_item(discord.ui.Button(label="Entrar no servidor", style=discord.ButtonStyle.link, url=VERIFY_URL))
     await interaction.response.send_message(embed=embed, view=view)
 
 @bot.tree.command(name="link_servidor", description="Mostra o convite do servidor BLACK ZONE")
@@ -259,7 +259,7 @@ async function ensureVerificationBotDeployment(userId, env) {
     await env.DB.prepare("UPDATE verification_bot_settings SET hosting_deployment_id=?,bot_id=?,bot_name=?,state='starting',updated_at=? WHERE id='main'")
       .bind(deploymentId, identity.botId, identity.botName || null, Date.now()).run();
   }
-  const version = "bz-verification-bot-v1-2026-11";
+  const version = "bz-verification-bot-v2-2026-11";
   let installed = "";
   if (!isNew) {
     try {
@@ -315,19 +315,11 @@ async function readVerificationBotStatus(userId, env, settings) {
 }
 async function saveVerificationBotSettings(user, input, env) {
   const old = await verificationBotSettings(env);
-  const clientId = String(input.clientId || old?.oauth_client_id || env.DISCORD_CLIENT_ID || "").trim();
-  let clientSecret = String(input.clientSecret || "").trim();
-  if (!clientSecret && old?.oauth_client_secret_enc) {
-    try { clientSecret = await decryptSecret(old.oauth_client_secret_enc, env) || ""; } catch {}
-  }
-  if (!clientSecret) clientSecret = String(env.DISCORD_CLIENT_SECRET || "").trim();
-  const inviteUrl = String(input.inviteUrl || old?.invite_url || "https://discord.gg/2vtk5ASg4").trim();
+  const inviteUrl = String(input.inviteUrl || old?.invite_url || "").trim();
   let token = String(input.botToken || "").trim();
   if (!token && old?.bot_token_enc) {
     try { token = await decryptSecret(old.bot_token_enc, env) || ""; } catch {}
   }
-  if (!/^\d{17,20}$/.test(clientId)) return { ok: false, status: 400, error: "Informe o Application ID / Client ID numérico do Discord Developer Portal." };
-  if (clientSecret.length < 20) return { ok: false, status: 400, error: "Informe o Client Secret OAuth2 da mesma aplicação do bot." };
   if (!inviteUrl) return { ok: false, status: 400, error: "Informe o convite do seu servidor Discord." };
   let invite;
   try { invite = new URL(inviteUrl); } catch { return { ok: false, status: 400, error: "O convite do servidor não é uma URL válida." }; }
@@ -336,15 +328,15 @@ async function saveVerificationBotSettings(user, input, env) {
     return { ok: false, status: 400, error: "Use um convite HTTPS do Discord, como https://discord.gg/..." };
   }
   token = normalizeDiscordBotToken(token);
-  if (token.length < 30 || token.length > 512 || /\s/.test(token)) return { ok: false, status: 400, error: "Informe um Bot Token válido, sem espaços." };
+  if (token.length < 30 || token.length > 512 || /\\s/.test(token)) return { ok: false, status: 400, error: "Informe um Bot Token válido, sem espaços." };
   const identity = await validateDiscordBotToken(token);
   if (!identity.valid) return { ok: false, status: identity.unavailable ? 503 : 400, error: identity.unavailable ? "Não consegui validar com o Discord agora. Tente novamente." : "O Discord recusou o Bot Token informado." };
-  if (identity.botId !== clientId) return { ok: false, status: 400, error: "O Application ID precisa pertencer exatamente ao mesmo bot do token informado." };
-  const [tokenEnc, secretEnc] = await Promise.all([encryptSecret(token, env), encryptSecret(clientSecret, env)]);
+  const tokenEnc = await encryptSecret(token, env);
+  const previousSecretEnc = old?.oauth_client_secret_enc || null;
   await env.DB.prepare(
-    "INSERT INTO verification_bot_settings (id,owner_user_id,bot_token_enc,bot_id,bot_name,oauth_client_id,oauth_client_secret_enc,invite_url,state,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,bot_token_enc=EXCLUDED.bot_token_enc,bot_id=EXCLUDED.bot_id,bot_name=EXCLUDED.bot_name,oauth_client_id=EXCLUDED.oauth_client_id,oauth_client_secret_enc=EXCLUDED.oauth_client_secret_enc,invite_url=EXCLUDED.invite_url,state=CASE WHEN verification_bot_settings.hosting_deployment_id IS NULL THEN 'configured' ELSE verification_bot_settings.state END,updated_at=EXCLUDED.updated_at"
-  ).bind(user.id, tokenEnc, identity.botId, identity.botName || null, clientId, secretEnc, inviteUrl, old?.state || "configured", Date.now()).run();
-  return { ok: true, configured: true, botId: identity.botId, botName: identity.botName || null, inviteUrl, hasToken: true, message: "Bot Token, Client ID e Client Secret validados e salvos criptografados." };
+    "INSERT INTO verification_bot_settings (id,owner_user_id,bot_token_enc,bot_id,bot_name,oauth_client_id,oauth_client_secret_enc,invite_url,state,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,bot_token_enc=EXCLUDED.bot_token_enc,bot_id=EXCLUDED.bot_id,bot_name=EXCLUDED.bot_name,oauth_client_id=EXCLUDED.oauth_client_id,oauth_client_secret_enc=COALESCE(EXCLUDED.oauth_client_secret_enc,verification_bot_settings.oauth_client_secret_enc),invite_url=EXCLUDED.invite_url,state=CASE WHEN verification_bot_settings.hosting_deployment_id IS NULL THEN 'configured' ELSE verification_bot_settings.state END,updated_at=EXCLUDED.updated_at"
+  ).bind(user.id, tokenEnc, identity.botId, identity.botName || null, identity.botId, previousSecretEnc, inviteUrl, old?.state || "configured", Date.now()).run();
+  return { ok: true, configured: true, botId: identity.botId, botName: identity.botName || null, inviteUrl, hasToken: true, message: "Bot Token validado e convite salvos com segurança." };
 }
 async function verificationStart(request, env) {
   const settings = await verificationBotSettings(env);
@@ -1188,7 +1180,7 @@ export async function onRequest(context) {
       if (settings?.hosting_deployment_id) runtime = await readVerificationBotStatus(user.id, env, settings);
       const oauth = await discordOAuthCredentials(env);
       return reply({
-        configured: !!settings?.bot_token_enc && !!oauth.clientId && !!oauth.clientSecret && !!settings?.invite_url,
+        configured: !!settings?.bot_token_enc && !!settings?.invite_url,
         hasToken: !!settings?.bot_token_enc,
         botId: settings?.bot_id || null,
         botName: settings?.bot_name || null,
