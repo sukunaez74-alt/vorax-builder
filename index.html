@@ -824,7 +824,7 @@ async function loadSettingsHostingState(){
     discordNode.classList.remove("changes-pending");
     if(discordButton)discordButton.disabled=false;
    }else{
-    discordNode.innerHTML='<strong>Falta configurar o aplicativo OAuth do Discord.</strong><br>No Vercel, adicione as variáveis secretas <code>DISCORD_CLIENT_ID</code> e <code>DISCORD_CLIENT_SECRET</code>. No Discord Developer Portal, cadastre este Redirect URI:<br><code class="discord-redirect-uri">https://black-zone-estudio.vercel.app/api/discord/link/callback</code><br>Depois faça um novo deploy para habilitar a vinculação.';
+    discordNode.innerHTML='<strong>Falta configurar o aplicativo OAuth do Discord.</strong><br>Estas credenciais são do aplicativo OAuth da plataforma ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio — não são o Bot Token de cada cliente. No Vercel, adicione as variáveis secretas <code>DISCORD_CLIENT_ID</code> e <code>DISCORD_CLIENT_SECRET</code>. No Discord Developer Portal, cadastre este Redirect URI:<br><code class="discord-redirect-uri">https://black-zone-estudio.vercel.app/api/discord/link/callback</code><br>Depois faça um novo deploy para habilitar a vinculação.';
     discordNode.classList.add("changes-pending");
     if(discordButton)discordButton.disabled=true;
    }
