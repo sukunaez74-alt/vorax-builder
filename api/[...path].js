@@ -2445,14 +2445,29 @@ export async function onRequest(context) {
         try {
           const token = await providerToken(user.id, "discloud", env);
           const data = token ? await discloudRequest(token, "/user") : null;
-          if (data?.user) discloud = {
-            connected: true, valid: true, provider: "discloud",
-            accountLabel: data.user.username || discloudRow.account_label || null,
-            plan: data.user.plan || discloudRow.plan || null,
-            appsCount: Array.isArray(data.user.apps) ? data.user.apps.length : null,
-            totalRamMb: Number(data.user.totalRamMb || 0),
-            ramUsedMb: Number(data.user.ramUsedMb || 0)
-          };
+          if (data?.user) {
+            const planName = String(data.user.plan || discloudRow.plan || "");
+            const appsCount = Array.isArray(data.user.apps) ? data.user.apps.length : null;
+            const totalRamMb = Number(data.user.totalRamMb || 0);
+            const ramUsedMb = Number(data.user.ramUsedMb || 0);
+            const isFreePlan = /\\bfree\\b/i.test(planName);
+            const freeSlotAvailable = isFreePlan && appsCount === 0 && (totalRamMb - ramUsedMb) >= 100;
+            discloud = {
+              connected: true, valid: true, provider: "discloud",
+              accountLabel: data.user.username || discloudRow.account_label || null,
+              plan: planName || null,
+              appsCount, totalRamMb, ramUsedMb,
+              canCreate: freeSlotAvailable,
+              freeBotsLimit: isFreePlan ? 1 : null,
+              detail: freeSlotAvailable
+                ? "Vaga Free disponível · o Estúdio pode enviar ZIP automaticamente."
+                : (!isFreePlan
+                  ? "A seleção automática só usa o plano Free."
+                  : (appsCount !== 0
+                    ? "A vaga Free já está ocupada por uma aplicação desta conta."
+                    : "A conta não informou 100 MB livres para um novo bot."))
+            };
+          }
           else discloud = { connected: true, valid: false, provider: "discloud", error: "A Discloud não confirmou a chave salva." };
         } catch (error) {
           discloud = { connected: true, valid: false, provider: "discloud", error: error.message || "Falha de validação." };
@@ -2548,7 +2563,7 @@ export async function onRequest(context) {
           { id: "aclclouds", name: "ACLClouds", role: "servidor-conectado", ...aclclouds, canCreate: false, canAttach: !!aclclouds.valid && !!aclclouds.canAttach },
           { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
           { id: "squarecloud", name: "Square Cloud", role: "paga-fora-do-pool", ...square, canCreate: false },
-          { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, canCreate: false, role: "compatibilidade-parcial", ...discloud, canCreate: false },
+          { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, ...discloud, canCreate: !!discloud.canCreate, role: discloud.canCreate ? "reserva" : "compatibilidade-parcial" },
           { id: "fadehost", name: "FadeHost", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · 1 app por conta", detail: "Deploy pelo painel FadeHost; não é uma vaga conectada ao Estúdio.", url: "https://laplace.fadehost.com" },
           { id: "quaxly", name: "Quaxly", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · até 3 bots", detail: "Deploy pelo painel Quaxly; não é uma vaga conectada ao Estúdio.", url: "https://quaxly.com" }
         ]
@@ -3867,6 +3882,72 @@ export async function onRequest(context) {
             });
           }
 
+          // A Discloud aceita upload de uma aplicação nova por ZIP via POST /upload.
+          // Só usamos a conta quando o plano é Free, o limite oficial é respeitado
+          // (1 bot / 100 MB) e não existe app ocupando a vaga. Nunca reaproveita
+          // nem altera aplicações externas que não pertençam a este projeto.
+          let discloudCapacityMessage = "";
+          if (discloudToken) {
+            let accountInfo = null;
+            try {
+              const account = await discloudRequest(discloudToken, "/user");
+              accountInfo = account?.user || null;
+            } catch (error) {
+              discloudCapacityMessage = "Discloud não confirmou a capacidade desta conta agora: " + String(error?.message || "falha de consulta");
+            }
+            if (accountInfo) {
+              const planName = String(accountInfo.plan || "");
+              const apps = Array.isArray(accountInfo.apps) ? accountInfo.apps : null;
+              const totalRamMb = Number(accountInfo.totalRamMb || 0);
+              const ramUsedMb = Number(accountInfo.ramUsedMb || 0);
+              if (!/\\bfree\\b/i.test(planName)) {
+                discloudCapacityMessage = "Discloud ignorada: a conta conectada não está no plano Free. Nenhum plano pago será usado.";
+              } else if (!apps) {
+                discloudCapacityMessage = "Discloud não informou a quantidade de aplicações da conta; a vaga Free não pôde ser confirmada.";
+              } else if (apps.length >= 1) {
+                discloudCapacityMessage = "Discloud: a vaga Free desta conta já está ocupada (" + apps.length + "/1 bot). Nenhuma aplicação existente foi alterada.";
+              } else if (totalRamMb - ramUsedMb < 100) {
+                discloudCapacityMessage = "Discloud: a conta Free não informou 100 MB disponíveis para outro bot.";
+              } else {
+                const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
+                const form = new FormData();
+                form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\\.zip$/i, "-black-zone.zip"));
+                let uploaded = null;
+                try {
+                  uploaded = await discloudRequest(discloudToken, "/upload", "POST", form);
+                } catch (error) {
+                  const message = String(error?.message || "");
+                  if (/limit|quota|maximum|plan|ram|app.*count|application.*limit|bot.*limit/i.test(message)) {
+                    discloudCapacityMessage = "Discloud sem vaga Free para este ZIP: " + message;
+                  } else {
+                    throw error;
+                  }
+                }
+                if (uploaded) {
+                  const projectId = String(uploaded.app?.id || "");
+                  if (!projectId) throw new Error("A Discloud recebeu o ZIP, mas não retornou o ID da nova aplicação. Nenhum outro bot foi alterado.");
+                  await env.DB.prepare(
+                    "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
+                  ).bind(projectId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
+                  let startMessage = "O upload criou a aplicação e a inicialização foi solicitada.";
+                  try {
+                    await discloudRequest(discloudToken, "/app/" + encodeURIComponent(projectId) + "/start", "PUT");
+                  } catch (startError) {
+                    if (!/already|online|running|process|in process|409/i.test(String(startError?.message || ""))) {
+                      startMessage = "A aplicação foi criada e vinculada; o comando de início não foi confirmado. Use Iniciar novamente para repetir. " + String(startError?.message || "");
+                    }
+                  }
+                  return reply({
+                    ok: true, provider: "discloud", providerAppId: projectId,
+                    runtime: prepared.runtime, customProject: prepared.customProject,
+                    state: "starting", app: uploaded.app || null, logs: uploaded.logs || null,
+                    message: "ZIP enviado para a vaga gratuita da Discloud. " + startMessage
+                  });
+                }
+              }
+            }
+          }
+
           let cubeCapacityMessage = "";
           if (cubeToken) {
             try {
@@ -3917,7 +3998,7 @@ export async function onRequest(context) {
 
           const squareCapacityMessage = "";
           // Square Cloud exige assinatura e fica fora da seleção automática de novos bots.
-          const providerIssues = [cubeCapacityMessage, squareCapacityMessage].filter(Boolean);
+          const providerIssues = [discloudCapacityMessage, cubeCapacityMessage, squareCapacityMessage].filter(Boolean);
           return reply({
             code: providerIssues.length ? "provider_capacity_full" : "provider_not_connected",
             error: providerIssues.length
