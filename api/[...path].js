@@ -2548,7 +2548,9 @@ export async function onRequest(context) {
           { id: "aclclouds", name: "ACLClouds", role: "servidor-conectado", ...aclclouds, canCreate: false, canAttach: !!aclclouds.valid && !!aclclouds.canAttach },
           { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
           { id: "squarecloud", name: "Square Cloud", role: "paga-fora-do-pool", ...square, canCreate: false },
-          { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, canCreate: false, role: "compatibilidade-parcial", ...discloud, canCreate: false }
+          { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, canCreate: false, role: "compatibilidade-parcial", ...discloud, canCreate: false },
+          { id: "fadehost", name: "FadeHost", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · 1 app por conta", detail: "Deploy pelo painel FadeHost; não é uma vaga conectada ao Estúdio.", url: "https://laplace.fadehost.com" },
+          { id: "quaxly", name: "Quaxly", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · até 3 bots", detail: "Deploy pelo painel Quaxly; não é uma vaga conectada ao Estúdio.", url: "https://quaxly.com" }
         ]
       });
     }
