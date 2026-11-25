@@ -430,7 +430,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 @media(max-width:760px){.main{padding-inline:14px}.topbar{gap:8px}.user-chip{max-width:54vw}.hero h2{max-width:82%}}
 
 </style>
-<link rel="stylesheet" href="/kuro-shiro.css?v=1">
+<link rel="stylesheet" href="/kuro-shiro.css?v=2">
 </head>
 <body>
 <section id="gateScreen">
@@ -611,4 +611,23 @@ async function uploadZip(){const file=$("#zipFile")?.files?.[0],id=$("#fileBot")
 async function healthCheck(){const area=$("#healthResult");if(area)area.innerHTML='<div class="log-line">Verificando…</div>';try{const r=await fetch("/api/health",{credentials:"same-origin"});const d=await r.json();if(!r.ok)throw new Error(d.error||"Falha no diagnóstico.");const rows=[["API do painel",d.ok],["PostgreSQL conectado",d.databaseConfigured],["Consulta real ao banco",d.databaseQuery],["Segredo de sessão",d.secretsConfigured?.session],["Criptografia de credenciais",d.secretsConfigured?.encryption]];if(area)area.innerHTML=rows.map(([name,ok])=>'<div class="log-line">'+escapeHtml(name)+': <strong style="color:'+(ok?'#8aefc5':'#ffb2c0')+'">'+(ok?'Configurado':'Pendente')+'</strong></div>').join("");}catch(e){if(area)area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
 function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 boot();
-</script></body></html>
+</script>
+<script>
+/* KURO / SHIRO art loader — local static assets, no third-party image host */
+(() => {
+  const files = Array.from({length:7}, (_,i) => '/assets/anime/art-' + String(i).padStart(2,'0') + '.txt');
+  Promise.all(files.map(path => fetch(path, {cache:'force-cache'}).then(response => {
+    if (!response.ok) throw new Error('Asset unavailable: ' + path);
+    return response.text();
+  })))
+  .then(parts => {
+    const encoded = parts.join('');
+    if (!encoded.startsWith('UklGR') || encoded.length < 25000) throw new Error('Invalid art asset');
+    document.documentElement.style.setProperty('--anime-art-image', 'url("data:image/webp;base64,' + encoded + '")');
+    document.documentElement.classList.add('anime-art-ready');
+  })
+  .catch(error => console.warn('KURO / SHIRO artwork could not be loaded:', error));
+})();
+</script>
+
+</body></html>
