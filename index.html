@@ -805,9 +805,15 @@ async function loadSettingsHostingState(){
  }
 }
 function settingsView(){
- return pageHead("Configurações","Gerencie sua conta, hospedagem e diagnóstico do ambiente.")+
+ const linked=!!state.user?.discordLinked;
+ const linkedName=state.user?.discordUsername||"Conta Discord vinculada";
+ return pageHead("Configurações","Gerencie seu perfil, conta Discord, hospedagem e segurança.")+
  '<div class="grid settings-grid">'+
- '<section class="card"><div class="section-head"><h3>Executor de bots</h3><span class="status">OAuth · sem chave manual</span></div><p class="muted small">Conecte sua conta Bot-Hosting uma vez. O Estúdio usa autorização OAuth e guarda os tokens de acesso criptografados; você não precisa copiar uma chave de API.</p><div id="settingsHostingState" class="project-note"><strong>Consultando autorização…</strong><br>Verificando se esta conta já autorizou o executor.</div><button class="btn" id="settingsHostingConnect">Conectar / reconectar Bot-Hosting</button><p class="muted small" style="margin-top:10px">Depois da autorização, abra um bot e clique em Iniciar. O Estúdio prepara o container Python do CAOS, instala as dependências e valida a conexão real do bot com o Discord. A disponibilidade contínua depende dos limites e da renovação do plano de hospedagem.</p></section>'+
+ '<section class="card"><div class="section-head"><h3>Conta Discord</h3><span class="status '+(linked?"":"off")+'">'+(linked?"VINCULADA":"NÃO VINCULADA")+'</span></div>'+
+ '<p class="muted small">Vincule o Discord da pessoa que está usando o Estúdio. A autorização acontece na página oficial do Discord; não peça senha nem token pessoal.</p>'+
+ '<div class="project-note"><strong>'+(linked?"Conta conectada: "+escapeHtml(linkedName):"Nenhuma conta Discord vinculada.")+'</strong><br>'+(linked?"O ID Discord está associado ao perfil atual do Estúdio.":"Apenas o perfil Discord será compartilhado com o Estúdio, usando o escopo identify.")+'</div>'+
+ '<button class="btn" id="connectDiscordAccount">'+(linked?"Trocar conta vinculada":"Vincular minha conta Discord ↗")+'</button></section>'+
+ '<section class="card"><div class="section-head"><h3>Executor de bots</h3><span class="status">OAuth · sem chave manual</span></div><p class="muted small">Conecte sua conta Bot-Hosting uma vez. O Estúdio usa autorização OAuth e guarda os tokens de acesso criptografados; você não precisa copiar uma chave de API.</p><div id="settingsHostingState" class="project-note"><strong>Consultando autorização…</strong><br>Verificando se esta conta já autorizou o executor.</div><button class="btn" id="settingsHostingConnect">Conectar / reconectar Bot-Hosting</button><p class="muted small" style="margin-top:10px">Depois da autorização, abra um bot e clique em Iniciar. O Estúdio prepara o container Python do CAOS, instala as dependências e verifica a conexão real com o Discord.</p></section>'+
  '<section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">As sessões usam cookies HttpOnly. Os Bot Tokens são criptografados no servidor e nunca são devolvidos ao navegador em texto aberto.</p></section>'+
  '<section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API, o PostgreSQL e a configuração do ambiente.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>';
 }
@@ -826,6 +832,19 @@ function bindView(){
  const openResources=$("#openResourceModules");if(openResources)openResources.onclick=()=>caosModal(activeBotForResources()?.id);
  const hc=$("#healthCheck");if(hc)hc.onclick=healthCheck;
  const host=$("#hostingConnectPage");if(host)host.onclick=connectHosting;
+ const discordLink=$("#connectDiscordAccount");if(discordLink)discordLink.onclick=async()=>{
+   if(state.user?.discordLinked&&!window.confirm("Deseja trocar a conta Discord atualmente vinculada?"))return;
+   discordLink.disabled=true;discordLink.textContent="Preparando autorização…";
+   try{
+    const result=await api("/discord/link/start");
+    if(!result.authorizationUrl)throw new Error("O servidor não retornou o endereço de autorização do Discord.");
+    window.location.assign(result.authorizationUrl);
+   }catch(error){
+    toast(error.message);
+    discordLink.disabled=false;
+    discordLink.textContent=state.user?.discordLinked?"Trocar conta vinculada":"Vincular minha conta Discord ↗";
+   }
+ };
  const settingsHost=$("#settingsHostingConnect");if(settingsHost)settingsHost.onclick=connectHosting;
  if(state.view==="settings")loadSettingsHostingState();
 
@@ -882,10 +901,7 @@ function caosModal(targetId){
   const save=$("#saveModules");
   const stateNote=$("#changesState");
   const current=state.bots.find(bot=>bot.id===$("#caosTarget")?.value);
-  if(save){save.disabled=!dirty;save.textContent=dirty?"Salvar alterações":(current?.hasDiscordToken?"Salvo ✓":"Aguardando token");}
-  const tokenSave=$("#saveTokenOnly");
-  const hasNewToken=(($("#discordToken")?.value||"").trim().length>0);
-  if(tokenSave){tokenSave.disabled=!hasNewToken;tokenSave.textContent=hasNewToken?"Salvar token":(current?.hasDiscordToken?"Token salvo ✓":"Salvar token");}
+  if(save){save.disabled=!dirty;const hasNewToken=!!($("#discordToken")?.value||"").trim();save.textContent=dirty?(hasNewToken&&!current?.hasDiscordToken?"Salvar token e configurações":hasNewToken?"Salvar token e alterações":"Salvar alterações"):(current?.hasDiscordToken?"Salvo ✓":"Aguardando token");}
   if(stateNote){
    stateNote.textContent=dirty?"Há alterações não salvas. Clique em Salvar alterações ou em Cancelar.":(current?.hasDiscordToken?"Token guardado e módulos sincronizados.":"Token pendente. Cole o Bot Token e clique em Salvar token.");
    stateNote.classList.toggle("changes-pending",dirty||!current?.hasDiscordToken);
@@ -956,7 +972,6 @@ function caosModal(targetId){
   '<div class="field"><label>TOKEN DO BOT DISCORD</label><input id="discordToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="'+(initialBot.hasDiscordToken?"Token já salvo — deixe vazio para manter":"Cole o Bot Token do seu bot Discord")+'" minlength="30" maxlength="512" '+(initialBot.hasDiscordToken?"":"required")+'></div>'+
   '<div id="tokenStatus" class="project-note" style="margin:12px 0"></div>'+
   '<div id="tokenSaveMessage" class="token-feedback" role="status" aria-live="polite"></div>'+
-  '<button class="btn secondary" id="saveTokenOnly" type="button" disabled>Salvar token</button>'+
   modulesMarkup()+
   '<div id="changesState" class="changes-state">Tudo salvo.</div>'+
   '<div class="config-actions"><button class="btn secondary" id="cancelModules" type="button">Cancelar</button><button class="btn" id="saveModules" type="button" disabled>Salvar alterações</button></div>'
@@ -973,45 +988,6 @@ function caosModal(targetId){
   applySavedModules();
  };
  token.addEventListener("input",()=>{feedback("","");updateDirty()});
- $("#saveTokenOnly").onclick=async()=>{
-  const id=select.value;
-  const discordToken=token.value.trim();
-  if(!discordToken){feedback("error","Cole o Bot Token antes de salvar.");toast("Cole o novo Bot Token antes de salvar.");token.focus();return}
-  const button=$("#saveTokenOnly");
-  button.disabled=true;button.textContent="Validando e salvando…";
-  feedback("pending","Conferindo o token com o Discord e gravando no banco. Não feche esta janela.");
-  try{
-   const saved=await api("/bot-token",{method:"POST",body:JSON.stringify({botId:id,discordToken})});
-   if(!saved.ok||!saved.tokenStored||!saved.hasDiscordToken){
-    throw new Error(saved.error||"O servidor não confirmou a gravação do token.");
-   }
-   const verified=await api("/bot-token/status?botId="+encodeURIComponent(id));
-   if(!verified.valid||verified.status!=="verified"||verified.discordBotId!==saved.discordBotId){
-    throw new Error(verified.error||"O banco gravou, mas a confirmação independente do Discord não passou.");
-   }
-   const bot=state.bots.find(item=>item.id===id);
-   if(bot){
-    bot.hasDiscordToken=true;
-    bot.discordBotId=verified.discordBotId||saved.discordBotId||null;
-    bot.discordBotName=verified.discordBotName||saved.discordBotName||null;
-   }
-   token.value="";
-   token.required=false;
-   token.placeholder="Cole um NOVO token apenas para substituir o atual";
-   const tokenLabel=token.parentElement?.querySelector("label");
-   if(tokenLabel)tokenLabel.textContent="TOKEN ATUAL PROTEGIDO · NOVO TOKEN OPCIONAL";
-   showTokenState("verified");
-   feedback("success","Salvo e confirmado. O token continua guardado mesmo depois de fechar esta janela.");
-   updateDirty(); // Keep any module edits dirty: saving only the token must not mark modules as saved.
-   button.textContent="Token salvo ✓";
-   toast("Token validado no Discord e guardado com segurança.");
-   await loadBots();
-  }catch(error){
-   feedback("error",error.message||"Não consegui salvar o token.");
-   toast(error.message||"Não consegui salvar o token.");
-   button.disabled=false;button.textContent="Tentar salvar novamente";
-  }
- };
  document.querySelectorAll(".module-toggle").forEach(e=>e.addEventListener("change",updateDirty));
  applySavedModules();
  $("#cancelModules").onclick=()=>{
@@ -1053,8 +1029,8 @@ function caosModal(targetId){
    baseline=readState();
    updateDirty();
    window.__modalCloseGuard=()=>!dirty||window.confirm("Você tem alterações não salvas. Deseja descartá-las?");
-   feedback("success","Alterações salvas. O token está guardado, criptografado e validado pelo Discord.");
-   toast(response.tokenUpdated?"Token validado e alterações salvas.":"Alterações salvas; token anterior mantido.");
+   feedback("success",response.tokenUpdated?"Token validado, criptografado e confirmado no banco. O campo foi limpo por segurança.":"Configurações salvas; o token anterior foi mantido e confirmado.");
+   toast(response.tokenUpdated?"Token e configurações salvos com confirmação.":"Configurações salvas; token anterior mantido.");
    await loadBots();
   }catch(error){
    feedback("error",error.message||"Não consegui salvar as alterações.");
@@ -1067,6 +1043,15 @@ function caosModal(targetId){
 async function loadSettings(){
  try{const r=await api("/hosting/status");state.hosting=!!r.connected;}
  catch{state.hosting=false;}
+ const discordResult=new URLSearchParams(window.location.search).get("discord");
+ if(discordResult==="linked"){
+   try{const me=await api("/me");if(me.user)state.user=me.user;}catch{}
+   toast("Conta Discord vinculada ao seu perfil do Estúdio.");
+   window.history.replaceState({},document.title,window.location.pathname);
+ }else if(discordResult==="error"){
+   toast("Não foi possível vincular a conta Discord. Confira a configuração OAuth.");
+   window.history.replaceState({},document.title,window.location.pathname);
+ }
  const result=new URLSearchParams(window.location.search).get("hosting");
  if(result){
    const messages={connected:"Conta Bot-Hosting conectada com segurança.",cancelled:"A autorização da hospedagem foi cancelada.",expired:"A autorização expirou. Tente conectar novamente.",error:"Não consegui concluir a autorização do Bot-Hosting."};
