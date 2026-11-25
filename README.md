@@ -1,64 +1,54 @@
 # ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio
 
-Painel web para organizar contas, bots Discord e operações da hospedagem.
+Painel web em português para organizar contas, bots Discord e operações da hospedagem.
 
-## Estrutura
+## Produção na Vercel
 
-- `index.html`: interface em português brasileiro, tema cósmico responsivo.
-- `functions/api/[[path]].js`: API Cloudflare Pages Functions para sessão, cadastro, login, Discord OAuth e integração Bot-Hosting.
-- `schema.sql`: tabelas do banco Cloudflare D1.
+- `index.html`: interface responsiva.
+- `api/[...path].js`: API Node.js para autenticação, sessões, Discord OAuth e integração com Bot-Hosting.
+- `@neondatabase/serverless`: conexão serverless com PostgreSQL (Neon).
+- `schema.postgres.sql`: esquema relacional usado pela versão Vercel.
 
-## Publicação na Cloudflare Pages
+O esquema PostgreSQL é inicializado automaticamente na primeira chamada à API, com criação idempotente das tabelas e índices.
 
-1. Crie um projeto Pages conectado ao repositório `sukunaez74-alt/vorax-builder`, branch `main`.
-2. Sem framework/build: deixe o comando de build vazio e use `.` como diretório de saída.
-3. Crie um banco D1 e execute o conteúdo de `schema.sql`.
-4. Em Settings > Functions > D1 database bindings, crie o binding com o nome `DB`.
-5. Em Settings > Variables and Secrets, cadastre como secrets:
-   - `APP_GATE_PHRASE`: a chave de entrada que o proprietário escolheu.
-   - `APP_SESSION_SECRET`: uma chave aleatória longa, exclusiva.
-   - `APP_ENCRYPTION_KEY`: outra chave aleatória longa, exclusiva, para criptografar chaves do Bot-Hosting.
-   - `DISCORD_CLIENT_ID` e `DISCORD_CLIENT_SECRET`: credenciais da aplicação Discord.
-6. No Discord Developer Portal, adicione como OAuth2 Redirect URL:
-   `https://SEU-DOMINIO/api/auth/discord/callback`
-7. Faça um novo deploy depois de criar o binding e os secrets.
+### Variáveis do projeto
 
-O primeiro cadastro no banco recebe o papel owner. Os cadastros seguintes recebem member. Senhas são derivadas com PBKDF2; sessões usam cookies HttpOnly, Secure e SameSite=Lax. Chaves do Bot-Hosting são criptografadas com AES-GCM antes de serem gravadas no D1.
+Configure no projeto Vercel, em Production, Preview e Development:
 
-## Bot-Hosting
+- `DATABASE_URL`: connection string do Neon.
+- `APP_GATE_PHRASE`: frase de entrada privada.
+- `APP_SESSION_SECRET`: segredo aleatório e exclusivo para assinar o cookie de acesso.
+- `APP_ENCRYPTION_KEY`: segredo aleatório e exclusivo para criptografar as chaves do Bot-Hosting.
+- `DISCORD_CLIENT_ID` e `DISCORD_CLIENT_SECRET`: credenciais OAuth, quando a opção de login Discord for habilitada.
 
-Crie uma API key em Account > Developer no Bot-Hosting. Para os recursos iniciais, conceda apenas os escopos necessários:
-- `deployments:read`
-- `deployments:write`
-- `deployments:power`
-- `deployments:shell` (terminal)
-- `files:read` (listagem)
-- `files:write` (envio de ZIP)
-- `env:write`
+Não compartilhe nem registre os valores dessas variáveis em arquivos do repositório.
 
-Conecte essa chave na tela Configurações. O backend valida e guarda a chave criptografada por usuário; ela não fica no HTML nem no armazenamento do navegador.
+### Autenticação e proteção
 
-## Diagnóstico e integração Bot-Hosting
+As senhas são derivadas com PBKDF2-SHA-256 (210.000 iterações); os tokens de sessão são armazenados apenas como hash e os cookies são HttpOnly, Secure e SameSite=Lax. Chaves Bot-Hosting são criptografadas com AES-GCM antes de serem salvas no PostgreSQL. O primeiro cadastro válido recebe o papel owner, com reivindicação atômica da instalação; os seguintes recebem member.
 
-A rota `GET /api/health` informa se o D1 e os secrets obrigatórios estão configurados, sem expor seus valores. Use-a para validar a publicação antes de tentar entrar no painel.
+A frase de entrada é opcional no backend. Quando configurada, ela é validada pelo servidor antes do login/cadastro. Nunca coloque a frase no HTML ou no GitHub.
 
-A integração usa a API REST oficial do Bot-Hosting (`https://bot-hosting.net/api/v1`). A chave começa com `bhk_` e é enviada como Bearer. Para os recursos atuais, conceda:
-- `deployments:read`
-- `deployments:write`
-- `deployments:power`
-- `deployments:shell` (terminal)
-- `files:read` (listagem)
-- `files:write` (envio de ZIP)
-- `env:write`
+### OAuth Discord
 
-A criação de recursos que gerem cobrança deve ser autorizada separadamente no Bot-Hosting; não conceda `credits:spend` a menos que queira permitir gastos pela chave. As operações de upload usam a URL assinada e o nome de campo multipart retornado pela API; o fallback documentado é `files`. A aplicação usa `files.decompress` após o envio do ZIP. Consulte a [referência oficial da API](https://bot-hosting.net/api), que está em beta público e pode mudar.
+No Discord Developer Portal, adicione esta OAuth2 Redirect URL:
 
-## Estado atual e itens que ainda exigem configuração
+`https://black-zone-estudio.vercel.app/api/auth/discord/callback`
 
-A interface e a API estão versionadas no GitHub. O painel só funcionará com autenticação real depois da publicação Pages, binding D1 e secrets configurados.
+O login Discord só fica ativo depois de configurar `DISCORD_CLIENT_ID` e `DISCORD_CLIENT_SECRET`.
 
-A conexão Discord OAuth exige criar a aplicação Discord e cadastrar o callback da URL definitiva. A integração de hospedagem exige uma chave Bot-Hosting do próprio usuário.
+## Integração de hospedagem
 
-O CAOS original está em outro repositório privado (`sukunaez74-alt/cao`). O código Python recebeu o primeiro filtro de `CAOS_MODULES`: comandos identificados por módulo são removidos antes da sincronização e eventos/painéis principais são bloqueados quando desativados. Esse ajuste ainda precisa ser validado executando o bot com combinações reais de módulos. O painel ainda não transfere automaticamente o código do repositório privado para uma implantação vazia; por enquanto, a área de Arquivos prepara o envio de um pacote ZIP pela interface do navegador.
+O painel permite guardar uma chave de API por usuário, criptografada no servidor, e acionar rotas de implantação, logs, energia, recursos, arquivos, terminal e variáveis de ambiente. A integração consulta `https://bot-hosting.net/api/v1`.
 
-Não coloque `.env`, tokens Discord, chaves Bot-Hosting, banco SQLite ou credenciais em repositórios.
+A compatibilidade de cada endpoint e escopo da API do Bot-Hosting precisa ser confirmada com uma chave de teste na conta do proprietário antes de considerar todas as operações validadas. Não conceda permissões de gastos/créditos à chave para testes.
+
+## CAOS
+
+O bot original permanece no repositório privado `sukunaez74-alt/cao`. O painel ainda não sincroniza esse código privado automaticamente para novas implantações: o fluxo inicial é enviar um pacote ZIP pela área de arquivos. A lógica de `CAOS_MODULES` deve continuar sendo testada no runtime do bot com combinações reais de módulos.
+
+## Arquivos legados Cloudflare
+
+`functions/api/[[path]].js`, `schema.sql` e `wrangler.toml` são mantidos como material da implementação anterior Cloudflare Pages/D1. A produção atual na Vercel utiliza `api/[...path].js` e PostgreSQL/Neon.
+
+Nunca coloque `.env`, tokens Discord, chaves Bot-Hosting, dumps de banco ou credenciais no repositório.
