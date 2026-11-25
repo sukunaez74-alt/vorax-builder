@@ -321,7 +321,7 @@ async function saveVerificationBotSettings(user, input, env) {
     try { clientSecret = await decryptSecret(old.oauth_client_secret_enc, env) || ""; } catch {}
   }
   if (!clientSecret) clientSecret = String(env.DISCORD_CLIENT_SECRET || "").trim();
-  const inviteUrl = String(input.inviteUrl || old?.invite_url || "").trim();
+  const inviteUrl = String(input.inviteUrl || old?.invite_url || "https://discord.gg/2vtk5ASg4").trim();
   let token = String(input.botToken || "").trim();
   if (!token && old?.bot_token_enc) {
     try { token = await decryptSecret(old.bot_token_enc, env) || ""; } catch {}
@@ -402,9 +402,7 @@ async function verificationCallback(request, env) {
       signal: AbortSignal.timeout(8000)
     });
   } catch {}
-  const destination = new URL(saved.invite_url);
-  destination.searchParams.set("bz_verified", "1");
-  const headers = new Headers({ location: destination.href });
+  const headers = new Headers({ location: saved.invite_url });
   headers.append("set-cookie", clearCookie("bz_verify_state"));
   return new Response(null, { status: 302, headers });
 }
