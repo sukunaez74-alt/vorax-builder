@@ -100,11 +100,11 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
   <div class="brand"><div class="brand-mark">✦</div><div class="brand-name">ʙʟᴀᴄᴋ ᴢᴏɴᴇ<br><span class="caps">ESTÚDIO</span></div></div>
   <div id="loginPane"><h1>Bem-vindo de volta.</h1><p>Entre para continuar no seu painel de hospedagem.</p>
    <form id="loginForm"><div class="field"><label>E-MAIL OU USUÁRIO</label><input name="identity" autocomplete="username" required placeholder="Seu e-mail ou usuário"></div><div class="field"><label>SENHA</label><input name="password" type="password" autocomplete="current-password" required placeholder="Sua senha"></div><button class="btn wide">Entrar na conta</button></form>
-   <div class="auth-links"><button class="link" id="showRegister">Criar uma conta</button><button class="link" id="discordLogin">Continuar com Discord ↗</button></div>
+   <div class="auth-links"><button class="link" id="showRegister">Criar uma conta</button><span class="muted">Acesso pelo estúdio</span></div>
   </div>
   <div id="registerPane" class="hidden"><h1>Crie seu acesso.</h1><p>Seus dados ficam vinculados à sua conta do estúdio.</p>
    <form id="registerForm"><div class="field"><label>NOME COMPLETO</label><input name="name" required autocomplete="name"></div><div class="field"><label>NOME DE USUÁRIO</label><input name="username" required minlength="3" autocomplete="username"></div><div class="field"><label>E-MAIL</label><input name="email" type="email" required autocomplete="email"></div><div class="field"><label>SENHA</label><input name="password" type="password" minlength="10" required autocomplete="new-password"></div><div class="field"><label>CONFIRMAR SENHA</label><input name="confirm" type="password" minlength="10" required autocomplete="new-password"></div><button class="btn wide">Criar minha conta</button></form>
-   <div class="auth-links"><button class="link" id="showLogin">Já tenho uma conta</button><button class="link" id="discordRegister">Vincular com Discord ↗</button></div>
+   <div class="auth-links"><button class="link" id="showLogin">Já tenho uma conta</button><span class="muted">Cadastro do estúdio</span></div>
   </div><div id="authNotice" class="notice hidden"></div>
  </div>
 </section>
@@ -146,7 +146,6 @@ $("#gateForm").addEventListener("submit",async e=>{e.preventDefault();try{await 
 $("#loginForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api("/login",{method:"POST",body:JSON.stringify({identity:f.get("identity"),password:f.get("password")})});state.user=r.user;showApp()}catch(err){notice($("#authNotice"),err.message,"error")}});
 $("#registerForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.currentTarget);if(f.get("password")!==f.get("confirm"))return notice($("#authNotice"),"As senhas não coincidem.","error");try{const r=await api("/register",{method:"POST",body:JSON.stringify({name:f.get("name"),username:f.get("username"),email:f.get("email"),password:f.get("password")})});state.user=r.user;showApp()}catch(err){notice($("#authNotice"),err.message,"error")}});
 $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#registerPane").classList.remove("hidden");$("#authNotice").classList.add("hidden")};$("#showLogin").onclick=()=>{$("#registerPane").classList.add("hidden");$("#loginPane").classList.remove("hidden");$("#authNotice").classList.add("hidden")};
-$("#discordLogin").onclick=()=>location.href="/api/auth/discord/start";$("#discordRegister").onclick=()=>location.href="/api/auth/discord/start";
 $("#logoutBtn").onclick=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showGate()}};
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>navigate(b.dataset.view)));
