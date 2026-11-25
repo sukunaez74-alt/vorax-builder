@@ -166,7 +166,24 @@ async function discordCallback(request, env) {
 export async function onRequest(context) {
   const { request, env } = context; const url = new URL(request.url); const path = url.pathname.replace(/^\/api/, "") || "/";
   if (path === "/health" && request.method === "GET") {
-    return reply({ ok: true, service: "black-zone-estudio", databaseConfigured: !!env.DB, secretsConfigured: { gate: !!env.APP_GATE_PHRASE, session: !!env.APP_SESSION_SECRET, encryption: !!env.APP_ENCRYPTION_KEY, discordOAuth: !!(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET) } });
+    let databaseQuery = false;
+    if (env.DB) {
+      const probe = await env.DB.prepare("SELECT ?::text AS check_value")
+        .bind("black-zone-estudio").first();
+      databaseQuery = probe?.check_value === "black-zone-estudio";
+    }
+    return reply({
+      ok: true,
+      service: "black-zone-estudio",
+      databaseConfigured: !!env.DB,
+      databaseQuery,
+      secretsConfigured: {
+        gate: !!env.APP_GATE_PHRASE,
+        session: !!env.APP_SESSION_SECRET,
+        encryption: !!env.APP_ENCRYPTION_KEY,
+        discordOAuth: !!(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET)
+      }
+    });
   }
   if (!env.DB) return reply({ error: "Banco de dados indisponível. Conecte o Neon ao projeto Vercel para habilitar cadastro e login." }, 503);
   try {
