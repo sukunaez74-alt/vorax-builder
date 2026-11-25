@@ -603,6 +603,44 @@ export async function onRequest(context) {
       const bot = await getOwnedBot(id, user.id, env);
       if (!bot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
 
+      if (!action && request.method === "DELETE") {
+        let stopConfirmed = !bot.hosting_deployment_id;
+        let hostingConnected = false;
+        if (bot.hosting_deployment_id) {
+          const connection = await env.DB.prepare(
+            "SELECT user_id FROM hosting_connections WHERE user_id=?"
+          ).bind(user.id).first();
+          hostingConnected = !!connection;
+          if (hostingConnected) {
+            try {
+              await hostRequest(
+                user.id, env,
+                "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/power",
+                "POST",
+                { action: "stop", waitSeconds: 20 }
+              );
+              stopConfirmed = true;
+            } catch (error) {
+              return reply({
+                error: "Não consegui confirmar que o processo foi parado na hospedagem. O bot continua salvo no painel. Reconecte a hospedagem e tente excluir novamente.",
+                code: "bot_stop_failed"
+              }, 502);
+            }
+          }
+        }
+        await env.DB.prepare(
+          "DELETE FROM bots WHERE id=? AND user_id=?"
+        ).bind(id, user.id).run();
+        return reply({
+          ok: true,
+          deleted: true,
+          stopConfirmed,
+          message: stopConfirmed
+            ? "Bot removido do painel e processo parado quando havia implantação."
+            : "Bot removido do painel, mas a hospedagem não estava conectada para confirmar a parada do processo."
+        });
+      }
+
       if (!action && request.method === "GET") {
         const hasToken = !!bot.discord_token_enc;
         let discordBotId = bot.discord_bot_id || null;
