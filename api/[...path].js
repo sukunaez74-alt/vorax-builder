@@ -134,7 +134,7 @@ async function verificationBotSettings(env) {
   ).first();
 }
 function verificationBotSource() {
-  return String.raw\`import os
+  return String.raw`import os
 import json
 import asyncio
 from pathlib import Path
@@ -230,7 +230,7 @@ if not TOKEN:
     raise SystemExit("DISCORD_TOKEN não configurado.")
 
 write_status("starting")
-bot.run(TOKEN, log_handler=None)\`;
+bot.run(TOKEN, log_handler=None)`;
 }
 async function ensureVerificationBotDeployment(userId, env) {
   const settings = await verificationBotSettings(env);
