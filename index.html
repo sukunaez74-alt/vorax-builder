@@ -646,8 +646,11 @@ async function api(path,options={}){
  try{data=raw?JSON.parse(raw):{}}catch{}
  if(!res.ok){
   const message=displayErrorText(data.error??data.message??data.detail);
-  if(message)throw new Error(message);
-  throw new Error(res.status===404?"A rota desta função não foi encontrada na versão publicada. Atualize o painel e tente novamente.":"O servidor respondeu com erro HTTP "+res.status+". Atualize a página e tente novamente; se continuar, informe esse código de erro.");
+  const error=new Error(message||(res.status===404?"A rota desta função não foi encontrada na versão publicada. Atualize o painel e tente novamente.":"O servidor respondeu com erro HTTP "+res.status+". Atualize a página e tente novamente; se continuar, informe esse código de erro."));
+  error.code=data.code||null;
+  error.status=res.status;
+  error.details=data;
+  throw error;
  }
  if(raw&&!Object.keys(data).length)throw new Error("O servidor respondeu em um formato inesperado. Atualize a página e tente novamente.");
  return data;
@@ -973,7 +976,7 @@ function settingsView(){
  '<div id="settingsDiscordOAuthState" class="project-note changes-pending"><strong>Conferindo configuração OAuth…</strong></div>'+
  '<button class="btn" id="connectDiscordAccount" disabled>'+(linked?"Trocar conta vinculada":"Vincular minha conta Discord ↗")+'</button></section>'+
  '<section class="card"><div class="section-head"><h3>Executor de bots</h3><span class="status">OAuth · sem chave manual</span></div><p class="muted small">Conecte sua conta Bot-Hosting uma vez. O Estúdio usa autorização OAuth e guarda os tokens de acesso criptografados; você não precisa copiar uma chave de API.</p><div id="settingsHostingState" class="project-note"><strong>Consultando autorização…</strong><br>Verificando se esta conta já autorizou o executor.</div><button class="btn" id="settingsHostingConnect">Conectar / reconectar Bot-Hosting</button><p class="muted small" style="margin-top:10px">O bot central do ADM continua nesta hospedagem. O provedor adicional é configurado separadamente.</p></section>'+
-'<section class="card"><div class="section-head"><h3>Pool de hospedagem · Discloud</h3><span class="status">PROVEDOR RESERVA</span></div><p class="muted small">Adicione sua conta Discloud para preparar a segunda rota do pool. A chave é validada pela API oficial e guardada criptografada no servidor do Estúdio; não cole essa chave no chat.</p><div id="settingsDiscloudState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando a conta Discloud.</div><form id="discloudConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>DISCLOUD API KEY</label><input id="discloudApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua API Key da Discloud" minlength="16" maxlength="512"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="discloudConnectButton" type="submit">Validar e conectar Discloud</button><a class="btn secondary" href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir Dashboard Discloud ↗</a></div></form><p class="muted small" style="margin-top:10px">No Dashboard da Discloud, abra Ferramentas → Chaves de API e gere sua chave. O plano Free oficial informa limite de 1 bot e 100 MB de RAM; o Estúdio respeitará a capacidade real da conta.</p></section>'+
+'<section class="card"><div class="section-head"><h3>Pool de hospedagem · Discloud</h3><span class="status">PROVEDOR RESERVA</span></div><p class="muted small">Conecte a Discloud como hospedagem reserva. Quando o Bot-Hosting estiver sem vaga, o Estúdio poderá encaminhar o ZIP para a Discloud automaticamente. A chave fica guardada criptografada no servidor; não cole essa chave no chat.</p><div id="settingsDiscloudState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando a conta Discloud.</div><form id="discloudConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>DISCLOUD API KEY</label><input id="discloudApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua API Key da Discloud" minlength="16" maxlength="512"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="discloudConnectButton" type="submit">Validar e conectar Discloud</button><a class="btn secondary" href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir Dashboard Discloud ↗</a></div></form><p class="muted small" style="margin-top:10px">No Dashboard da Discloud, abra Ferramentas → Chaves de API e gere sua chave. O plano Free oficial informa limite de 1 bot e 100 MB de RAM; o Estúdio respeitará a capacidade real da conta.</p></section>'+
 '<section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">As sessões usam cookies HttpOnly. Os Bot Tokens são criptografados no servidor e nunca são devolvidos ao navegador em texto aberto.</p></section>'+
  '<section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API, o PostgreSQL e a configuração do ambiente.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>';
 }
@@ -1747,14 +1750,41 @@ async function analyzeImportedBot(id,packageName,status){
  }
  toast("Projeto reconhecido. Confira os logs depois de iniciar para validar a conexão do Discord.");
 }
+function fileToBase64(file){
+ return file.arrayBuffer().then(buffer=>{
+  const bytes=new Uint8Array(buffer);
+  let binary="";
+  const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));
+  return btoa(binary);
+ });
+}
+async function uploadZipToDiscloud(id,file,runtime,packageName,status){
+ if(file.size>3*1024*1024)throw new Error("A hospedagem principal está sem vaga e este ZIP passa de 3 MB. Para a rota alternativa, compacte o projeto sem node_modules, venv e caches. O arquivo original não foi enviado nem alterado.");
+ if(status)status.textContent="Preparando envio seguro para a hospedagem reserva Discloud…";
+ const archiveBase64=await fileToBase64(file);
+ if(status)status.textContent="Enviando ZIP para a Discloud e configurando o ambiente…";
+ const result=await api("/bots/"+encodeURIComponent(id)+"/auto-upload",{
+  method:"POST",
+  body:JSON.stringify({filename:packageName+".zip",archiveBase64,runtime,packageName})
+ });
+ if(!result.ok||!result.providerAppId)throw new Error("A Discloud não confirmou a criação da aplicação.");
+ if(status)status.textContent="Projeto enviado à Discloud · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
+ await loadBots();
+ state.activeBot=id;
+ toast("ZIP enviado pela hospedagem reserva Discloud. Confira os logs para confirmar a conexão do Discord.");
+ return result;
+}
 async function uploadBotFile(){
  const input=$("#fileUploadInput"),file=input?.files?.[0];
  if(!file)return;
  const id=$("#filesBotSelect")?.value||state.activeBot;
- const packageName=safePackageName(state.bots.find(bot=>bot.id===id)?.name||file.name.replace(/\.zip$/i,""));
+ const selectedBot=state.bots.find(bot=>bot.id===id);
+ const packageName=safePackageName(selectedBot?.name||file.name.replace(/\.zip$/i,""));
  const runtimeChoice=$("#fileRuntime")?.value||"auto";
- const currentBot=state.bots.find(bot=>bot.id===id);
+ const currentBot=selectedBot;
  const button=$("#fileUploadButton"),status=$("#fileStatus");
+ let completed=false;
  if(!id)return toast("Selecione um bot antes de enviar o pacote.");
  if(!/\.zip$/i.test(file.name))return toast("Escolha um arquivo .ZIP para importar o projeto completo.");
  const maxZipBytes=5000*1024;
@@ -1769,27 +1799,42 @@ async function uploadBotFile(){
    detected=currentBot?.runtime==="nodejs"?"nodejs":"python";
   }
   const runtime=runtimeChoice==="auto"?detected:runtimeChoice;
-  if(currentBot?.hostingDeploymentId&&currentBot.runtime!==runtime&&
+  if(currentBot?.hostingDeploymentId&&currentBot.hostingProvider!=="discloud"&&currentBot.runtime!==runtime&&
     !window.confirm("O pacote foi identificado como "+(runtime==="nodejs"?"Node.js":"Python")+". Para trocar o ambiente do servidor atual, os arquivos antigos serão substituídos pelo pacote novo. Continuar?"))return;
   if(currentBot?.customProject&&
     !window.confirm("Este projeto já tem um pacote importado. Os arquivos com o mesmo nome poderão ser substituídos. Continuar?"))return;
   if(button)button.textContent="Enviando ZIP…";
-  if(status)status.textContent=(quickDetection?"ZIP reconhecido como ":"A pré-leitura não foi compatível; o servidor fará a análise completa. Enviando pacote em ambiente inicial "+(runtime==="nodejs"?"Node.js":"Python")+". ")+(runtime==="nodejs"?"Node.js":"Python")+" · "+file.name+"…";
-  const archiveName=packageName+".zip";
-  const signed=await requestBotUploadUrl(id,"/",runtime,status);
-  if(!signed.url)throw new Error("A hospedagem não retornou um endereço de envio.");
-  await uploadSignedFiles(signed.url,signed.field||"files",[{file,name:archiveName}],(loaded,total)=>{
-   if(status)status.textContent="Enviando ZIP: "+Math.round(loaded/total*100)+"%";
-  });
-  if(status)status.textContent="Upload concluído. Extraindo todos os arquivos e mantendo a estrutura original…";
-  await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({path:"/",file:archiveName})});
-  await analyzeImportedBot(id,packageName,status);
+  if(currentBot?.hostingProvider==="discloud"&&currentBot?.providerAppId){
+   await uploadZipToDiscloud(id,file,runtime,packageName,status);
+   completed=true;
+  }else{
+   if(status)status.textContent=(quickDetection?"ZIP reconhecido como ":"A pré-leitura não foi compatível; o servidor fará a análise completa. Enviando pacote em ambiente inicial "+(runtime==="nodejs"?"Node.js":"Python")+". ")+(runtime==="nodejs"?"Node.js":"Python")+" · "+file.name+"…";
+   const archiveName=packageName+".zip";
+   try{
+    const signed=await requestBotUploadUrl(id,"/",runtime,status);
+    if(!signed.url)throw new Error("A hospedagem não retornou um endereço de envio.");
+    await uploadSignedFiles(signed.url,signed.field||"files",[{file,name:archiveName}],(loaded,total)=>{
+     if(status)status.textContent="Enviando ZIP: "+Math.round(loaded/total*100)+"%";
+    });
+    if(status)status.textContent="Upload concluído. Extraindo todos os arquivos e mantendo a estrutura original…";
+    await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({path:"/",file:archiveName})});
+    await analyzeImportedBot(id,packageName,status);
+    completed=true;
+   }catch(error){
+    if(["hosting_capacity_full","hosting_not_connected","hosting_scope_missing"].includes(error.code)){
+     await uploadZipToDiscloud(id,file,runtime,packageName,status);
+     completed=true;
+    }else{
+     throw error;
+    }
+   }
+  }
  }catch(error){
   toast(error.message||"Não consegui importar este ZIP.");
   if(status)status.textContent=error.message||"Falha ao importar o pacote.";
  }finally{
   if(button){button.disabled=false;button.textContent="⇧ Escolha um ZIP"}
-  input.value="";
+  if(completed)input.value="";
  }
 }
 async function uploadLooseFiles(){
