@@ -1037,6 +1037,36 @@ async function ensureBotDeployment(bot, userId, env) {
     packageUpdated: isNewDeployment || installedVersion !== bundleVersion
   };
 }
+
+async function cogitRequest(token, path, method = "GET", payload = null, rawBody = false) {
+  const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.pterodactyl.v1+json, ...(payload !== null && !rawBody ? {"Content-Type":"application/json"} : {}) };
+  if (rawBody) headers["Content-Type"] = "text/plain";
+  const response = await fetch("https://panel.cogitdev.net/api/client" + path, {
+    method, headers,
+    body: payload === null ? undefined : (rawBody ? String(payload) : JSON.stringify(payload)),
+    signal: AbortSignal.timeout(60000)
+  });
+  const raw = await response.text();
+  let data = {};
+  if (raw) { try { data = JSON.parse(raw); } catch { data = { text: raw }; } }
+  if (!response.ok) {
+    const reason = externalErrorText(data?.errors?.[0]?.detail || data?.message || data?.error || raw) || ("HTTP " + response.status);
+    const error = new Error("Cogithost · " + method + " " + path + " · HTTP " + response.status + ": " + reason);
+    error.status = response.status; throw error;
+  }
+  return { data, raw, status: response.status };
+}
+async function cogitConfig(userId, env) {
+  const row = await env.DB.prepare("SELECT encrypted_token FROM provider_connections WHERE user_id=? AND provider='cogithost'").bind(userId).first();
+  if (!row?.encrypted_token) return null;
+  try { const value = await decryptSecret(row.encrypted_token, env); const config = JSON.parse(value || "{}"); return config?.token ? { token: String(config.token) } : null; }
+  catch { return null; }
+}
+function cogitIdentifier(value) {
+  const id = String(value || "").trim();
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error("Identificador do servidor Cogithost inválido.");
+  return id;
+}
 async function providerToken(userId, provider, env) {
   const row = await env.DB.prepare(
     "SELECT encrypted_token FROM provider_connections WHERE user_id=? AND provider=?"
@@ -2158,6 +2188,59 @@ export async function onRequest(context) {
       }
     }
 
+
+    if (path === "/hosting/cogithost/connect" && request.method === "POST") {
+      const b = await body(request), token = String(b.apiToken || "").trim();
+      if (token.length < 20 || token.length > 512 || /\\s/.test(token)) return reply({ error: "Informe uma chave Client API do Cogithost válida." }, 400);
+      try {
+        const result = await cogitRequest(token, "");
+        const servers = Array.isArray(result.data.data) ? result.data.data : [];
+        const encrypted = await encryptSecret(JSON.stringify({ token }), env);
+        await env.DB.prepare("INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,'cogithost',?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at")
+          .bind(user.id, encrypted, "Cogithost", "Free / Pterodactyl", Date.now()).run();
+        return reply({ ok: true, connected: true, provider: "cogithost", accountLabel: "Cogithost", serversCount: servers.length, message: "Chave Client API do Cogithost validada e criptografada." });
+      } catch (error) { return reply({ error: error.message || "Não consegui validar a API Key do Cogithost." }, 401); }
+    }
+    if (path === "/hosting/cogithost/disconnect" && request.method === "POST") {
+      const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='cogithost' AND provider_app_id IS NOT NULL LIMIT 1").bind(user.id).first();
+      if (linked) return reply({ error: "Há bots vinculados ao Cogithost. Desvincule os servidores antes de desconectar." }, 409);
+      await env.DB.prepare("DELETE FROM provider_connections WHERE user_id=? AND provider='cogithost'").bind(user.id).run();
+      return reply({ ok: true, connected: false });
+    }
+    if (path === "/hosting/cogithost/servers" && request.method === "GET") {
+      try {
+        const config = await cogitConfig(user.id, env);
+        if (!config) return reply({ code: "provider_not_connected", error: "Conecte o Cogithost em Configurações." }, 409);
+        const result = await cogitRequest(config.token, "");
+        const servers = (Array.isArray(result.data.data) ? result.data.data : []).map(item => {
+          const a = item?.attributes || {};
+          return { id: String(a.identifier || ""), name: String(a.name || "Servidor"), memoryMb: Number(a.limits?.memory || 0), diskMb: Number(a.limits?.disk || 0), suspended: !!a.is_suspended };
+        }).filter(item => item.id);
+        return reply({ connected: true, servers });
+      } catch (error) { return reply({ error: error.message || "Não consegui listar os servidores Cogithost." }, 502); }
+    }
+    if (path === "/hosting/cogithost/attach" && request.method === "POST") {
+      const b = await body(request), botId = String(b.botId || "");
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(botId)) return reply({ error: "Selecione um projeto válido do Estúdio." }, 400);
+      const bot = await getOwnedBot(botId, user.id, env);
+      if (!bot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
+      try {
+        const config = await cogitConfig(user.id, env);
+        if (!config) return reply({ code: "provider_not_connected", error: "Conecte o Cogithost em Configurações." }, 409);
+        const serverId = cogitIdentifier(b.serverId);
+        const result = await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId));
+        const a = result.data?.attributes || {};
+        if (String(a.identifier || "") !== serverId) return reply({ error: "O Cogithost não confirmou o identificador deste servidor." }, 502);
+        const resources = await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+        const current = String(resources.data?.attributes?.current_state || "").toLowerCase();
+        const state = current === "running" ? "running" : "stopped";
+        const customProject = { packageName: bot.name, rootPath: "/", runtime: bot.runtime || "python", provider: "cogithost", linkedAt: Date.now() };
+        await env.DB.prepare("UPDATE bots SET hosting_provider='cogithost',provider_app_id=?,hosting_deployment_id=NULL,project_type='custom',custom_project=?::jsonb,state=?,updated_at=? WHERE id=? AND user_id=?")
+          .bind(serverId, JSON.stringify(customProject), state, Date.now(), botId, user.id).run();
+        return reply({ ok: true, provider: "cogithost", providerAppId: serverId, serverName: String(a.name || "Servidor Cogithost"), state, message: "Servidor Cogithost vinculado. Arquivos e controles disponíveis no Estúdio." });
+      } catch (error) { return reply({ error: error.message || "Não consegui vincular esse servidor Cogithost." }, 502); }
+    }
+
     if (path === "/hosting/cube/connect" && request.method === "POST") {
       const b = await body(request);
       const token = String(b.apiToken || "").trim();
@@ -2223,10 +2306,11 @@ export async function onRequest(context) {
     }
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
-      const [discloudRow, squareRow, cubeRow, hostingRow] = await Promise.all([
+      const [discloudRow, squareRow, cubeRow, cogitRow, hostingRow] = await Promise.all([
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cubecloud'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cogithost'").bind(user.id).first(),
         env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(user.id).first()
       ]);
       let discloud = { connected: false, provider: "discloud" };
@@ -2300,10 +2384,21 @@ export async function onRequest(context) {
           cube = { connected: true, valid: false, provider: "cubecloud", error: error.message || "Falha de validação." };
         }
       }
+
+      let cogithost = { connected: false, provider: "cogithost" };
+      if (cogitRow) {
+        try {
+          const config = await cogitConfig(user.id, env);
+          const result = config ? await cogitRequest(config.token, "") : null;
+          const servers = Array.isArray(result?.data?.data) ? result.data.data : [];
+          cogithost = { connected: true, valid: true, provider: "cogithost", accountLabel: "Cogithost", plan: "Free / Pterodactyl", serversCount: servers.length, canCreate: false, canAttach: servers.length > 0 };
+        } catch (error) { cogithost = { connected: true, valid: false, provider: "cogithost", error: error.message || "Falha de validação." }; }
+      }
       const scopes = String(hostingRow?.scope || "").split(/\s+/).filter(Boolean);
       return reply({
         providers: [
           { id: "bot-hosting", name: "Bot-Hosting", connected: !!hostingRow, canCreate: !!hostingRow && scopes.includes("deployments:write") && scopes.includes("credits:spend"), role: "principal" },
+          { id: "cogithost", name: "Cogithost", role: "servidor-conectado", ...cogithost, canCreate: false },
           { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
           { id: "squarecloud", name: "Square Cloud", role: "reserva-paga", ...square, canCreate: !!square.valid && !!square.canCreate },
           { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, canCreate: false, role: "compatibilidade-parcial", ...discloud, canCreate: false }
@@ -2631,6 +2726,16 @@ export async function onRequest(context) {
           } catch (error) {
             runtimeInfo = { error: error.message || "Falha ao consultar Square Cloud." };
           }
+
+        } else if (bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+          try {
+            const config = await cogitConfig(user.id, env);
+            if (!config) throw new Error("Conta Cogithost desconectada.");
+            const result = await cogitRequest(config.token, "/servers/" + encodeURIComponent(cogitIdentifier(bot.provider_app_id)) + "/resources");
+            runtimeInfo = result.data?.attributes || result.data;
+            const current = String(runtimeInfo.current_state || "").toLowerCase();
+            state = current === "running" ? "running" : (current === "starting" ? "starting" : "stopped");
+          } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar Cogithost." }; }
         } else if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
           try {
             const token = await providerToken(user.id, "cubecloud", env);
@@ -2736,6 +2841,21 @@ export async function onRequest(context) {
           } catch (error) {
             return reply({ ok: false, code: "provider_action_failed", error: error.message || "Falha ao controlar a aplicação na Discloud." }, 502);
           }
+        }
+        if (bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+          try {
+            const config = await cogitConfig(user.id, env);
+            if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+            const serverId = cogitIdentifier(bot.provider_app_id);
+            await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
+            const resource = await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+            const current = String(resource.data?.attributes?.current_state || "").toLowerCase();
+            const state = signal === "stop" ? "stopped" : (current === "running" ? "running" : "starting");
+            await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?").bind(state, Date.now(), id, user.id).run();
+            return reply({ ok: true, action: signal, state, provider: "cogithost", providerAppId: serverId, discordOnline: false,
+              resources: resource.data?.attributes?.resources || null,
+              hint: signal === "stop" ? "Servidor parado no Cogithost." : "Comando enviado. Confira o console do painel Cogithost para confirmar a inicialização." });
+          } catch (error) { return reply({ ok: false, error: error.message || "Falha ao controlar o servidor Cogithost." }, 502); }
         }
         if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
           try {
@@ -2950,6 +3070,23 @@ export async function onRequest(context) {
           return reply({ error: error.message || "Não consegui consultar a Discloud." }, 502);
         }
       }
+      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+        try {
+          const config = await cogitConfig(user.id, env);
+          if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+          const serverId = cogitIdentifier(bot.provider_app_id);
+          if (action === "logs") return reply({ provider: "cogithost", lines: [], note: "O console ao vivo do Cogithost usa WebSocket; abra o console no painel Cogithost para ver a saída em tempo real." });
+          const result = await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+          const data = result.data?.attributes || {};
+          if (action === "diagnose") return reply({ provider: "cogithost", ...data });
+          return reply({ provider: "cogithost", resources: {
+            currentState: data.current_state || null, cpu: data.resources?.cpu_absolute ?? null,
+            memoryBytes: data.resources?.memory_bytes ?? null, diskBytes: data.resources?.disk_bytes ?? null,
+            networkRxBytes: data.resources?.network_rx_bytes ?? null, networkTxBytes: data.resources?.network_tx_bytes ?? null,
+            uptime: data.resources?.uptime ?? null
+          } });
+        } catch (error) { return reply({ error: error.message || "Não consegui consultar o Cogithost." }, 502); }
+      }
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         try {
           const token = await providerToken(user.id, "cubecloud", env);
@@ -3010,6 +3147,19 @@ export async function onRequest(context) {
         }
       }
 
+      if (action === "files" && !subPath && request.method === "GET" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+        try {
+          const config = await cogitConfig(user.id, env);
+          if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+          const directory = safeVolumePath(url.searchParams.get("path") || "/");
+          const result = await cogitRequest(config.token, "/servers/" + encodeURIComponent(cogitIdentifier(bot.provider_app_id)) + "/files/list?directory=" + encodeURIComponent(directory));
+          const entries = (Array.isArray(result.data?.data) ? result.data.data : []).map(item => {
+            const a = item?.attributes || {};
+            return { name: String(a.name || ""), type: a.is_file ? "file" : "directory", sizeBytes: Number(a.size || 0), modifiedAt: a.modified_at || null };
+          }).filter(item => item.name);
+          return reply({ provider: "cogithost", path: directory, entries });
+        } catch (error) { return reply({ error: error.message || "Falha ao listar arquivos Cogithost." }, 502); }
+      }
       if (action === "files" && !subPath && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         try {
           const token = await providerToken(user.id, "cubecloud", env);
@@ -3055,6 +3205,22 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao listar arquivos." }, 502); }
       }
 
+      if (action === "files" && subPath === "download-url" && request.method === "GET" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+        try {
+          const config = await cogitConfig(user.id, env);
+          if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+          const filePath = safeVolumePath(url.searchParams.get("path") || "/");
+          const result = await cogitRequest(config.token, "/servers/" + encodeURIComponent(cogitIdentifier(bot.provider_app_id)) + "/files/download?file=" + encodeURIComponent(filePath));
+          const signedUrl = String(result.data?.attributes?.url || result.data?.url || "");
+          if (!signedUrl.startsWith("https://")) return reply({ error: "O Cogithost não retornou link de download seguro." }, 502);
+          const response = await fetch(signedUrl, { signal: AbortSignal.timeout(60000) });
+          if (!response.ok) throw new Error("Falha ao baixar arquivo Cogithost: HTTP " + response.status);
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          if (bytes.byteLength > 4 * 1024 * 1024) return reply({ error: "O arquivo passa de 4 MB. Use o painel Cogithost para baixar arquivos maiores." }, 413);
+          let binary = ""; for (let i=0;i<bytes.length;i+=0x8000) binary += String.fromCharCode(...bytes.subarray(i,i+0x8000));
+          return reply({ provider: "cogithost", base64: btoa(binary), filename: filePath.split("/").pop() || "download.bin" });
+        } catch (error) { return reply({ error: error.message || "Falha ao baixar arquivo Cogithost." }, 502); }
+      }
       if (action === "files" && subPath === "download-url" && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         try {
           const token = await providerToken(user.id, "cubecloud", env);
@@ -3138,6 +3304,16 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao criar o arquivo ZIP." }, 502); }
       }
 
+      if (action === "files" && subPath === "content" && request.method === "GET" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+        try {
+          const filePath = safeVolumePath(url.searchParams.get("path") || "/main.py");
+          if (/\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f|mp3|wav|ogg|m4a|flac|mp4|webm|mov|woff2?|ttf|otf|zip|pdf|db|sqlite)$/i.test(filePath)) return reply({ error: "Arquivo binário. Use Baixar." }, 415);
+          const config = await cogitConfig(user.id, env);
+          if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+          const result = await cogitRequest(config.token, "/servers/" + encodeURIComponent(cogitIdentifier(bot.provider_app_id)) + "/files/contents?file=" + encodeURIComponent(filePath));
+          return reply({ provider: "cogithost", path: filePath, content: result.raw, totalLines: result.raw.split("\n").length });
+        } catch (error) { return reply({ error: error.message || "Falha ao ler arquivo Cogithost." }, 502); }
+      }
       if (action === "files" && subPath === "content" && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         try {
           const filePath = cubeRelativePath(url.searchParams.get("path") || "/main.py");
@@ -3177,6 +3353,16 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao ler arquivo." }, 502); }
       }
 
+      if (action === "files" && subPath === "content" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+        const b = await body(request), filePath = safeVolumePath(b.path), content = String(b.content ?? "");
+        if (content.length > 450000) return reply({ error: "O arquivo é grande demais para o editor." }, 413);
+        try {
+          const config = await cogitConfig(user.id, env);
+          if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+          const result = await cogitRequest(config.token, "/servers/" + encodeURIComponent(cogitIdentifier(bot.provider_app_id)) + "/files/write?file=" + encodeURIComponent(filePath), "POST", content, true);
+          return reply({ ok: true, status: result.status });
+        } catch (error) { return reply({ error: error.message || "Falha ao salvar arquivo Cogithost." }, 502); }
+      }
       if (action === "files" && subPath === "content" && request.method === "POST" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         const b = await body(request);
         const filePath = cubeRelativePath(b.path);
@@ -3215,6 +3401,15 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao salvar arquivo." }, 502); }
       }
 
+      if (action === "files" && subPath === "delete" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+        const b = await body(request), filePath = safeVolumePath(b.path);
+        if (filePath === "/") return reply({ error: "A pasta raiz não pode ser removida." }, 400);
+        try {
+          const config = await cogitConfig(user.id, env);
+          if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+          return reply((await cogitRequest(config.token, "/servers/" + encodeURIComponent(cogitIdentifier(bot.provider_app_id)) + "/files/delete", "POST", { root: "/", files: [filePath] })).data);
+        } catch (error) { return reply({ error: error.message || "Falha ao excluir arquivo Cogithost." }, 502); }
+      }
       if (action === "files" && subPath === "delete" && request.method === "POST" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         const b = await body(request);
         const filePath = cubeRelativePath(b.path);
@@ -3433,6 +3628,17 @@ export async function onRequest(context) {
         }
       }
 
+      if (action === "upload-url" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+        try {
+          const config = await cogitConfig(user.id, env);
+          if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+          const b = await body(request), directory = safeVolumePath(b.path || "/");
+          const result = await cogitRequest(config.token, "/servers/" + encodeURIComponent(cogitIdentifier(bot.provider_app_id)) + "/files/upload?directory=" + encodeURIComponent(directory));
+          const url = String(result.data?.attributes?.url || result.data?.url || "");
+          if (!url.startsWith("https://")) return reply({ error: "O Cogithost não retornou URL de upload válida." }, 502);
+          return reply({ url, field: "files", path: directory, provider: "cogithost" });
+        } catch (error) { return reply({ error: error.message || "Falha ao preparar upload Cogithost." }, 502); }
+      }
       if (action === "upload-url" && request.method === "POST") {
         if (bot.project_type !== "custom" && !bot.custom_project) return reply({ error: "Envio de código próprio só está disponível em projetos criados como \"Meu próprio bot\"." }, 409);
         try {
@@ -3511,6 +3717,15 @@ export async function onRequest(context) {
         }
       }
 
+      if (action === "extract" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+        const b = await body(request), file = String(b.file || "");
+        if (!/^[A-Za-z0-9._-]{1,140}\.zip$/i.test(file) || file.includes("..")) return reply({ error: "Nome de ZIP inválido." }, 400);
+        try {
+          const config = await cogitConfig(user.id, env);
+          if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+          return reply((await cogitRequest(config.token, "/servers/" + encodeURIComponent(cogitIdentifier(bot.provider_app_id)) + "/files/decompress", "POST", { root: safeVolumePath(b.path || "/"), file })).data);
+        } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP Cogithost." }, 502); }
+      }
       if (action === "extract" && request.method === "POST") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Hospedagem não preparada." }, 409);
         const b = await body(request);
@@ -3523,6 +3738,41 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP." }, 502); }
       }
 
+      if (action === "import" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
+        try {
+          const b = await body(request), config = await cogitConfig(user.id, env);
+          if (!config) return reply({ code: "provider_not_connected", error: "Reconecte o Cogithost nas Configurações." }, 409);
+          const serverId = cogitIdentifier(bot.provider_app_id), queue = ["/"], seen = new Set(), files = [];
+          let directories = 0;
+          while (queue.length && files.length < 12000) {
+            const directory = queue.shift();
+            if (seen.has(directory)) continue; seen.add(directory);
+            const listing = await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/files/list?directory=" + encodeURIComponent(directory));
+            for (const item of (Array.isArray(listing.data?.data) ? listing.data.data : [])) {
+              const a = item?.attributes || {}, name = String(a.name || "");
+              if (!name || name === "." || name === ".." || name === ".DS_Store" || name.startsWith("._")) continue;
+              const full = safeVolumePath((directory === "/" ? "" : directory) + "/" + name);
+              const parts = full.toLowerCase().split("/");
+              if (!a.is_file) {
+                if (parts.some(x => ["node_modules",".git","venv",".venv","__pycache__"].includes(x))) continue;
+                directories++; if (parts.length < 12) queue.push(full);
+              } else if (!parts.some(x => ["node_modules",".git","venv",".venv","__pycache__"].includes(x))) files.push(full);
+            }
+          }
+          if (queue.length) throw new Error("O projeto tem pastas demais para análise automática.");
+          const names = files.map(file => file.slice(1));
+          const hasNode = names.some(file => /(^|\/)package\.json$/i.test(file)) || names.some(file => /\.(?:js|mjs|cjs)$/i.test(file));
+          const runtime = hasNode ? "nodejs" : "python";
+          const entryFile = hasNode
+            ? names.find(file => /^(?:index|main|bot|app)\.(?:js|mjs|cjs)$/i.test(file)) || names.find(file => /\.(?:js|mjs|cjs)$/i.test(file)) || ""
+            : names.find(file => /^(?:main|bot|runner|app|index)\.py$/i.test(file)) || names.find(file => /\.py$/i.test(file)) || "";
+          if (!entryFile) throw new Error("Não encontrei o arquivo principal Node.js ou Python.");
+          const customProject = { packageName: String(b.packageName || bot.name || "Meu bot").slice(0,64), rootPath:"/", runtime, entryFile, startCommand:null, dependencyFile:names.find(file=>/^(?:package\.json|requirements\.txt|pyproject\.toml)$/i.test(file))||null, fileCount:files.length, directoryCount:directories, provider:"cogithost", importedAt:Date.now() };
+          await env.DB.prepare("UPDATE bots SET runtime=?,project_type='custom',custom_project=?::jsonb,state='stopped',updated_at=? WHERE id=? AND user_id=?")
+            .bind(runtime, JSON.stringify(customProject), Date.now(), id, user.id).run();
+          return reply({ ok:true, imported:true, customProject, message:"Arquivos analisados. O comando de inicialização e as variáveis continuam configurados no painel Cogithost." });
+        } catch (error) { return reply({ error:error.message || "Falha ao analisar os arquivos Cogithost." },502); }
+      }
       if (action === "import" && request.method === "POST") {
         if (bot.project_type !== "custom" && !bot.custom_project) return reply({ error: "Este é um projeto do bot padrão do Estúdio. Para importar seu próprio código, crie um projeto na opção \"Meu próprio bot\"." }, 409);
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Envie o pacote para preparar a hospedagem primeiro." }, 409);
