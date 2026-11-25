@@ -793,6 +793,21 @@ function makeDatabase(connectionString) {
     let index = 0;
     return statement.replace(/\?/g, () => "$" + (++index));
   }
+  function operations(query, params = []) {
+    return {
+      async first() {
+        const rows = await sql.query(query, params);
+        return rows[0] || null;
+      },
+      async run() {
+        const rows = await sql.query(query, params);
+        return { success: true, results: rows };
+      },
+      async all() {
+        return sql.query(query, params);
+      }
+    };
+  }
   return {
     async raw(statement, params = []) {
       return sql.query(placeholders(statement), params);
@@ -801,19 +816,17 @@ function makeDatabase(connectionString) {
       const query = placeholders(statement);
       return {
         bind(...params) {
-          return {
-            async first() {
-              const rows = await sql.query(query, params);
-              return rows[0] || null;
-            },
-            async run() {
-              const rows = await sql.query(query, params);
-              return { success: true, results: rows };
-            },
-            async all() {
-              return sql.query(query, params);
-            }
-          };
+          return operations(query, params);
+        },
+        // Neon adapter also supports statements without bind() parameters.
+        first() {
+          return operations(query).first();
+        },
+        run() {
+          return operations(query).run();
+        },
+        all() {
+          return operations(query).all();
         }
       };
     }
