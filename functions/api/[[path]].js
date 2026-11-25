@@ -220,9 +220,25 @@ export async function onRequest(context) {
       const result = await hostRequest(user.id, env, "/deployments", "POST", { name, source: "blank", runtime, runtimeVersion: runtime === "python" ? "3.11" : "22" });
       return reply(result, 201);
     }
-    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|config))?$/);
+    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|config|resources|files|shell))?$/);
     if (match) {
       const id = match[1]; const action = match[2] || "";
+      if (action === "resources" && request.method === "GET") {
+        const result = await hostRequest(user.id, env, "/deployments/" + id + "/resources");
+        return reply(result);
+      }
+      if (action === "files" && request.method === "GET") {
+        const requestedPath = url.searchParams.get("path") || "/";
+        if (!requestedPath.startsWith("/") || requestedPath.split("/").includes("..") || requestedPath.includes("\\0")) return reply({ error: "Caminho inválido." }, 400);
+        const result = await hostRequest(user.id, env, "/deployments/" + id + "/files?path=" + encodeURIComponent(requestedPath));
+        return reply(result);
+      }
+      if (action === "shell" && request.method === "POST") {
+        const b = await body(request); const command = String(b.command || "").trim();
+        if (!command || command.length > 1200) return reply({ error: "Digite um comando de até 1.200 caracteres." }, 400);
+        const result = await hostRequest(user.id, env, "/deployments/" + id + "/shell", "POST", { command, timeout: 90 });
+        return reply(result);
+      }
       if (action === "logs" && request.method === "GET") {
         const result = await hostRequest(user.id, env, "/deployments/" + id + "/diagnose?waitSeconds=0");
         return reply({ state: result.state, resources: result.resources, lines: result.logs || [], hint: result.hint || "" });
