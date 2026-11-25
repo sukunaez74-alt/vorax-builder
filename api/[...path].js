@@ -807,8 +807,9 @@ async function ensureBotDeployment(bot, userId, env) {
 
   if (isNewDeployment) {
     const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(userId).first();
-    if (!String(hosting?.scope || "").split(/\s+/).includes("credits:spend")) {
-      throw new Error("A autorização atual do Bot-Hosting não permite criar servidores. Vá em Configurações, clique em Conectar / reconectar Bot-Hosting e aprove a permissão de criação de implantações.");
+    const granted = String(hosting?.scope || "").split(/\s+/);
+    if (!granted.includes("deployments:write") || !granted.includes("credits:spend")) {
+      throw new Error("A hospedagem desta conta não recebeu as permissões deployments:write e credits:spend. Reconecte o Bot-Hosting em Configurações e autorize a criação de servidores.");
     }
     const safeName = ("black-zone-" + String(bot.name || "caos").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + String(bot.id).slice(0, 5)).replace(/-+/g, "-");
     const created = await hostRequest(userId, env, "/deployments", "POST", {
