@@ -1158,6 +1158,59 @@ async function findDiscloudProjectApp(token, appIds, expectedName, expectedMainF
   }
   return matches.length === 1 ? matches[0] : null;
 }
+async function recoverPendingDiscloudBot(bot, userId, env) {
+  let project = bot?.custom_project;
+  if (typeof project === "string") {
+    try { project = JSON.parse(project || "null"); } catch { project = null; }
+  }
+  const pending = project?.discloudUploadPending;
+  if (!pending || bot?.provider_app_id || bot?.hosting_deployment_id) return { pending: false };
+  const token = await providerToken(userId, "discloud", env);
+  if (!token) return { pending: true, error: "A tentativa anterior foi feita pela Discloud, mas a conta não está mais conectada. O Estúdio não tentará uma hospedagem paga nem criará outro servidor." };
+  let account = null;
+  try { account = (await discloudRequest(token, "/user"))?.user || null; }
+  catch (error) {
+    return { pending: true, error: "Não consegui consultar a Discloud para recuperar a tentativa anterior: " + String(error?.message || "falha de consulta") };
+  }
+  const appIds = Array.isArray(account?.apps) ? account.apps.map(value => String(value || "")).filter(Boolean) : null;
+  if (!appIds) return { pending: true, error: "A Discloud não informou os aplicativos desta conta. O Estúdio não tentará criar outro servidor até confirmar a tentativa anterior." };
+  const baseline = Array.isArray(pending.baselineAppIds) ? pending.baselineAppIds.map(String) : [];
+  const candidates = appIds.filter(appId => !baseline.includes(appId));
+  const expectedName = String(pending.expectedName || discloudExpectedProjectName(bot));
+  const expectedMainFile = String(pending.expectedMainFile || discloudLauncherForRuntime(project?.runtime || bot.runtime));
+  const recovered = candidates.length
+    ? await findDiscloudProjectApp(token, candidates, expectedName, expectedMainFile)
+    : null;
+  if (!recovered) {
+    const ageMs = Math.max(0, Date.now() - Number(pending.startedAt || 0));
+    return {
+      pending: true,
+      notFound: true,
+      retryAfter: ageMs < 300000,
+      error: ageMs < 300000
+        ? "A Discloud ainda pode estar processando o envio anterior. O Estúdio não vai tentar o Bot-Hosting novamente enquanto esse envio estiver pendente. Aguarde alguns minutos."
+        : "A vaga do Bot-Hosting está cheia e a tentativa anterior da Discloud não apareceu na lista de aplicativos. Para preservar seu ZIP e evitar duplicidade, reimporte o mesmo arquivo na área Arquivos; o Estúdio vai consultar a Discloud antes de qualquer novo envio."
+    };
+  }
+  const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='discloud' AND provider_app_id=? AND id<>? LIMIT 1")
+    .bind(userId, String(recovered.id), bot.id).first();
+  if (linked) return { pending: true, error: "A aplicação encontrada na Discloud já está vinculada a outro projeto do Estúdio. Nenhum bot foi alterado." };
+  const cleanProject = { ...project };
+  delete cleanProject.discloudUploadPending;
+  await env.DB.prepare(
+    "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
+  ).bind(String(recovered.id), String(project.runtime || bot.runtime || "python"), JSON.stringify(cleanProject), Date.now(), bot.id, userId).run();
+  let startMessage = "A aplicação recuperada está vinculada ao projeto.";
+  try {
+    await discloudRequest(token, "/app/" + encodeURIComponent(String(recovered.id)) + "/start", "PUT");
+    startMessage = "A aplicação recuperada foi vinculada e o comando de início foi enviado.";
+  } catch (error) {
+    if (!/already|online|running|process|in process|409/i.test(String(error?.message || ""))) {
+      startMessage += " O comando de início não foi confirmado: " + String(error?.message || "falha ao iniciar");
+    }
+  }
+  return { pending: false, recovered: true, app: recovered, providerAppId: String(recovered.id), message: startMessage };
+}
 async function squareCloudRequest(token, path, method = "GET", payload = null, form = null) {
   const headers = { Authorization: token, accept: "application/json" };
   if (payload && !form) headers["content-type"] = "application/json";
@@ -3145,6 +3198,39 @@ export async function onRequest(context) {
             });
           } catch (error) {
             return reply({ ok: false, code: "provider_action_failed", error: error.message || "Falha ao controlar a aplicação na Square Cloud." }, 502);
+          }
+        }
+        // Se o upload da Discloud sofreu timeout, não volte a tentar provisionar
+        // no Bot-Hosting por engano: primeiro recupere a aplicação ou informe que
+        // ainda é preciso confirmar/reimportar o mesmo ZIP.
+        if ((signal === "start" || signal === "restart") && bot.hosting_provider === "bot-hosting" &&
+            !bot.provider_app_id && !bot.hosting_deployment_id) {
+          let pendingProject = bot.custom_project;
+          if (typeof pendingProject === "string") {
+            try { pendingProject = JSON.parse(pendingProject || "null"); } catch { pendingProject = null; }
+          }
+          if (pendingProject?.discloudUploadPending) {
+            try {
+              const recovery = await recoverPendingDiscloudBot(bot, user.id, env);
+              if (recovery.recovered) {
+                return reply({
+                  ok: true, action: signal, state: "starting", provider: "discloud",
+                  providerAppId: recovery.providerAppId, discordOnline: false,
+                  message: recovery.message, hint: recovery.message
+                });
+              }
+              if (recovery.pending) {
+                return reply({
+                  ok: false, code: "discloud_upload_pending",
+                  error: recovery.error || "A Discloud ainda não confirmou a tentativa anterior."
+                }, 409);
+              }
+            } catch (error) {
+              return reply({
+                ok: false, code: "discloud_recovery_failed",
+                error: "O Estúdio não vai tentar criar outro servidor enquanto a tentativa Discloud anterior não for verificada. " + String(error?.message || "")
+              }, 409);
+            }
           }
         }
         const connected = await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first();
