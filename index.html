@@ -523,7 +523,18 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
  <footer class="site-footer"><a class="site-brand" href="#inicio"><span class="site-mark">✦</span><span><b>ʙʟᴀᴄᴋ ᴢᴏɴᴇ</b><small>ESTÚDIO</small></span></a><span>ANIME CONTROL STUDIO · DISCORD PROJECT WORKSPACE</span><a href="#inicio">Voltar ao topo ↑</a></footer>
 </section>
 
-
+<section id="gateScreen" class="hidden">
+ <div class="auth-card">
+  <div class="brand"><div class="brand-mark">✦</div><div class="brand-name">ʙʟᴀᴄᴋ ᴢᴏɴᴇ<br><span class="caps">ESTÚDIO</span></div></div>
+  <h1>Entrada principal do estúdio.</h1>
+  <p>Digite o código principal para acessar o painel e continuar para sua conta.</p>
+  <form id="gateForm">
+   <div class="field"><label>CÓDIGO DE ACESSO</label><input id="gatePhrase" type="password" placeholder="Digite o código do estúdio" required autocomplete="current-password"></div>
+   <button class="btn wide" type="submit">Entrar no estúdio <span>↗</span></button>
+  </form>
+  <div id="gateNotice" class="notice hidden"></div>
+  <div class="auth-links"><span class="muted">Área privada • acesso protegido</span><span class="muted">ʙʟᴀᴄᴋ ᴢᴏɴᴇ</span></div>
+ </div>
 </section>
 
 <section id="authScreen" class="hidden">
@@ -623,13 +634,13 @@ function showLanding(){hidePublicScreens();$("#landingScreen").classList.remove(
 function showGate(){hidePublicScreens();$("#gateScreen").classList.remove("hidden")}
 function showAuth(){hidePublicScreens();$("#authScreen").classList.remove("hidden")}
 function showApp(){hidePublicScreens();$("#app").classList.remove("hidden");const route=window.location.pathname.replace(/\/+$/,"")||"/";state.adminPortal=route==="/admin"&&state.user?.role==="owner";if(route==="/admin"&&!state.adminPortal){window.history.replaceState({},document.title,"/app");toast("Esta área é exclusiva da conta administradora.");}else if(route!=="/admin"&&route!=="/app"&&route!=="/"){window.history.replaceState({},document.title,"/app");}$("#app").classList.toggle("admin-portal",state.adminPortal);document.querySelectorAll(".owner-only").forEach(el=>el.classList.toggle("hidden",!state.adminPortal));$("#adminBackToApp").classList.toggle("hidden",!state.adminPortal);$("#userLabel").textContent=state.user?.username||state.user?.email||"Conta";$("#avatar").textContent=(state.user?.name||"B").slice(0,1).toUpperCase();navigate(state.adminPortal?"verificationAdmin":"overview");if(!state.adminPortal){loadSettings();loadBots();}}
-async function enterStudio(){try{const me=await api("/me");if(me.user){state.user=me.user;showApp()}else showAuth()}catch{showAuth()}}
+async function enterStudio(){try{const me=await api("/me");if(!me.gate){showGate();return}if(me.user){state.user=me.user;showApp()}else showAuth()}catch{showGate()}}
 document.querySelectorAll("[data-enter-studio]").forEach(b=>b.addEventListener("click",enterStudio));
 const siteMenu=$("#siteMenuBtn");if(siteMenu)siteMenu.onclick=()=>$(".site-nav").classList.toggle("open");const closeSide=$("#closeSidebar");if(closeSide)closeSide.onclick=()=>$("#sidebar").classList.remove("open");
 document.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"){event.preventDefault();$("#dashboardSearch")?.focus()}});
 document.addEventListener("input",event=>{if(event.target?.id==="dashboardSearch"){const q=event.target.value.toLowerCase();document.querySelectorAll("[data-search-bot]").forEach(card=>card.classList.toggle("search-hidden",!card.dataset.searchBot.toLowerCase().includes(q)))}});
 document.querySelectorAll(".site-nav a").forEach(a=>a.addEventListener("click",()=>$(".site-nav").classList.remove("open")));
-async function boot(){const route=window.location.pathname.replace(/\/+$/,"")||"/";const portalEntry=route==="/app"||route==="/admin";try{const me=await api("/me");if(me.user){state.user=me.user;showApp()}else if(portalEntry)showAuth();else showLanding()}catch{if(portalEntry)showAuth();else showLanding()}}
+async function boot(){const route=window.location.pathname.replace(/\/+$/,"")||"/";const portalEntry=route==="/app"||route==="/admin";try{const me=await api("/me");if(!me.gate){if(portalEntry)showGate();else showLanding();return}if(me.user){state.user=me.user;showApp()}else if(portalEntry)showAuth();else showLanding()}catch{if(portalEntry)showGate();else showLanding()}}
 $("#loginForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api("/login",{method:"POST",body:JSON.stringify({identity:f.get("identity"),password:f.get("password")})});state.user=r.user;showApp()}catch(err){notice($("#authNotice"),err.message,"error")}});
 $("#registerForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.currentTarget);if(f.get("password")!==f.get("confirm"))return notice($("#authNotice"),"As senhas não coincidem.","error");try{const r=await api("/register",{method:"POST",body:JSON.stringify({name:f.get("name"),username:f.get("username"),email:f.get("email"),password:f.get("password")})});state.user=r.user;showApp()}catch(err){notice($("#authNotice"),err.message,"error")}});
 $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#registerPane").classList.remove("hidden");$("#authNotice").classList.add("hidden")};$("#showLogin").onclick=()=>{$("#registerPane").classList.add("hidden");$("#loginPane").classList.remove("hidden");$("#authNotice").classList.add("hidden")};
@@ -2358,6 +2369,19 @@ async function healthCheck(){
  }
 }
 function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+$("#gateForm").addEventListener("submit",async e=>{
+ e.preventDefault();
+ const button=$("#gateForm button[type=submit]");
+ button.disabled=true;button.textContent="Verificando…";
+ try{
+  await api("/gate",{method:"POST",body:JSON.stringify({phrase:$("#gatePhrase").value})});
+  $("#gatePhrase").value="";
+  await enterStudio();
+ }catch(error){notice($("#gateNotice"),error.message,"error")}
+ finally{button.disabled=false;button.innerHTML='Entrar no estúdio <span>↗</span>'}
+});
+
 boot();
 window.__botStatusPoll=setInterval(()=>{if(state.user&&state.view==="overview")loadBots()},30000);
 </script>
