@@ -3255,7 +3255,7 @@ export async function onRequest(context) {
             ok: false,
             code: noSlots ? "free_hosting_capacity_full" : "provider_action_failed",
             error: noSlots
-              ? "A Bot-Hosting está sem vagas no seu plano (HTTP 402). O Estúdio não vai contratar nem selecionar hospedagem paga. Para ligar este bot, conecte uma vaga gratuita compatível em Configurações → Integrações. A Cube Hosting pode receber o ZIP pelo Estúdio depois que sua vaga Free estiver liberada. Nenhum arquivo ou bot existente foi alterado."
+              ? "A hospedagem gratuita atual está sem vagas (HTTP 402). O Estúdio não vai contratar plano pago nem mexer nos seus outros bots. Tente novamente quando uma vaga gratuita estiver disponível; seus arquivos e configurações continuam preservados."
               : (rawMessage || "Falha ao controlar o bot na hospedagem.")
           }, noSlots ? 402 : 502);
         }
@@ -3777,8 +3777,8 @@ export async function onRequest(context) {
           const discloudToken = await providerToken(user.id, "discloud", env);
           const cubeToken = await providerToken(user.id, "cubecloud", env);
 
-          // Existing projects stay on their current provider. New projects prefer
-          // Square Cloud when the connected account has the required memory budget.
+          // Preserve projetos existentes no provedor atual. Para novos projetos,
+          // use somente provedores gratuitos autorizados e com vaga real.
           if (currentProvider === "aclclouds" && currentAppId) {
             const aclToken = await providerToken(user.id, "aclclouds", env);
             if (!aclToken) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações para atualizar este bot." }, 409);
@@ -3922,7 +3922,7 @@ export async function onRequest(context) {
             code: providerIssues.length ? "provider_capacity_full" : "provider_not_connected",
             error: providerIssues.length
               ? providerIssues.join(" ") + " Nenhum bot existente foi alterado."
-              : "O Bot-Hosting está sem vaga. Para novos bots, o Estúdio só deve usar hospedagem gratuita. Conecte uma conta gratuita compatível; a Cube Hosting pode receber ZIP pelo Estúdio quando sua vaga Free estiver liberada. FadeHost e Quaxly têm planos grátis, mas o deploy deles precisa ser feito no painel do provedor. Nenhum serviço pago será escolhido automaticamente."
+              : "Não há uma hospedagem gratuita autorizada e com vaga disponível para receber este ZIP agora. O Estúdio não vai escolher serviços pagos nem alterar outros bots. Seu projeto continua salvo no painel; tente novamente quando uma vaga gratuita compatível estiver disponível."
           }, providerIssues.length ? 402 : 409);
         } catch (error) {
           const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
