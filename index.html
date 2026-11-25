@@ -782,9 +782,9 @@ function logsView(){
 }function backupsView(){
  const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
  if(!bot)return pageHead("Backups e restauração","Nenhum bot cadastrado.")+'<div class="dashboard-empty">Crie um bot para usar esta área.</div>';
- if(!bot.hostingDeploymentId)return pageHead("Backups e restauração","Consulte pontos automáticos e restaure versões anteriores.")+'<div class="dashboard-empty">Prepare a hospedagem deste bot primeiro.</div>';
- return pageHead("Backups e restauração","Pontos de restauração disponibilizados pelo Bot-Hosting. Restaurar pode substituir os arquivos atuais.",'<button class="btn secondary" id="backupRefresh">↻ Atualizar</button>')+
- '<section class="dashboard-panel"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div id="backupStatus" class="project-note">Consultando pontos de restauração…</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Carregando backups…</div></div></section>';
+ if(!bot.hostingDeploymentId)return pageHead("Backups e restauração","Exporte uma cópia quando a hospedagem estiver preparada.")+'<div class="dashboard-empty">Prepare a hospedagem deste bot primeiro.</div>';
+ return pageHead("Backups e restauração","Crie um ZIP para baixar ao seu computador ou restaure um ponto automático do Bot-Hosting.")+
+ '<section class="dashboard-panel"><div class="backup-toolbar"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="backup-toolbar-actions"><button class="btn" id="backupManualCreate">↓ Criar e baixar ZIP</button><button class="btn secondary" id="backupRefresh">↻ Atualizar pontos</button></div></div><div id="backupStatus" class="project-note">O ZIP manual é uma cópia dos arquivos atuais. Os pontos de restauração automáticos são fornecidos pelo Bot-Hosting.</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Consultando pontos de restauração…</div></div></section>';
 }
 function settingsView(){return pageHead("Configurações","Gerencie sua conta e veja a situação do ambiente.")+'<div class="grid settings-grid"><section class="card"><div class="section-head"><h3>Seu espaço de criação</h3><span class="status">Sem chave de API</span></div><p class="muted small">Você pode criar projetos, escolher a linguagem e salvar os módulos sem vincular Bot-Hosting ou informar uma chave externa.</p><div class="project-note"><strong>Sobre a execução dos bots</strong><br>O painel e o banco já funcionam. Para iniciar bots Discord e mantê-los ativos 24 horas, ainda será necessário ligar um executor de processos. Isso é diferente de uma chave de API para entrar no painel.</div></section><section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">Sessões protegidas por cookie HttpOnly. As senhas são armazenadas com hash seguro no servidor.</p></section><section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API e a conexão real com o PostgreSQL.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>'}
 function bindView(){
@@ -815,6 +815,7 @@ function bindView(){
  const fileSave=$("#fileSaveEditor");if(fileSave)fileSave.onclick=saveBotFile;
  const fileClose=$("#fileCloseEditor");if(fileClose)fileClose.onclick=()=>$("#fileEditor").classList.add("hidden");
  if(state.view==="files")loadFiles();
+ const backupManual=$("#backupManualCreate");if(backupManual)backupManual.onclick=createManualBackup;
  const backupRefresh=$("#backupRefresh");if(backupRefresh)backupRefresh.onclick=loadBackups;
  const backupBot=$("#backupBotSelect");if(backupBot)backupBot.onchange=loadBackups;
  if(state.view==="backups")loadBackups();
@@ -1229,7 +1230,11 @@ async function exportSelectedFiles(){
  const button=$("#fileExportZip");button.disabled=true;button.textContent="Compactando…";
  try{
   const result=await api("/bots/"+encodeURIComponent(id)+"/files/compress",{method:"POST",body:JSON.stringify({root,files})});
-  toast("ZIP criado na hospedagem: "+(result.archive||"arquivo compactado")+".");
+  if(!result.archive)throw new Error("O provedor não retornou o nome do ZIP.");
+  const signed=await api("/bots/"+encodeURIComponent(id)+"/files/download-url?path="+encodeURIComponent(result.archive));
+  if(!signed.url)throw new Error("ZIP criado, mas o provedor não forneceu o link de download.");
+  toast("ZIP criado. O download vai começar.");
+  window.location.assign(signed.url);
   await loadFiles(id,root);
  }catch(error){toast(error.message)}
  finally{button.disabled=false;button.textContent="▣ Exportar ZIP"}
@@ -1250,6 +1255,22 @@ async function runShellCommand(){
   if(output)output.textContent=lines.join("\n\n");
  }catch(e){if(output)output.textContent="$ "+command+"\n"+e.message}
  finally{button.disabled=false;button.textContent="Executar ↗"}
+}
+async function createManualBackup(){
+ const id=$("#backupBotSelect")?.value||state.bots.find(b=>b.hostingDeploymentId)?.id;
+ const button=$("#backupManualCreate"),status=$("#backupStatus");
+ if(!id)return toast("Selecione um bot.");
+ if(!window.confirm("Criar um ZIP com os arquivos atuais do bot e baixá-lo para o seu computador?"))return;
+ button.disabled=true;button.textContent="Compactando arquivos…";
+ if(status)status.textContent="Listando e compactando arquivos do projeto…";
+ try{
+  const result=await api("/bots/"+encodeURIComponent(id)+"/backups/manual",{method:"POST",body:JSON.stringify({})});
+  if(!result.downloadUrl)throw new Error("O backup foi criado, mas não há link de download disponível.");
+  if(status)status.textContent="ZIP criado com "+result.filesCount+" arquivos. Iniciando o download.";
+  toast("Backup manual criado. Guarde o ZIP fora da hospedagem.");
+  window.location.assign(result.downloadUrl);
+ }catch(error){toast(error.message);if(status)status.textContent=error.message}
+ finally{button.disabled=false;button.textContent="↓ Criar e baixar ZIP"}
 }
 async function loadBackups(){
  const id=$("#backupBotSelect")?.value||state.bots.find(b=>b.hostingDeploymentId)?.id,status=$("#backupStatus"),list=$("#backupList");
