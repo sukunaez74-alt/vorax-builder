@@ -617,6 +617,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
  </main>
 </div>
 <div id="modalRoot"></div><div id="toastRoot"></div>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,adminPortal:false,verificationAdmin:null,view:"overview",modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,hostingCanCreate:false,logs:[]};
 const moduleNames={music:"Música",tickets:"Tickets",attendance:"Bate-ponto",team:"Equipe e cargos",goals:"Metas e ranking",warnings:"Advertências",recruitment:"Recrutamento",logs:"Logs"};
@@ -1795,10 +1796,36 @@ function fileToBase64(file){
   return btoa(binary);
  });
 }
+async function prepareFallbackArchive(file,status){
+ if(!window.JSZip)throw new Error("O compactador de ZIP não carregou. Atualize a página e tente novamente.");
+ if(status)status.textContent="Limpando o ZIP no navegador: removendo node_modules, venv, caches e arquivos temporários…";
+ const source=await window.JSZip.loadAsync(file);
+ const ignored=new Set(["node_modules","venv",".venv","__pycache__",".pytest_cache",".mypy_cache",".next",".git","__macosx"]);
+ const cleaned=new window.JSZip();
+ let removed=0,kept=0;
+ const entries=Object.values(source.files);
+ for(const entry of entries){
+  if(entry.dir)continue;
+  const path=String(entry.name||"").replace(/\\\\/g,"/");
+  const parts=path.split("/").filter(Boolean);
+  const base=parts[parts.length-1]||"";
+  if(!path||parts.some(part=>ignored.has(part.toLowerCase()))||base===".DS_Store"||base.startsWith("._")){
+   removed++;continue;
+  }
+  const data=await entry.async("uint8array");
+  cleaned.file(path,data);
+  kept++;
+ }
+ if(!kept)throw new Error("Não encontrei arquivos de projeto depois de remover dependências e caches. O ZIP original não foi alterado.");
+ const blob=await cleaned.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}});
+ if(blob.size>3*1024*1024)throw new Error("Mesmo após remover "+removed+" itens desnecessários, o pacote limpo ainda passa de 3 MB ("+(blob.size/1024/1024).toFixed(2)+" MB). Reduza arquivos de mídia ou dados grandes. O ZIP original não foi alterado.");
+ return {blob,removed,kept};
+}
 async function uploadZipToDiscloud(id,file,runtime,packageName,status){
- if(file.size>3*1024*1024)throw new Error("Este ZIP passa de 3 MB na rota alternativa. Remova node_modules, venv e caches para reduzir o tamanho. O arquivo original não foi enviado nem alterado.");
- if(status)status.textContent="Preparando envio seguro para o próximo provedor disponível…";
- const archiveBase64=await fileToBase64(file);
+ if(status)status.textContent="Preparando uma cópia limpa do ZIP. O arquivo original no seu computador não será alterado…";
+ const prepared=await prepareFallbackArchive(file,status);
+ const archiveBase64=await fileToBase64(prepared.blob);
+ if(status)status.textContent="Pacote otimizado: "+prepared.kept+" arquivos mantidos, "+prepared.removed+" itens removidos. Enviando…";
  if(status)status.textContent="Enviando ZIP para o provedor reserva e configurando o ambiente…";
  const result=await api("/bots/"+encodeURIComponent(id)+"/auto-upload",{
   method:"POST",
