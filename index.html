@@ -2113,7 +2113,12 @@ async function uploadZipToDiscloud(id,file,runtime,packageName,status){
   method:"POST",
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
- if(!result.ok||!result.providerAppId)throw new Error("O provedor alternativo não confirmou a criação da aplicação.");
+ if(result.code==="discloud_upload_pending"){
+  if(status)status.textContent=result.error||"A Discloud ainda está processando a tentativa anterior. O ZIP não será reenviado automaticamente para evitar duplicidade.";
+  toast("A Discloud ainda está processando o upload. Aguarde alguns minutos antes de tentar novamente.");
+  return {pending:true};
+ }
+ if(!result.ok||!result.providerAppId)throw new Error(result.error||"O provedor alternativo não confirmou a criação da aplicação.");
  const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":"Discloud")));
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
@@ -2151,8 +2156,8 @@ async function uploadBotFile(){
     !window.confirm("Este projeto já tem um pacote importado. Os arquivos com o mesmo nome poderão ser substituídos. Continuar?"))return;
   if(button)button.textContent="Enviando ZIP…";
   if((currentBot?.hostingProvider==="discloud"||currentBot?.hostingProvider==="squarecloud"||currentBot?.hostingProvider==="cubecloud"||currentBot?.hostingProvider==="aclclouds")&&currentBot?.providerAppId){
-   await uploadZipToDiscloud(id,file,runtime,packageName,status);
-   completed=true;
+   const fallbackResult=await uploadZipToDiscloud(id,file,runtime,packageName,status);
+   completed=!fallbackResult?.pending;
   }else{
    if(status)status.textContent=(quickDetection?"ZIP reconhecido como ":"A pré-leitura não foi compatível; o servidor fará a análise completa. Enviando pacote em ambiente inicial "+(runtime==="nodejs"?"Node.js":"Python")+". ")+(runtime==="nodejs"?"Node.js":"Python")+" · "+file.name+"…";
    const archiveName=packageName+".zip";
@@ -2168,8 +2173,8 @@ async function uploadBotFile(){
     completed=true;
    }catch(error){
     if(["hosting_capacity_full","hosting_not_connected","hosting_scope_missing"].includes(error.code)){
-     await uploadZipToDiscloud(id,file,runtime,packageName,status);
-     completed=true;
+     const fallbackResult=await uploadZipToDiscloud(id,file,runtime,packageName,status);
+     completed=!fallbackResult?.pending;
     }else{
      throw error;
     }
