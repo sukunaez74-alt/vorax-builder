@@ -328,14 +328,14 @@ async function saveVerificationBotSettings(user, input, env) {
     return { ok: false, status: 400, error: "Use um convite HTTPS do Discord, como https://discord.gg/..." };
   }
   token = normalizeDiscordBotToken(token);
-  if (token.length < 30 || token.length > 512 || /\\s/.test(token)) return { ok: false, status: 400, error: "Informe um Bot Token válido, sem espaços." };
+  if (token.length < 30 || token.length > 512 || /\s/.test(token)) return { ok: false, status: 400, error: "Informe um Bot Token válido, sem espaços." };
   const identity = await validateDiscordBotToken(token);
   if (!identity.valid) return { ok: false, status: identity.unavailable ? 503 : 400, error: identity.unavailable ? "Não consegui validar com o Discord agora. Tente novamente." : "O Discord recusou o Bot Token informado." };
   const tokenEnc = await encryptSecret(token, env);
   const previousSecretEnc = old?.oauth_client_secret_enc || null;
   await env.DB.prepare(
-    "INSERT INTO verification_bot_settings (id,owner_user_id,bot_token_enc,bot_id,bot_name,oauth_client_id,oauth_client_secret_enc,invite_url,state,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,bot_token_enc=EXCLUDED.bot_token_enc,bot_id=EXCLUDED.bot_id,bot_name=EXCLUDED.bot_name,oauth_client_id=EXCLUDED.oauth_client_id,oauth_client_secret_enc=COALESCE(EXCLUDED.oauth_client_secret_enc,verification_bot_settings.oauth_client_secret_enc),invite_url=EXCLUDED.invite_url,state=CASE WHEN verification_bot_settings.hosting_deployment_id IS NULL THEN 'configured' ELSE verification_bot_settings.state END,updated_at=EXCLUDED.updated_at"
-  ).bind(user.id, tokenEnc, identity.botId, identity.botName || null, identity.botId, previousSecretEnc, inviteUrl, old?.state || "configured", Date.now()).run();
+    "INSERT INTO verification_bot_settings (id,owner_user_id,bot_token_enc,bot_id,bot_name,oauth_client_id,oauth_client_secret_enc,invite_url,state,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,bot_token_enc=EXCLUDED.bot_token_enc,bot_id=EXCLUDED.bot_id,bot_name=EXCLUDED.bot_name,oauth_client_id=COALESCE(EXCLUDED.oauth_client_id,verification_bot_settings.oauth_client_id),oauth_client_secret_enc=COALESCE(EXCLUDED.oauth_client_secret_enc,verification_bot_settings.oauth_client_secret_enc),invite_url=EXCLUDED.invite_url,state=CASE WHEN verification_bot_settings.hosting_deployment_id IS NULL THEN 'configured' ELSE verification_bot_settings.state END,updated_at=EXCLUDED.updated_at"
+  ).bind(user.id, tokenEnc, identity.botId, identity.botName || null, (old?.oauth_client_id || env.DISCORD_CLIENT_ID || null), previousSecretEnc, inviteUrl, old?.state || "configured", Date.now()).run();
   return { ok: true, configured: true, botId: identity.botId, botName: identity.botName || null, inviteUrl, hasToken: true, message: "Bot Token validado e convite salvos com segurança." };
 }
 async function verificationStart(request, env) {
