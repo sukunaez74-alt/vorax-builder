@@ -218,3 +218,30 @@
 #botDelete{background:linear-gradient(120deg,#8b2949,#53162f);border:1px solid #c34d72;color:#ffe9f0;box-shadow:0 6px 20px #a52c4d22}
 #botDelete:hover:not(:disabled){background:linear-gradient(120deg,#a83258,#651a3b);border-color:#e36b8e}
 @media(max-width:520px){.config-actions{display:grid;grid-template-columns:1fr}.config-actions .btn{width:100%}}
+
+
+/* Dedicated Bot Token save flow */
+.token-save-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 4px}
+.token-save-row .btn{min-width:150px}
+.token-save-row>span{font-size:9px;line-height:1.6;color:#9b90b1}
+.token-save-row .btn:disabled{opacity:.38;cursor:not-allowed}
+.token-feedback{min-height:18px;margin:8px 0 13px;font-size:10px;line-height:1.65;color:#a79bbd}
+.token-feedback.pending{color:#d8b6ff}
+.token-feedback.success{color:#72edb2}
+.token-feedback.warning{color:#ffcf8b}
+.token-feedback.error{color:#ff8da4}
+.module-section-heading{margin-top:18px;border-top:1px solid #ffffff12;padding-top:16px}
+.module-section-heading h4{margin:0;color:#f0e9ff;font:800 13px 'Manrope',sans-serif}
+.module-section-heading p{margin:4px 0 0;color:#9489aa;font-size:9px;line-height:1.6}
+.token-saved-card{padding:12px 13px;border:1px solid #286c56;border-radius:10px;background:linear-gradient(120deg,#0e2a23,#10152a);display:grid;gap:7px}
+.token-saved-card .token-saved-indicator{display:flex;align-items:center;gap:7px;color:#7df0b7;font:900 8px 'Manrope',sans-serif;letter-spacing:.13em}
+.token-saved-card .token-saved-indicator i{display:block;width:6px;height:6px;border-radius:50%;background:#62e7a4;box-shadow:0 0 10px #62e7a4}
+.token-saved-card strong{font:800 9px 'Manrope',sans-serif;color:#e4f9ef}
+.token-saved-card code{font:800 12px ui-monospace,monospace;letter-spacing:.18em;color:#c5f3dd}
+.token-saved-card small{font-size:9px;line-height:1.65;color:#9fc4b4}
+.token-saved-card.token-checking{border-color:#66418f;background:#1a1230}
+.token-saved-card.token-checking .token-saved-indicator{color:#d4b1ff}
+.token-saved-card.token-not-saved{border-color:#873b58;background:#2a101e}
+.token-saved-card.token-not-saved .token-empty-indicator{color:#ff98b0;font:900 8px 'Manrope',sans-serif;letter-spacing:.13em}
+.token-saved-card.token-not-saved strong{color:#ffe5eb}
+.token-saved-card.token-not-saved small{color:#d9aaba}
