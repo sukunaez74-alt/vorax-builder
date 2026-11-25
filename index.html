@@ -855,7 +855,17 @@ async function loadVerificationBotAdmin(){
 function verificationAdminView(){
  const r=state.verificationAdmin||{},runtime=r.runtime||{},live=runtime.online===true;
  const status=live?"ONLINE":runtime.state==="not_deployed"?"NÃO IMPLANTADO":String(runtime.state||"PENDENTE").toUpperCase();
- const connection=!r.hostingConnected?"Conecte o Bot-Hosting na página Configurações usando sua conta proprietária.":(!r.hostingCanCreate&&!r.deploymentId?"A conexão não recebeu credits:spend e deployments:write. Autorize novamente pelo botão abaixo.":(!r.configured?"Informe o Bot Token e o convite do seu servidor.":"Token e convite salvos e protegidos."));
+ const hostingReady=!!r.hostingCanCreate;
+ const oauthReady=!!r.oauthConfigured;
+ const blockers=[];
+ if(!hostingReady)blockers.push("Autorize a criação de servidores no Bot-Hosting.");
+ if(!oauthReady)blockers.push("Configure o Client Secret OAuth2 do Discord.");
+ if(!r.configured)blockers.push("Salve o Bot Token e o convite do servidor.");
+ const connection=!r.hostingConnected
+  ?"Hospedagem ainda não conectada. Autorize sua conta por este painel."
+  :(!hostingReady
+    ?"Falta a permissão de criação de servidores (deployments:write e credits:spend)."
+    :(!r.configured?"Informe o Bot Token e o convite do seu servidor.":(!oauthReady?"O login Discord ainda precisa do Client Secret OAuth2.":"Bot e integrações configurados.")));
  return pageHead("Bot de verificação","Configure uma única vez o bot central usado por todos os usuários do Estúdio.")+
  (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
  '<section class="card"><div class="section-head"><h3>Estado do bot central</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+status+'</span></div>'+
@@ -865,17 +875,31 @@ function verificationAdminView(){
  (runtime.error?'<br><b>Erro:</b> '+escapeHtml(runtime.error):"")+
  (runtime.hint?'<br><b>Diagnóstico:</b> '+escapeHtml(runtime.hint):"")+
  (Array.isArray(runtime.logs)&&runtime.logs.length?'<pre class="terminal">'+runtime.logs.map(line=>escapeHtml(line)).join("\\n")+'</pre>':"")+'</div>'+
- '<div class="hero-actions" style="margin-top:14px">'+(r.hostingConnected&&!r.hostingCanCreate&&!r.deploymentId?'<button class="btn" id="verificationConnectHosting">Autorizar criação de servidores ↗</button>':"")+'<button class="btn" id="verificationStart" '+(!r.configured||!r.hostingConnected||(!r.hostingCanCreate&&!r.deploymentId)?"disabled":"")+'>▶ Iniciar / atualizar</button><button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"") +'>■ Parar</button><button class="btn secondary" id="verificationRefresh">↻ Atualizar status</button></div>'+
- '<p class="muted small" style="margin-top:14px">O bot fica salvo na hospedagem da conta proprietária. Comandos: /verificar, /painel_verificacao e /link_servidor.</p></section>'+
+ '<div class="hero-actions" style="margin-top:14px">'+
+ (!hostingReady?'<button class="btn" id="verificationConnectHosting">'+(r.hostingConnected?"Autorizar criação de servidores ↗":"Conectar Bot-Hosting ↗")+'</button>':"")+
+ '<button class="btn" id="verificationStart" '+(!r.configured||!hostingReady||!oauthReady?"disabled":"")+'>▶ Iniciar / atualizar</button>'+
+ '<button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"") +'>■ Parar</button>'+
+ '<button class="btn secondary" id="verificationRefresh">↻ Atualizar status</button></div>'+
+ (!oauthReady?'<p class="muted small" style="margin-top:12px">Antes de iniciar, termine a configuração do login Discord na seção abaixo.</p>':"")+
+ (blockers.length?'<div class="notice" style="margin-top:12px"><b>Falta concluir:</b> '+blockers.map(escapeHtml).join(" ")+'</div>':"")+
+ '<p class="muted small" style="margin-top:14px">O bot fica salvo na hospedagem da conta proprietária. Os botões de verificação abrem o login oficial do Discord e só depois mostram o convite.</p></section>'+
  '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Configuração do bot</h3><span class="status">Somente administrador</span></div>'+
- '<p class="muted small">Preencha somente o Bot Token e o convite do seu servidor. O token é validado diretamente com o Discord e armazenado criptografado. Nunca envie o token pelo chat.</p>'+
+ '<p class="muted small">O Bot Token é validado diretamente com o Discord e armazenado criptografado. Nunca envie esse token pelo chat.</p>'+
  '<form id="verificationBotConfigForm" class="grid settings-grid">'+
  '<div class="field"><label>BOT TOKEN</label><input id="verificationBotToken" name="botToken" type="password" autocomplete="new-password" placeholder="Cole aqui o token do seu bot"></div>'+
  '<div class="field"><label>CONVITE DO SEU SERVIDOR</label><input id="verificationInviteUrl" name="inviteUrl" type="url" value="'+escapeHtml(r.inviteUrl||"")+'" placeholder="https://discord.gg/..." required></div>'+
  '<div style="grid-column:1/-1"><button class="btn" id="verificationSave" type="submit">Salvar token e convite</button></div></form>'+
  '<div class="notice" style="margin-top:14px">O token nunca é exibido novamente depois de salvo. Deixe o campo Token vazio para manter o que já está armazenado.</div>'+
- '<div class="project-note" style="margin-top:14px"><strong>Adicionar o bot ao seu servidor</strong><br>Depois de salvar, use o botão abaixo para adicionar o bot com permissões básicas de canais, mensagens e embeds, sem conceder Administrador.</div>'+
- '<a class="btn secondary" style="display:inline-flex;text-decoration:none;align-items:center;margin-top:12px" id="verificationInviteBot" href="https://discord.com/oauth2/authorize?client_id='+encodeURIComponent(r.botId||"")+'&permissions=19456&scope=bot%20applications.commands" target="_blank" rel="noopener noreferrer">Adicionar bot ao servidor ↗</a></section>';
+ '<div class="project-note" style="margin-top:14px"><strong>Adicionar o bot ao seu servidor</strong><br>Depois de salvar, use o botão abaixo para adicionar o bot com permissões básicas, sem conceder Administrador.</div>'+
+ '<a class="btn secondary" style="display:inline-flex;text-decoration:none;align-items:center;margin-top:12px" id="verificationInviteBot" href="https://discord.com/oauth2/authorize?client_id='+encodeURIComponent(r.botId||"")+'&permissions=19456&scope=bot%20applications.commands" target="_blank" rel="noopener noreferrer">Adicionar bot ao servidor ↗</a></section>'+
+ '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Login e verificação Discord</h3><span class="status '+(oauthReady?"":"off")+'">'+(oauthReady?"CONFIGURADO":"PENDENTE")+'</span></div>'+
+ '<p class="muted small">O Client ID é preenchido automaticamente com a aplicação do Bot Token. No Portal de Desenvolvedores do Discord, cadastre o endereço de retorno abaixo em OAuth2 e depois cole o Client Secret aqui no Estúdio. Ele será criptografado e nunca será exibido novamente.</p>'+
+ '<form id="verificationOAuthForm" class="grid settings-grid">'+
+ '<div class="field"><label>CLIENT ID DA APLICAÇÃO</label><input type="text" value="'+escapeHtml(r.botId||"")+'" readonly></div>'+
+ '<div class="field"><label>ENDEREÇO DE RETORNO (REDIRECT URI)</label><input id="verificationOAuthRedirect" type="text" value="'+escapeHtml(r.oauthRedirectUri||"")+'" readonly></div>'+
+ '<div class="field" style="grid-column:1/-1"><label>CLIENT SECRET OAUTH2</label><input id="verificationOAuthSecret" type="password" autocomplete="new-password" placeholder="'+(oauthReady?"Já configurado · deixe vazio para manter":"Cole o Client Secret da mesma aplicação Discord")+'"></div>'+
+ '<div style="grid-column:1/-1"><button class="btn" id="verificationOAuthSave" type="submit">Salvar configuração de login Discord</button></div></form>'+
+ '<div class="notice" style="margin-top:14px">O visitante usa a própria conta Discord. Após autorizar o login, o Estúdio abre o convite do servidor para a pessoa aceitar a entrada.</div></section>';
 }
 function settingsView(){
  const linked=!!state.user?.discordLinked;
@@ -905,11 +929,21 @@ function bindView(){
   }catch(error){toast(error.message)}
   finally{if(button){button.disabled=false;button.textContent="Salvar token e convite"}}
  };
+ const verificationOAuthForm=$("#verificationOAuthForm");
+ if(verificationOAuthForm)verificationOAuthForm.onsubmit=async e=>{
+  e.preventDefault();const button=$("#verificationOAuthSave");if(button){button.disabled=true;button.textContent="Protegendo configuração…"}
+  try{
+   const result=await api("/admin/verification-bot/oauth",{method:"POST",body:JSON.stringify({clientId:state.verificationAdmin?.botId||"",clientSecret:$("#verificationOAuthSecret").value})});
+   $("#verificationOAuthSecret").value="";
+   toast(result.message||"Login Discord configurado.");await loadVerificationBotAdmin();
+  }catch(error){toast(error.message)}
+  finally{if($("#verificationOAuthSave")){$("#verificationOAuthSave").disabled=false;$("#verificationOAuthSave").textContent="Salvar configuração de login Discord"}}
+ };
  const verifyStart=$("#verificationStart");if(verifyStart)verifyStart.onclick=async()=>{
   verifyStart.disabled=true;verifyStart.textContent="Preparando hospedagem…";
   try{const r=await api("/admin/verification-bot/power",{method:"POST",body:JSON.stringify({action:"start"})});toast(r.message||"Inicialização solicitada.");await loadVerificationBotAdmin()}
   catch(error){toast(error.message)}
-  finally{if($("#verificationStart")){$("#verificationStart").disabled=false;$("#verificationStart").textContent="▶ Iniciar / atualizar"}}
+  finally{if($("#verificationStart")){const s=state.verificationAdmin||{};$("#verificationStart").disabled=!(s.configured&&s.hostingCanCreate&&s.oauthConfigured);$("#verificationStart").textContent="▶ Iniciar / atualizar"}}
  };
  const verifyStop=$("#verificationStop");if(verifyStop)verifyStop.onclick=async()=>{
   if(!window.confirm("Deseja parar o bot central de verificação?"))return;verifyStop.disabled=true;
