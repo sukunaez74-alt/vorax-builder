@@ -3869,6 +3869,13 @@ export async function onRequest(context) {
               const canCreate = (maxBots <= 0 || Number(projects.total || 0) < maxBots) && freeMb >= minMemory;
               if (canCreate) {
                 const prepared = await prepareCubeCloudProject(archiveBytes, bot, b.runtime, env);
+                const zipLimitMb = Number(plan.zipMaxMb || (String(plan.id).toLowerCase() === "free" ? 5 : 10));
+                if (zipLimitMb > 0 && prepared.bytes.byteLength > zipLimitMb * 1024 * 1024) {
+                  const sizeMb = (prepared.bytes.byteLength / 1024 / 1024).toFixed(2).replace(".", ",");
+                  const error = new Error("Depois da limpeza automática, o ZIP ficou com " + sizeMb + " MB, acima do limite de " + zipLimitMb + " MB do plano " + String(plan.name || "Cube") + ". Remova arquivos pesados, vídeos, backups ou bibliotecas incluídas no ZIP e tente novamente.");
+                  error.code = "cube_zip_limit_reached";
+                  throw error;
+                }
                 const form = new FormData();
                 form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
                 form.append("start", "true");
@@ -3889,8 +3896,12 @@ export async function onRequest(context) {
               cubeCapacityMessage = "Cube Hosting: " + Number(projects.total || 0) + "/" + (maxBots || "sem limite informado") + " projetos e " + freeMb + " MB livres; o plano não tem espaço para outro bot agora.";
             } catch (error) {
               const capacityCodes = new Set(["project_limit_reached","insufficient_memory","free_slot_required","free_slot_lost","plan_limit_reached"]);
-              if (!capacityCodes.has(String(error?.code || "")) && !/free_slot_required|project_limit_reached|insufficient_memory|plan_limit_reached/i.test(String(error?.message || ""))) throw error;
-              cubeCapacityMessage = error.message || "Cube Hosting não tem uma vaga disponível. No plano Free, resgate a vaga com /free no Discord da Cube.";
+              if (String(error?.code || "") === "cube_zip_limit_reached") {
+                cubeCapacityMessage = error.message;
+              } else {
+                if (!capacityCodes.has(String(error?.code || "")) && !/free_slot_required|project_limit_reached|insufficient_memory|plan_limit_reached/i.test(String(error?.message || ""))) throw error;
+                cubeCapacityMessage = error.message || "Cube Hosting não tem uma vaga disponível. No plano Free, resgate a vaga com /free no Discord da Cube.";
+              }
             }
           }
 
@@ -3931,12 +3942,13 @@ export async function onRequest(context) {
             }
           }
 
+          const providerIssues = [cubeCapacityMessage, squareCapacityMessage].filter(Boolean);
           return reply({
-            code: squareCapacityMessage ? "provider_capacity_full" : "provider_not_connected",
-            error: squareCapacityMessage
-              ? [cubeCapacityMessage, squareCapacityMessage].filter(Boolean).join(" ") + " Nenhum bot existente foi alterado."
+            code: providerIssues.length ? "provider_capacity_full" : "provider_not_connected",
+            error: providerIssues.length
+              ? providerIssues.join(" ") + " Nenhum bot existente foi alterado."
               : "O Bot-Hosting está sem vaga. Conecte Cube Hosting ou Square Cloud nas Configurações para ampliar seu pool. A Discloud continua disponível apenas para projetos que já estão hospedados nela."
-          }, squareCapacityMessage ? 402 : 409);
+          }, providerIssues.length ? 402 : 409);
         } catch (error) {
           const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
           const code = String(error?.code || "");
