@@ -605,6 +605,22 @@ export async function onRequest(context) {
 
       if (!action && request.method === "GET") {
         const hasToken = !!bot.discord_token_enc;
+        let discordBotId = bot.discord_bot_id || null;
+        let discordBotName = bot.discord_bot_name || null;
+        if (hasToken && !discordBotId) {
+          try {
+            const savedToken = await decryptSecret(bot.discord_token_enc, env);
+            const identity = savedToken ? await validateDiscordBotToken(savedToken) : null;
+            if (identity?.valid) {
+              discordBotId = identity.botId;
+              discordBotName = identity.botName || null;
+              await env.DB.prepare("UPDATE bots SET discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?")
+                .bind(discordBotId, discordBotName, Date.now(), id, user.id).run();
+            }
+          } catch (error) {
+            console.error("Discord bot identity lookup failed:", error?.name || "Error");
+          }
+        }
         let state = bot.state || "draft";
         let runtimeInfo = null;
         if (bot.hosting_deployment_id) {
@@ -619,8 +635,8 @@ export async function onRequest(context) {
         return reply({
           id: bot.id, name: bot.name, runtime: bot.runtime, state,
           modules, hasDiscordToken: hasToken,
-          discordBotId: bot.discord_bot_id || null,
-          discordBotName: bot.discord_bot_name || null,
+          discordBotId,
+          discordBotName,
           hostingDeploymentId: bot.hosting_deployment_id || null,
           scheduleEnabled: !!bot.schedule_enabled,
           botOnlineNow: !!bot.hosting_deployment_id && state === "running" && (!bot.schedule_enabled || isInsideSchedule(bot.schedule_start || "00:00", bot.schedule_end || "23:59", bot.schedule_timezone || "America/Bahia")),
