@@ -112,6 +112,87 @@ async function decryptSecret(value, env) {
   const data = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(parts[0]) }, key, unb64(parts[1]));
   return new TextDecoder().decode(data);
 }
+async function prepareDiscordBotToken(rawValue, env) {
+  const token = normalizeDiscordBotToken(rawValue);
+  if (token.length < 30 || token.length > 512 || /\s/.test(token)) {
+    return { ok: false, status: 400, error: "Cole o Bot Token completo, sem espaços. O prefixo opcional 'Bot ' é removido automaticamente." };
+  }
+  const identity = await validateDiscordBotToken(token);
+  if (identity.unavailable) {
+    return {
+      ok: false,
+      status: 503,
+      error: identity.reason === "rate_limited"
+        ? "O Discord limitou temporariamente a validação. Aguarde um minuto e tente novamente."
+        : "Não foi possível consultar o Discord agora. O token não foi alterado; tente novamente."
+    };
+  }
+  if (!identity.valid) {
+    return {
+      ok: false,
+      status: 400,
+      error: identity.reason === "not_a_bot"
+        ? "Esta credencial não é um Bot Token. Use a seção Bot do Discord Developer Portal."
+        : "O Discord recusou o token. Gere ou copie novamente o Bot Token da seção Bot."
+    };
+  }
+  let encryptedToken;
+  try {
+    encryptedToken = await encryptSecret(token, env);
+  } catch {
+    return { ok: false, status: 503, error: "A chave de criptografia do Estúdio não está disponível. O token não foi gravado." };
+  }
+  return { ok: true, token, encryptedToken, identity };
+}
+
+async function saveDiscordBotToken(id, userId, rawValue, env) {
+  const ownedBot = await env.DB.prepare(
+    "SELECT id FROM bots WHERE id=? AND user_id=?"
+  ).bind(id, userId).first();
+  if (!ownedBot) return { ok: false, status: 404, error: "Projeto não encontrado nesta conta." };
+
+  const prepared = await prepareDiscordBotToken(rawValue, env);
+  if (!prepared.ok) return prepared;
+
+  try {
+    await env.DB.prepare(
+      "UPDATE bots SET discord_token_enc=?,discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?"
+    ).bind(
+      prepared.encryptedToken,
+      prepared.identity.botId,
+      prepared.identity.botName || null,
+      Date.now(),
+      id,
+      userId
+    ).run();
+
+    const confirmed = await env.DB.prepare(
+      "SELECT discord_token_enc,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
+    ).bind(id, userId).first();
+    if (!confirmed?.discord_token_enc) {
+      return { ok: false, status: 500, error: "O banco não confirmou a gravação do Bot Token. Ele não foi marcado como salvo." };
+    }
+
+    const roundTrip = await decryptSecret(confirmed.discord_token_enc, env);
+    if (!roundTrip || !same(roundTrip, prepared.token)) {
+      return { ok: false, status: 500, error: "A verificação de integridade do token salvo falhou. Tente novamente." };
+    }
+
+    return {
+      ok: true,
+      tokenStored: true,
+      hasDiscordToken: true,
+      tokenUpdated: true,
+      discordBotId: confirmed.discord_bot_id || prepared.identity.botId,
+      discordBotName: confirmed.discord_bot_name || prepared.identity.botName || null,
+      message: "Token validado no Discord, criptografado, relido do banco e confirmado."
+    };
+  } catch (error) {
+    console.error("Discord bot token persistence failed:", error?.name || "DatabaseError");
+    return { ok: false, status: 500, error: "Não consegui confirmar a gravação do token no banco. O campo foi mantido para você tentar novamente." };
+  }
+}
+
 async function createSession(userId, env) {
   const token = randomToken(); const hash = await sha(token);
   await env.DB.prepare("INSERT INTO sessions (token_hash,user_id,expires_at,created_at) VALUES (?,?,?,?)")
@@ -543,44 +624,19 @@ export async function onRequest(context) {
       ).bind(id, user.id).first();
       if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta. Atualize a lista de bots." }, 404);
 
-      const discordToken = normalizeDiscordBotToken(b.discordToken);
-      let identity = null;
-      let tokenUpdated = false;
-      if (discordToken) {
-        if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
-          return reply({ error: "O Bot Token parece incompleto. Copie o token inteiro, sem espaços." }, 400);
-        }
-        identity = await validateDiscordBotToken(discordToken);
-        if (identity.unavailable) {
-          const message = identity.reason === "rate_limited"
-            ? "O Discord limitou temporariamente as verificações. Aguarde um minuto e tente novamente."
-            : "Não foi possível alcançar o Discord para validar o token. Verifique a conexão e tente novamente.";
-          return reply({ error: message, code: identity.reason || "discord_unavailable" }, 503);
-        }
-        if (!identity.valid) {
-          const message = identity.reason === "not_a_bot"
-            ? "A credencial não pertence a um usuário Bot. Use o Bot Token da seção Bot no Discord Developer Portal."
-            : "O Discord recusou o token. Gere ou copie novamente o Bot Token na seção Bot do Discord Developer Portal; não use Client Secret, Client ID ou Public Key.";
-          return reply({ error: message, code: identity.reason || "invalid_discord_token" }, 400);
-        }
-        const encryptedToken = await encryptSecret(discordToken, env);
-        const savedToken = await env.DB.prepare(
-          "UPDATE bots SET discord_token_enc=?,discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=? RETURNING id,discord_token_enc"
-        ).bind(encryptedToken, identity.botId, identity.botName || null, Date.now(), id, user.id).first();
-        if (!savedToken?.discord_token_enc) {
-          return reply({ error: "O Discord validou o token, mas o banco não confirmou a gravação. Nenhuma alteração foi marcada como salva." }, 500);
-        }
-        const checkToken = await decryptSecret(savedToken.discord_token_enc, env);
-        if (!checkToken || !same(checkToken, discordToken)) {
-          return reply({ error: "A gravação do token não passou na verificação de integridade. Tente salvar novamente." }, 500);
-        }
-        tokenUpdated = true;
-      } else if (!ownedBot.discord_token_enc) {
-        return reply({ error: "Informe o Bot Token do Discord para este projeto." }, 400);
+      const newToken = String(b.discordToken || "").trim();
+      let tokenResult = null;
+      if (newToken) {
+        tokenResult = await saveDiscordBotToken(id, user.id, newToken, env);
+        if (!tokenResult.ok) return reply({ error: tokenResult.error }, tokenResult.status);
       } else {
-        const existingToken = await decryptSecret(ownedBot.discord_token_enc, env);
+        if (!ownedBot.discord_token_enc) {
+          return reply({ error: "Informe o Bot Token do Discord e clique em Salvar alterações." }, 400);
+        }
+        let existingToken = null;
+        try { existingToken = await decryptSecret(ownedBot.discord_token_enc, env); } catch {}
         if (!existingToken) {
-          return reply({ error: "O token salvo não pode ser aberto com a chave de criptografia atual. Informe novamente o Bot Token para substituir a credencial." }, 409);
+          return reply({ error: "O token antigo não pode ser aberto com a chave de criptografia atual. Cole um Bot Token novo e salve novamente." }, 409);
         }
       }
 
@@ -588,81 +644,44 @@ export async function onRequest(context) {
       const modules = {};
       for (const key of allowed) modules[key] = !!(b.modules && b.modules[key]);
       await env.DB.prepare(
-        "UPDATE bots SET modules=?::jsonb,updated_at=? WHERE id=? AND user_id=? RETURNING id"
-      ).bind(JSON.stringify(modules), Date.now(), id, user.id).first();
+        "UPDATE bots SET modules=?::jsonb,updated_at=? WHERE id=? AND user_id=?"
+      ).bind(JSON.stringify(modules), Date.now(), id, user.id).run();
 
       const confirmed = await env.DB.prepare(
-        "SELECT id,(discord_token_enc IS NOT NULL) AS has_token,modules,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
+        "SELECT discord_token_enc,modules,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
       ).bind(id, user.id).first();
-      if (!confirmed?.has_token) {
-        return reply({ error: "As alterações foram enviadas, mas a confirmação final não encontrou um token salvo. Tente novamente." }, 500);
+      if (!confirmed?.discord_token_enc) {
+        return reply({ error: "As opções foram enviadas, mas a confirmação final não encontrou um Bot Token salvo." }, 500);
+      }
+      let verifiedToken = null;
+      try { verifiedToken = await decryptSecret(confirmed.discord_token_enc, env); } catch {}
+      if (!verifiedToken) {
+        return reply({ error: "O token está registrado, mas a verificação criptográfica falhou. Salve um Bot Token novo." }, 409);
       }
       const savedModules = typeof confirmed.modules === "string" ? JSON.parse(confirmed.modules || "{}") : (confirmed.modules || {});
       return reply({
         ok: true,
         tokenStored: true,
         hasDiscordToken: true,
-        tokenUpdated,
+        tokenUpdated: !!tokenResult?.tokenUpdated,
         modules: savedModules,
-        discordBotId: confirmed.discord_bot_id || null,
-        discordBotName: confirmed.discord_bot_name || null,
-        message: tokenUpdated
-          ? "Token validado no Discord, criptografado, gravado e confirmado no banco de dados."
-          : "Alterações salvas. O token anterior foi mantido e confirmado no banco de dados."
+        discordBotId: confirmed.discord_bot_id || tokenResult?.discordBotId || null,
+        discordBotName: confirmed.discord_bot_name || tokenResult?.discordBotName || null,
+        message: tokenResult?.tokenUpdated
+          ? "Token validado, criptografado e confirmado; módulos salvos."
+          : "Módulos salvos e token anterior mantido e confirmado."
       });
     }
+
     if (path === "/bot-token" && request.method === "POST") {
       const b = await body(request);
       const id = String(b.botId || "").trim();
-      const discordToken = normalizeDiscordBotToken(b.discordToken);
-      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return reply({ error: "Projeto inválido. Atualize a lista de bots." }, 400);
-      if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
-        return reply({ error: "Cole o Bot Token completo do Discord, sem espaços." }, 400);
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) {
+        return reply({ error: "Projeto inválido. Atualize a lista de bots." }, 400);
       }
-      const ownedBot = await env.DB.prepare(
-        "SELECT id FROM bots WHERE id=? AND user_id=?"
-      ).bind(id, user.id).first();
-      if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
-
-      const identity = await validateDiscordBotToken(discordToken);
-      if (identity.unavailable) {
-        const message = identity.reason === "rate_limited"
-          ? "O Discord limitou temporariamente as verificações. Aguarde um minuto e tente novamente."
-          : "Não foi possível alcançar o Discord para validar o token. Verifique a conexão e tente novamente.";
-        return reply({ error: message, code: identity.reason || "discord_unavailable" }, 503);
-      }
-      if (!identity.valid) {
-        const message = identity.reason === "not_a_bot"
-          ? "Essa credencial não é um Bot Token. Use a seção Bot do Discord Developer Portal."
-          : "O Discord recusou esse token. Gere ou copie novamente o Bot Token, sem usar Client ID, Client Secret ou Public Key.";
-        return reply({ error: message, code: identity.reason || "invalid_discord_token" }, 400);
-      }
-
-      const encryptedToken = await encryptSecret(discordToken, env);
-      const saved = await env.DB.prepare(
-        "UPDATE bots SET discord_token_enc=?,discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=? RETURNING id,discord_token_enc"
-      ).bind(encryptedToken, identity.botId, identity.botName || null, Date.now(), id, user.id).first();
-      if (!saved?.discord_token_enc) {
-        return reply({ error: "O banco não confirmou a gravação do Bot Token." }, 500);
-      }
-      const roundTrip = await decryptSecret(saved.discord_token_enc, env);
-      if (!roundTrip || !same(roundTrip, discordToken)) {
-        return reply({ error: "O token foi gravado, mas falhou na verificação de integridade. Tente novamente." }, 500);
-      }
-      const confirmed = await env.DB.prepare(
-        "SELECT (discord_token_enc IS NOT NULL) AS has_token,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
-      ).bind(id, user.id).first();
-      if (!confirmed?.has_token) {
-        return reply({ error: "A consulta de confirmação não encontrou o Bot Token salvo." }, 500);
-      }
-      return reply({
-        ok: true,
-        tokenStored: true,
-        hasDiscordToken: true,
-        discordBotId: confirmed.discord_bot_id || identity.botId,
-        discordBotName: confirmed.discord_bot_name || identity.botName || null,
-        message: "Bot Token validado pelo Discord, criptografado e confirmado no banco."
-      });
+      const result = await saveDiscordBotToken(id, user.id, b.discordToken, env);
+      if (!result.ok) return reply({ error: result.error }, result.status);
+      return reply(result);
     }
 
     if (path === "/bot-token/status" && request.method === "GET") {
@@ -744,29 +763,21 @@ export async function onRequest(context) {
       const runtime = "python";
       if (b.runtime && b.runtime !== "python") return reply({ error: "O executor automático do ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio está preparado para o CAOS em Python 3.11. Outros runtimes ainda não estão disponíveis para início automático." }, 400);
       if (name.length < 2) return reply({ error: "Digite um nome com pelo menos 2 caracteres." }, 400);
-      const discordToken = normalizeDiscordBotToken(b.discordToken);
-      if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
-        return reply({ error: "Informe um token de bot Discord válido, sem espaços, com pelo menos 30 caracteres." }, 400);
-      }
-      const verifiedToken = await validateDiscordBotToken(discordToken);
-      if (verifiedToken.unavailable) {
-        const message = verifiedToken.reason === "rate_limited"
-          ? "O Discord limitou temporariamente as verificações. Aguarde um minuto e tente novamente."
-          : "Não foi possível alcançar o Discord para validar o token. Verifique a conexão e tente novamente.";
-        return reply({ error: message, code: verifiedToken.reason || "discord_unavailable" }, 503);
-      }
-      if (!verifiedToken.valid) {
-        const message = verifiedToken.reason === "not_a_bot"
-          ? "A credencial foi aceita, mas não pertence a um usuário Bot. Use o Bot Token da seção Bot no Discord Developer Portal."
-          : "O Discord recusou o token. Gere ou copie novamente o Bot Token na seção Bot do Discord Developer Portal; não use Client Secret, Client ID ou Public Key.";
-        return reply({ error: message, code: verifiedToken.reason || "invalid_discord_token" }, 400);
-      }
-      const encryptedToken = await encryptSecret(discordToken, env);
+      const prepared = await prepareDiscordBotToken(b.discordToken, env);
+      if (!prepared.ok) return reply({ error: prepared.error }, prepared.status);
+      const verifiedToken = prepared.identity;
+      const encryptedToken = prepared.encryptedToken;
       const id = randomToken(12);
       const now = Date.now();
       await env.DB.prepare(
         "INSERT INTO bots (id,user_id,name,runtime,state,modules,discord_token_enc,discord_bot_id,discord_bot_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
       ).bind(id, user.id, name, runtime, "draft", JSON.stringify({}), encryptedToken, verifiedToken.botId, verifiedToken.botName || null, now, now).run();
+      const persisted = await env.DB.prepare("SELECT discord_token_enc FROM bots WHERE id=? AND user_id=?").bind(id, user.id).first();
+      const tokenRoundTrip = await decryptSecret(persisted?.discord_token_enc, env);
+      if (!tokenRoundTrip || !same(tokenRoundTrip, prepared.token)) {
+        await env.DB.prepare("DELETE FROM bots WHERE id=? AND user_id=?").bind(id, user.id).run();
+        return reply({ error: "O projeto foi criado, mas o banco não confirmou o token. Tente criar novamente." }, 500);
+      }
       return reply({
         id, name, runtime, state: "draft", modules: {},
         hasDiscordToken: true,
