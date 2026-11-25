@@ -2450,7 +2450,7 @@ export async function onRequest(context) {
             const appsCount = Array.isArray(data.user.apps) ? data.user.apps.length : null;
             const totalRamMb = Number(data.user.totalRamMb || 0);
             const ramUsedMb = Number(data.user.ramUsedMb || 0);
-            const isFreePlan = /\\bfree\\b/i.test(planName);
+            const isFreePlan = /\bfree\b/i.test(planName);
             const freeSlotAvailable = isFreePlan && appsCount === 0 && (totalRamMb - ramUsedMb) >= 100;
             discloud = {
               connected: true, valid: true, provider: "discloud",
@@ -3900,7 +3900,7 @@ export async function onRequest(context) {
               const apps = Array.isArray(accountInfo.apps) ? accountInfo.apps : null;
               const totalRamMb = Number(accountInfo.totalRamMb || 0);
               const ramUsedMb = Number(accountInfo.ramUsedMb || 0);
-              if (!/\\bfree\\b/i.test(planName)) {
+              if (!/\bfree\b/i.test(planName)) {
                 discloudCapacityMessage = "Discloud ignorada: a conta conectada não está no plano Free. Nenhum plano pago será usado.";
               } else if (!apps) {
                 discloudCapacityMessage = "Discloud não informou a quantidade de aplicações da conta; a vaga Free não pôde ser confirmada.";
@@ -3911,7 +3911,7 @@ export async function onRequest(context) {
               } else {
                 const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
                 const form = new FormData();
-                form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\\.zip$/i, "-black-zone.zip"));
+                form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
                 let uploaded = null;
                 try {
                   uploaded = await discloudRequest(discloudToken, "/upload", "POST", form);
