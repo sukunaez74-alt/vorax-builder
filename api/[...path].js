@@ -51,6 +51,27 @@ async function verifyPassword(password, stored) {
   const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 210000, hash: "SHA-256" }, key, 256);
   return same(b64(bits), digest);
 }
+async function validateDiscordBotToken(token) {
+  let response;
+  try {
+    response = await fetch("https://discord.com/api/v10/users/@me", {
+      method: "GET",
+      headers: { authorization: "Bot " + token, accept: "application/json" },
+      signal: AbortSignal.timeout(10000)
+    });
+  } catch {
+    return { valid: false, unavailable: true };
+  }
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401 || response.status === 403) return { valid: false, unavailable: false };
+  if (!response.ok) return { valid: false, unavailable: true };
+  return {
+    valid: !!data.id && data.bot === true,
+    unavailable: false,
+    botId: data.id ? String(data.id) : null,
+    botName: data.username ? String(data.username) : null
+  };
+}
 async function encryptSecret(value, env) {
   if (!env.APP_ENCRYPTION_KEY) throw new Error("A criptografia do painel ainda não foi configurada no Vercel.");
   const raw = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(env.APP_ENCRYPTION_KEY));
@@ -247,6 +268,9 @@ export async function onRequest(context) {
       if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
         return reply({ error: "Informe um token de bot Discord válido, sem espaços, com pelo menos 30 caracteres." }, 400);
       }
+      const verifiedToken = await validateDiscordBotToken(discordToken);
+      if (verifiedToken.unavailable) return reply({ error: "Não consegui validar o token com o Discord agora. Tente novamente em instantes." }, 503);
+      if (!verifiedToken.valid) return reply({ error: "O Discord recusou esse token. Confira o Bot Token no Developer Portal e tente novamente." }, 400);
       const encryptedToken = await encryptSecret(discordToken, env);
       const id = randomToken(12);
       const now = Date.now();
@@ -286,6 +310,9 @@ export async function onRequest(context) {
           if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
             return reply({ error: "O token Discord precisa ter pelo menos 30 caracteres e não pode conter espaços." }, 400);
           }
+          const verifiedToken = await validateDiscordBotToken(discordToken);
+          if (verifiedToken.unavailable) return reply({ error: "Não consegui validar o token com o Discord agora. Tente novamente em instantes." }, 503);
+          if (!verifiedToken.valid) return reply({ error: "O Discord recusou esse token. Confira o Bot Token no Developer Portal e tente novamente." }, 400);
           const encryptedToken = await encryptSecret(discordToken, env);
           await env.DB.prepare(
             "UPDATE bots SET discord_token_enc=?, updated_at=? WHERE id=? AND user_id=?"
@@ -392,7 +419,6 @@ async function ensureSchema(db) {
           runtime TEXT NOT NULL CHECK (runtime IN ('python','nodejs')),
           state TEXT NOT NULL DEFAULT 'draft',
           modules JSONB NOT NULL DEFAULT '{}'::jsonb,
-          created_at BIGINT NOT NULL,
           discord_token_enc TEXT,
           created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL
