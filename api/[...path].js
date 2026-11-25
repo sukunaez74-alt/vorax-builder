@@ -29,8 +29,16 @@ function same(a, b) {
   const x = new TextEncoder().encode(String(a)); const y = new TextEncoder().encode(String(b));
   if (x.length !== y.length) return false; let v = 0; for (let i = 0; i < x.length; i++) v |= x[i] ^ y[i]; return v === 0;
 }
-async function gateOk(request, env) { return true; }
-async function gateCookie(env) { return ""; }
+async function gateOk(request, env) {
+  if (!env.APP_GATE_PHRASE) return true;
+  const value = cookieMap(request).bz_gate || ""; const [exp, signature] = value.split(".");
+  if (!exp || !signature || Number(exp) < Date.now() / 1000 || !env.APP_SESSION_SECRET) return false;
+  return same(signature, await mac(exp, env.APP_SESSION_SECRET));
+}
+async function gateCookie(env) {
+  const exp = String(Math.floor(Date.now() / 1000) + 43200);
+  return setCookie("bz_gate", exp + "." + await mac(exp, env.APP_SESSION_SECRET), 43200);
+}
 async function hashPassword(password) {
   const salt = new Uint8Array(16); crypto.getRandomValues(salt);
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
@@ -2025,7 +2033,14 @@ export async function onRequest(context) {
   try {
     if (path === "/verification/start" && request.method === "GET") return await verificationStart(request, env);
     if (path === "/verification/callback" && request.method === "GET") return await verificationCallback(request, env);
+    if (path === "/gate" && request.method === "POST") {
+      const b = await body(request);
+      if (env.APP_GATE_PHRASE && !same(String(b.phrase || ""), env.APP_GATE_PHRASE)) return reply({ error: "Chave de entrada incorreta." }, 401);
+      if (!env.APP_SESSION_SECRET) return reply({ error: "Segredo de sessão ainda não configurado." }, 503);
+      return reply({ ok: true }, 200, { "set-cookie": await gateCookie(env) });
+    }
     if (path === "/me" && request.method === "GET") {
+      if (!(await gateOk(request, env))) return reply({ gate: false, user: null });
       const user = await currentUser(request, env); return reply({ gate: true, user: user ? publicUser(user) : null });
     }
     if (path === "/discord/link/start" && request.method === "GET") {
