@@ -851,13 +851,16 @@ async function loadVerificationBotAdmin(){
 function verificationAdminView(){
  const r=state.verificationAdmin||{},runtime=r.runtime||{},live=runtime.online===true;
  const status=live?"ONLINE":runtime.state==="not_deployed"?"NÃO IMPLANTADO":String(runtime.state||"PENDENTE").toUpperCase();
- const connection=!r.hostingConnected?"Conecte o Bot-Hosting na página Configurações usando sua conta proprietária.":(!r.configured?"Informe o Bot Token e o convite do seu servidor.":"Token e convite salvos e protegidos.");
+ const connection=!r.hostingConnected?"Conecte o Bot-Hosting na página Configurações usando sua conta proprietária.":(!r.hostingCanCreate&&!r.deploymentId?"Reconecte o Bot-Hosting em Configurações e aprove a permissão para criar implantações.":(!r.configured?"Informe o Bot Token e o convite do seu servidor.":"Token e convite salvos e protegidos."));
  return pageHead("Bot de verificação","Configure uma única vez o bot central usado por todos os usuários do Estúdio.")+
  (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
  '<section class="card"><div class="section-head"><h3>Estado do bot central</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+status+'</span></div>'+
  '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot ainda não identificado")+'</strong><br>'+escapeHtml(connection)+
  (runtime.guilds!==undefined?'<br>Servidores conectados: <b>'+Number(runtime.guilds)+'</b>':"")+
- (runtime.heartbeatAt?'<br>Último sinal: '+escapeHtml(new Date(runtime.heartbeatAt).toLocaleString("pt-BR")):"")+'</div>'+
+ (runtime.heartbeatAt?'<br>Último sinal: '+escapeHtml(new Date(runtime.heartbeatAt).toLocaleString("pt-BR")):"")+
+ (runtime.error?'<br><b>Erro:</b> '+escapeHtml(runtime.error):"")+
+ (runtime.hint?'<br><b>Diagnóstico:</b> '+escapeHtml(runtime.hint):"")+
+ (Array.isArray(runtime.logs)&&runtime.logs.length?'<pre class="terminal">'+runtime.logs.map(line=>escapeHtml(line)).join("\\n")+'</pre>':"")+'</div>'+
  '<div class="hero-actions" style="margin-top:14px"><button class="btn" id="verificationStart" '+(!r.configured||!r.hostingConnected?"disabled":"")+'>▶ Iniciar / atualizar</button><button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"") +'>■ Parar</button><button class="btn secondary" id="verificationRefresh">↻ Atualizar status</button></div>'+
  '<p class="muted small" style="margin-top:14px">O bot fica salvo na hospedagem da conta proprietária. Comandos: /verificar, /painel_verificacao e /link_servidor.</p></section>'+
  '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Configuração do bot</h3><span class="status">Somente administrador</span></div>'+
