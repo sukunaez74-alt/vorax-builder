@@ -853,6 +853,7 @@ function verificationAdminView(){
  const status=live?"ONLINE":runtime.state==="not_deployed"?"NÃO IMPLANTADO":String(runtime.state||"PENDENTE").toUpperCase();
  const connection=!r.hostingConnected?"Conecte o Bot-Hosting na página Configurações usando sua conta proprietária.":(!r.configured?"Informe o Bot Token e o convite do seu servidor.":"Token e convite salvos e protegidos.");
  return pageHead("Bot de verificação","Configure uma única vez o bot central usado por todos os usuários do Estúdio.")+
+ (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
  '<section class="card"><div class="section-head"><h3>Estado do bot central</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+status+'</span></div>'+
  '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot ainda não identificado")+'</strong><br>'+escapeHtml(connection)+
  (runtime.guilds!==undefined?'<br>Servidores conectados: <b>'+Number(runtime.guilds)+'</b>':"")+
