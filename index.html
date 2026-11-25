@@ -1186,7 +1186,7 @@ async function openBot(id){
  (botId?'<button class="btn secondary wide" id="botInvite">Adicionar este bot ao servidor Discord ↗</button>':'<p class="muted small">Salve o Bot Token para gerar o convite de instalação deste bot.</p>')+
  '<div class="project-note" style="margin-top:12px"><strong>'+escapeHtml(commandSummary)+'</strong><br>Os comandos são publicados diretamente em cada servidor onde este bot está instalado.</div>'+
  (commandErrors.length?'<div class="project-note changes-pending"><strong>Falha ao publicar comandos:</strong><br>'+escapeHtml(commandErrors.map(x=>x.error||"Erro de sincronização").join(" · "))+'</div>':'')+
- '<div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative Server Members Intent e Message Content Intent. Use o convite com os escopos bot e applications.commands.</div></section>'+
+ '<div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative Server Members Intent e Message Content Intent. Use o convite com bot e applications.commands. O convite solicita permissões de canais, mensagens, cargos, apelidos e voz necessárias aos módulos; mantenha o cargo do bot acima dos cargos que ele precisa gerenciar.</div></section>'+
  '<div class="hero-actions" style="margin-top:14px;justify-content:space-between"><button class="btn danger" id="botDelete">Excluir bot</button><button class="btn secondary" id="botClose">Fechar</button></div>'
  );
  const connect=$("#connectHosting");
@@ -1202,7 +1202,7 @@ async function openBot(id){
    const invite=new URL("https://discord.com/oauth2/authorize");
    invite.searchParams.set("client_id",botId);
    invite.searchParams.set("scope","bot applications.commands");
-   invite.searchParams.set("permissions","0");
+   invite.searchParams.set("permissions","422702160");
    window.open(invite.toString(),"_blank","noopener,noreferrer");
  };
 
