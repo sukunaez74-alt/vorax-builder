@@ -559,9 +559,9 @@ async function ensureBotDeployment(bot, userId, env) {
     runtime: "python",
     runtimeVersion: "3.11",
     entryFile: "runner.py",
-    // Bot-Hosting installs requirements.txt automatically before running this command.
-    // Do not run pip install a second time on every restart.
-    startCommand: "python -u runner.py"
+    // null selects Bot-Hosting's Python runtime default, which installs
+    // requirements.txt before launching the configured entry file.
+    startCommand: null
   });
   await env.DB.prepare("UPDATE bots SET discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?")
     .bind(identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
