@@ -1617,7 +1617,7 @@ async function loadFiles(botId,path){
    const pathValue=(folder==="/"?"":folder.replace(/\/$/,""))+"/"+e.name;
    const isDir=e.type==="directory"||e.type==="folder";
    return '<div class="file-entry"><span class="file-entry-icon">'+(isDir?"▰":"▤")+'</span><div class="file-entry-main"><b>'+escapeHtml(e.name)+'</b><small>'+(isDir?"Pasta":formatBytes(e.sizeBytes||0))+(e.modifiedAt?" · "+escapeHtml(new Date(e.modifiedAt).toLocaleString("pt-BR")):"")+'</small></div>'+
-    (isDir?'<button class="btn secondary" data-file-open="'+escapeHtml(pathValue)+'">Abrir</button>':'<button class="btn secondary" data-file-edit="'+escapeHtml(pathValue)+'">Editar</button><button class="btn ghost" data-file-download="'+escapeHtml(pathValue)+'">Baixar</button><label class="file-pick"><input type="checkbox" data-file-select="'+escapeHtml(entry.name)+'"> ZIP</label>')+
+    (isDir?'<button class="btn secondary" data-file-open="'+escapeHtml(pathValue)+'">Abrir</button>':'<button class="btn secondary" data-file-edit="'+escapeHtml(pathValue)+'">Editar</button><button class="btn ghost" data-file-download="'+escapeHtml(pathValue)+'">Baixar</button><label class="file-pick"><input type="checkbox" data-file-select="'+escapeHtml(e.name)+'"> ZIP</label>')+
     '<button class="btn ghost" data-file-delete="'+escapeHtml(pathValue)+'" '+(["/main.py","/runner.py"].includes(pathValue)?"disabled":"")+'>Excluir</button></div>';
   }).join(""):'<div class="dashboard-empty">Esta pasta está vazia.</div>';
   document.querySelectorAll("[data-file-open]").forEach(b=>b.onclick=()=>loadFiles(id,b.dataset.fileOpen));
