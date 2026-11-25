@@ -2052,6 +2052,8 @@ export async function onRequest(context) {
         try {
           const b = await body(request);
           const root = safeVolumePath(b.path || "/");
+          const requestedRuntime = String(b.runtime || bot.runtime || "python").toLowerCase();
+          if (!["python","nodejs"].includes(requestedRuntime)) return reply({ error: "Escolha Python ou Node.js para este pacote." }, 400);
           let deploymentId = bot.hosting_deployment_id || null;
           if (!deploymentId) {
             const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(user.id).first();
@@ -2061,13 +2063,25 @@ export async function onRequest(context) {
               return reply({ code: "hosting_scope_missing", error: "A autorização do Bot-Hosting precisa liberar criação e envio de arquivos. Reconecte a hospedagem nas Configurações." }, 403);
             }
             const safeName = ("black-zone-" + String(bot.name || "bot").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + String(bot.id).slice(0, 5)).replace(/-+/g, "-");
-            const created = await hostRequest(user.id, env, "/deployments", "POST", { name: safeName, source: "blank", runtime: "python", runtimeVersion: "3.11" });
+            const created = await hostRequest(user.id, env, "/deployments", "POST", {
+              name: safeName, source: "blank", runtime: requestedRuntime,
+              runtimeVersion: requestedRuntime === "nodejs" ? "22" : "3.11"
+            });
             deploymentId = String((created.deployment || created).id || "");
             if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID do servidor para receber arquivos.");
-            await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,state='draft',updated_at=? WHERE id=? AND user_id=?").bind(deploymentId, Date.now(), id, user.id).run();
+            await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,runtime=?,state='draft',updated_at=? WHERE id=? AND user_id=?")
+              .bind(deploymentId, requestedRuntime, Date.now(), id, user.id).run();
+          } else if (requestedRuntime !== String(bot.runtime || "python").toLowerCase()) {
+            await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
+              runtime: requestedRuntime, runtimeVersion: requestedRuntime === "nodejs" ? "22" : "3.11",
+              entryFile: requestedRuntime === "nodejs" ? "index.js" : "main.py",
+              startCommand: null, wipeFiles: true
+            });
+            await env.DB.prepare("UPDATE bots SET runtime=?,custom_project=NULL,state='draft',updated_at=? WHERE id=? AND user_id=?")
+              .bind(requestedRuntime, Date.now(), id, user.id).run();
           }
           const signed = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/upload-url", "POST", { path: root });
-          return reply({ ...signed, deploymentId, path: root });
+          return reply({ ...signed, deploymentId, path: root, runtime: requestedRuntime });
         } catch (error) { return reply({ error: error.message || "Falha ao preparar envio." }, 502); }
       }
 
@@ -2090,6 +2104,13 @@ export async function onRequest(context) {
           const packageName = String(importBody.packageName || bot.name || "meu-bot").trim().slice(0, 64) || String(bot.name || "meu-bot");
           const analysis = await scanImportedProject(user.id, env, bot.hosting_deployment_id);
           if (!analysis.ok) return reply(analysis, 422);
+          if (analysis.runtime !== String(bot.runtime || "python").toLowerCase()) {
+            return reply({
+              error: "O pacote parece ser " + (analysis.runtime === "nodejs" ? "Node.js" : "Python") +
+                ", mas este projeto está configurado para " + (bot.runtime === "nodejs" ? "Node.js" : "Python") +
+                ". Escolha a linguagem correta e envie novamente."
+            }, 422);
+          }
           const customProject = {
             packageName, rootPath: "/", runtime: analysis.runtime, entryFile: analysis.entryFile,
             startCommand: analysis.startCommand || null, dependencyFile: analysis.dependencyFile || null,
