@@ -741,7 +741,8 @@ export async function onRequest(context) {
     if (path === "/bots" && request.method === "POST") {
       const b = await body(request);
       const name = String(b.name || "Novo bot").trim().slice(0, 48);
-      const runtime = b.runtime === "nodejs" ? "nodejs" : "python";
+      const runtime = "python";
+      if (b.runtime && b.runtime !== "python") return reply({ error: "O executor automático do ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio está preparado para o CAOS em Python 3.11. Outros runtimes ainda não estão disponíveis para início automático." }, 400);
       if (name.length < 2) return reply({ error: "Digite um nome com pelo menos 2 caracteres." }, 400);
       const discordToken = normalizeDiscordBotToken(b.discordToken);
       if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
