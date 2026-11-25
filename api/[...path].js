@@ -2094,7 +2094,7 @@ export async function onRequest(context) {
         providers: [
           { id: "bot-hosting", name: "Bot-Hosting", connected: !!hostingRow, canCreate: !!hostingRow && scopes.includes("deployments:write") && scopes.includes("credits:spend"), role: "principal" },
           { id: "squarecloud", name: "Square Cloud", role: "reserva-paga", ...square, canCreate: !!square.valid && !!square.canCreate },
-          { id: "discloud", name: "Discloud", connected: !!discloud.connected, canCreate: !!discloud.valid, role: "reserva-gratuita", ...discloud }
+          { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, canCreate: false, role: "compatibilidade-parcial", ...discloud, canCreate: false }
         ]
       });
     }
@@ -2990,34 +2990,11 @@ export async function onRequest(context) {
             }
           }
 
-          if (discloudToken) {
-            const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
-            const form = new FormData();
-            form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
-            const uploaded = await discloudRequest(discloudToken, "/upload", "POST", form);
-            const appId = String(uploaded.app?.id || "");
-            if (!appId) throw new Error("A Discloud recebeu o ZIP, mas não retornou o ID da aplicação.");
-            await env.DB.prepare(
-              "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
-            ).bind(appId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
-            try { await discloudRequest(discloudToken, "/app/" + encodeURIComponent(appId) + "/start", "PUT"); }
-            catch (error) {
-              if (!/already|online|running|process|in process|409/i.test(String(error?.message || ""))) throw error;
-            }
-            return reply({
-              ok: true, provider: "discloud", providerAppId: appId,
-              runtime: prepared.runtime, customProject: prepared.customProject,
-              app: uploaded.app || null,
-              fallbackReason: squareCapacityMessage || "Square Cloud não conectada ou sem capacidade.",
-              message: "ZIP enviado à Discloud. O provedor recebeu o projeto e a inicialização foi solicitada."
-            });
-          }
-
           return reply({
             code: squareCapacityMessage ? "provider_capacity_full" : "provider_not_connected",
             error: squareCapacityMessage
-              ? squareCapacityMessage + " A Discloud também não está conectada. Nenhum bot existente foi alterado."
-              : "O Bot-Hosting está sem vaga. Conecte uma conta Square Cloud (gerenciador completo, plano pago) ou Discloud nas Configurações para habilitar a próxima hospedagem."
+              ? squareCapacityMessage + " A Discloud não foi escolhida porque a API pública atual não oferece o mesmo gerenciador de arquivos dentro do Estúdio. Nenhum bot existente foi alterado."
+              : "O Bot-Hosting está sem vaga. Para usar a próxima hospedagem com envio, arquivos, edição, logs e controles dentro do Estúdio, conecte sua conta Square Cloud nas Configurações. A Discloud fica disponível apenas para projetos que já estão hospedados nela."
           }, squareCapacityMessage ? 402 : 409);
         } catch (error) {
           const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
