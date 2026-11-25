@@ -164,7 +164,7 @@ async function hostingConnectUrl(request, user, env) {
     .bind(state, user.id, verifier, Date.now() + 600000).run();
   const scopes = [
     "deployments:read", "deployments:power", "deployments:write",
-    "files:write", "env:write", "projects:read", "offline_access"
+    "files:write", "env:write"
   ].join(" ");
   const url = new URL("https://bot-hosting.net/oauth/authorize");
   url.searchParams.set("client_id", clientId);
@@ -623,6 +623,7 @@ export async function onRequest(context) {
           discordBotName: bot.discord_bot_name || null,
           hostingDeploymentId: bot.hosting_deployment_id || null,
           scheduleEnabled: !!bot.schedule_enabled,
+          botOnlineNow: !!bot.hosting_deployment_id && state === "running" && (!bot.schedule_enabled || isInsideSchedule(bot.schedule_start || "00:00", bot.schedule_end || "23:59", bot.schedule_timezone || "America/Bahia")),
           scheduleStart: bot.schedule_start || "00:00",
           scheduleEnd: bot.schedule_end || "23:59",
           scheduleTimezone: bot.schedule_timezone || "America/Bahia",
