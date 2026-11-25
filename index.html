@@ -707,6 +707,24 @@ function botStatusLabel(b){
  if(b.hostingDeploymentId)return "Hospedagem criada";
  return "Pronto para iniciar";
 }
+async function deleteBotProject(id,button){
+ const bot=state.bots.find(item=>item.id===id);
+ if(!bot)return;
+ if(!window.confirm("Excluir o projeto \""+(bot.name||"Bot")+"\"? Se a hospedagem for exclusiva, o Estúdio também tentará parar e remover o servidor. Esta ação não pode ser desfeita."))return;
+ const original=button?.textContent||"Excluir";
+ if(button){button.disabled=true;button.textContent="Excluindo…"}
+ try{
+  const result=await api("/bots/"+encodeURIComponent(id),{method:"DELETE"});
+  state.activeBot=state.activeBot===id?null:state.activeBot;
+  await loadBots();
+  if(result.sharedDeploymentRetained)toast("Projeto removido do painel. A hospedagem foi mantida porque ainda é compartilhada com outro serviço.");
+  else toast(result.deploymentDeleted?"Projeto e hospedagem removidos com sucesso.":"Projeto removido do painel.");
+  if(state.view==="overview")loadDashboardPanels();
+ }catch(error){
+  toast(error.message||"Não consegui excluir este projeto.");
+  if(button){button.disabled=false;button.textContent=original}
+ }
+}
 function botCard(b){
  const online=b.discordOnline===true;
  const processActive=b.state==="running";
@@ -733,6 +751,7 @@ function botCard(b){
    '<button class="bot-action action-restart" data-bot-power="restart" data-bot-id="'+safeId+'" '+(!b.hostingDeploymentId?"disabled":"")+'><span>↻</span>Reiniciar</button>'+
    '<button class="bot-action action-stop" data-bot-power="stop" data-bot-id="'+safeId+'" '+(!b.hostingDeploymentId||!processActive||!state.hosting?"disabled":"")+'><span>■</span>Parar</button>'+
    '<button class="bot-action action-more" data-openbot="'+safeId+'"><span>•••</span>Mais</button>'+
+   '<button class="bot-action action-delete" data-delete-bot="'+safeId+'"><span>×</span>Excluir</button>'+
   '</div></article>';
 }
 function botsView(){return pageHead("Meus bots","Controle a execução, os horários e os comandos do seu bot Discord.",'<button class="btn" id="addBot">＋ Criar projeto</button>')+'<div class="card"><div class="section-head"><h3>Seus bots</h3><button class="btn secondary" id="refreshBots">↻ Atualizar</button></div><div class="list">'+(state.bots.length?state.bots.map(botCard).join(""):'<div class="empty"><b>Nenhum bot cadastrado</b>Crie seu bot, proteja o token e conecte a hospedagem para iniciar.</div>')+'</div></div>'}
@@ -785,14 +804,27 @@ function integrationsView(){
 }
 
 function filesView(){
- const bots=state.bots||[];const bot=bots.find(b=>b.id===state.activeBot)||bots.find(b=>b.hostingDeploymentId)||bots[0];
- if(!bot)return pageHead("Arquivos do bot","Crie um projeto para enviar e organizar seus arquivos.")+'<div class="dashboard-empty"><b>Nenhum bot cadastrado</b><br>Crie um bot para começar.</div><button class="btn" data-action="create-bot">＋ Criar bot</button>';
+ const bots=state.bots||[];
+ const bot=bots.find(b=>b.id===state.activeBot)||bots.find(b=>b.hostingDeploymentId)||bots[0];
+ if(!bot)return pageHead("Arquivos do bot","Crie um projeto para importar o código do seu bot.")+'<div class="dashboard-empty"><b>Nenhum bot cadastrado</b><br>Crie um projeto antes de enviar seu pacote.</div><button class="btn" data-action="create-bot">＋ Criar bot</button>';
  const choices=bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("");
- if(!bot.hostingDeploymentId)return pageHead("Arquivos do bot","Envie ZIPs, navegue pelo projeto e edite arquivos da hospedagem.")+'<section class="dashboard-panel"><div class="project-note"><strong>Este projeto ainda não tem uma implantação.</strong><br>Conecte o Bot-Hosting e clique em Iniciar uma vez para preparar a hospedagem. Depois você poderá enviar ZIPs e gerenciar arquivos.</div><button class="btn" data-openbot="'+escapeHtml(bot.id)+'">Abrir configuração e iniciar ↗</button></section>';
- return pageHead("Arquivos do bot","Envie arquivos, extraia ZIPs e edite arquivos de texto diretamente no servidor.")+
- '<section class="dashboard-panel file-manager"><div class="file-toolbar"><div class="field"><label>PROJETO</label><select id="filesBotSelect">'+choices+'</select></div><div class="file-toolbar-actions"><button class="btn secondary" id="fileRefresh">↻ Atualizar</button><button class="btn secondary" id="fileExportZip">▣ Exportar ZIP</button><button class="btn" id="fileUploadButton">⇧ Enviar arquivo / ZIP</button><input id="fileUploadInput" type="file" hidden accept=".zip,.py,.txt,.json,.js,.mjs,.cjs,.yaml,.yml,.toml,.md,.html,.css,.sql,.sh"></div></div>'+
- '<div class="file-path-row"><span>CAMINHO</span><input id="filePath" value="/" spellcheck="false"><button class="btn secondary" id="fileGo">Abrir</button><button class="btn ghost" id="fileUp">↑ Subir pasta</button></div><div id="fileStatus" class="project-note">Preparando o gerenciador de arquivos…</div><div class="file-entry-list" id="fileEntries"><div class="dashboard-empty">Carregando arquivos…</div></div>'+
- '<section class="file-editor hidden" id="fileEditor"><div class="file-editor-head"><div><small>EDITOR DE TEXTO</small><b id="fileEditorName">Arquivo</b></div><div><button class="btn secondary" id="fileCloseEditor">Fechar</button><button class="btn" id="fileSaveEditor">Salvar arquivo</button></div></div><textarea id="fileEditorText" spellcheck="false" rows="18"></textarea></section></section>';
+ const statusText=bot.hostingDeploymentId
+  ? "Hospedagem preparada. Você pode enviar uma versão nova do projeto ou abrir os arquivos abaixo."
+  : "A hospedagem será preparada automaticamente no primeiro envio. Não precisa iniciar o bot antes de importar.";
+ return pageHead("Arquivos do bot","Importe o pacote completo, incluindo código, pastas, imagens e arquivos de dependências.")+
+ '<section class="dashboard-panel file-manager file-import-panel">'+
+  '<div class="file-toolbar"><div class="field"><label>PROJETO</label><select id="filesBotSelect">'+choices+'</select></div>'+
+  '<div class="field file-package-name"><label>NOME DO PACOTE</label><input id="fileBundleName" value="'+escapeHtml(bot.name||"meu-bot")+'" maxlength="64" placeholder="meu-bot"></div>'+
+  '<div class="file-toolbar-actions"><button class="btn secondary" id="fileRefresh">↻ Atualizar arquivos</button><button class="btn secondary" id="fileExportZip" '+(!bot.hostingDeploymentId?"disabled":"")+'>▣ Exportar ZIP</button></div></div>'+
+  '<div class="file-import-actions"><button class="btn" id="fileUploadButton">⇧ Escolher arquivo ZIP</button><button class="btn secondary" id="fileFolderButton">▣ Escolher pasta completa</button>'+
+  '<input id="fileUploadInput" type="file" hidden accept=".zip,application/zip,application/x-zip-compressed">'+
+  '<input id="fileFolderInput" type="file" hidden webkitdirectory directory multiple>'+
+  '<span class="file-import-hint">ZIP ou pasta do projeto. Imagens, subpastas e arquivos de configuração serão preservados.</span></div>'+
+  '<div id="fileStatus" class="project-note file-import-status">'+escapeHtml(statusText)+'</div>'+
+  '<div class="file-path-row"><span>CAMINHO</span><input id="filePath" value="/" spellcheck="false"><button class="btn secondary" id="fileGo" '+(!bot.hostingDeploymentId?"disabled":"")+'>Abrir</button><button class="btn ghost" id="fileUp" '+(!bot.hostingDeploymentId?"disabled":"")+'>↑ Subir pasta</button></div>'+
+  '<div class="file-entry-list" id="fileEntries"><div class="dashboard-empty">'+(bot.hostingDeploymentId?"Carregando arquivos do servidor…":"Envie um ZIP ou selecione uma pasta para preparar o servidor.")+'</div></div>'+
+  '<section class="file-editor hidden" id="fileEditor"><div class="file-editor-head"><div><small>EDITOR DE TEXTO</small><b id="fileEditorName">Arquivo</b></div><div><button class="btn secondary" id="fileCloseEditor">Fechar</button><button class="btn" id="fileSaveEditor">Salvar arquivo</button></div></div><textarea id="fileEditorText" spellcheck="false" rows="18"></textarea></section>'+
+ '</section>';
 }function schedulesView(){
  return pageHead("Agendamentos","Defina a janela diária em que cada bot deve ficar conectado ao Discord.")+
  '<div class="card"><div class="section-head"><h3>Rotinas dos seus bots</h3></div>'+
@@ -991,10 +1023,13 @@ function bindView(){
  const fileGo=$("#fileGo");if(fileGo)fileGo.onclick=()=>loadFiles(undefined,$("#filePath").value);
  const pathInput=$("#filePath");if(pathInput)pathInput.onkeydown=e=>{if(e.key==="Enter")loadFiles(undefined,pathInput.value)};
  const fileUp=$("#fileUp");if(fileUp)fileUp.onclick=()=>{const parts=($("#filePath").value||"/").split("/").filter(Boolean);parts.pop();loadFiles(undefined,"/"+parts.join("/"))};
- const filesBot=$("#filesBotSelect");if(filesBot)filesBot.onchange=()=>loadFiles(filesBot.value,"/");
+ const filesBot=$("#filesBotSelect");if(filesBot)filesBot.onchange=()=>{state.activeBot=filesBot.value;render()};
+ document.querySelectorAll("[data-delete-bot]").forEach(button=>button.onclick=()=>deleteBotProject(button.dataset.deleteBot,button));
  const fileUploadButton=$("#fileUploadButton");if(fileUploadButton)fileUploadButton.onclick=()=>$("#fileUploadInput").click();
+ const fileFolderButton=$("#fileFolderButton");if(fileFolderButton)fileFolderButton.onclick=()=>$("#fileFolderInput").click();
  const fileExport=$("#fileExportZip");if(fileExport)fileExport.onclick=exportSelectedFiles;
  const fileUploadInput=$("#fileUploadInput");if(fileUploadInput)fileUploadInput.onchange=uploadBotFile;
+ const fileFolderInput=$("#fileFolderInput");if(fileFolderInput)fileFolderInput.onchange=uploadBotFolder;
  const fileSave=$("#fileSaveEditor");if(fileSave)fileSave.onclick=saveBotFile;
  const fileClose=$("#fileCloseEditor");if(fileClose)fileClose.onclick=()=>$("#fileEditor").classList.add("hidden");
  if(state.view==="files")loadFiles();
@@ -1425,10 +1460,24 @@ async function loadDashboardPanels(){
  if(clock)clock.textContent=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Bahia",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(new Date());
  if(date)date.textContent=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Bahia",day:"2-digit",month:"long",year:"numeric"}).format(new Date());
  if(servicesArea){
-  let health=null;
-  try{const response=await fetch("/api/health",{credentials:"same-origin"});if(response.ok)health=await response.json()}catch{}
-  const services=[["API do painel",!!health?.ok],["Banco de dados",!!health?.databaseQuery],["Hospedagem autorizada",!!state.hosting],["Bot implantado",!!bot?.hostingDeploymentId]];
-  servicesArea.innerHTML=services.map(([label,ok])=>'<div class="service-line"><span class="service-dot '+(ok?"online":"pending")+'"></span><span>'+label+'</span><b class="'+(ok?"good":"muted")+'">'+(ok?"Operacional":(label==="Bot implantado"?"Aguardando":"Pendente"))+'</b></div>').join("");
+  let health=null,hosting=null;
+  try{
+   const [healthResponse,hostingResult]=await Promise.all([
+    fetch("/api/health",{credentials:"same-origin",cache:"no-store"}),
+    api("/hosting/status")
+   ]);
+   if(healthResponse.ok)health=await healthResponse.json();
+   hosting=hostingResult;
+   state.hosting=!!hosting.connected;
+   state.hostingCanCreate=!!hosting.canCreateDeployments;
+  }catch{}
+  const services=[
+   ["API do painel",!!health?.checks?.api],
+   ["Banco de dados",!!health?.databaseQuery],
+   ["Hospedagem autorizada",!!hosting?.connected],
+   ["Bot implantado",!!bot?.hostingDeploymentId]
+  ];
+  servicesArea.innerHTML=services.map(([label,ok])=>'<div class="service-line"><span class="service-dot '+(ok?"online":"pending")+'"></span><span>'+label+'</span><b class="'+(ok?"good":"muted")+'">'+(ok?"Operacional":(label==="Bot implantado"?"Aguardando":label==="Hospedagem autorizada"?"Não conectada":"Pendente"))+'</b></div>').join("");
   const db=$("#summaryDbStatus");if(db){db.textContent=health?.databaseQuery?"Online":"Pendente";db.className=health?.databaseQuery?"good":"muted"}
  }
  if(!bot||!bot.hostingDeploymentId){
@@ -1467,6 +1516,12 @@ async function loadFiles(botId,path){
  if(!id)return;
  const current=path===undefined?($("#filePath")?.value||"/"):(path||"/");
  const status=$("#fileStatus"),list=$("#fileEntries");
+ const selectedBot=state.bots.find(bot=>bot.id===id);
+ if(!selectedBot?.hostingDeploymentId){
+  if(status)status.textContent="O servidor ainda não foi criado. Escolha um ZIP ou envie uma pasta completa para preparar a hospedagem automaticamente.";
+  if(list)list.innerHTML='<div class="dashboard-empty">Os arquivos do projeto aparecerão aqui depois da importação.</div>';
+  return;
+ }
  if(status)status.textContent="Consultando arquivos…";
  if(list)list.innerHTML='<div class="dashboard-empty">Carregando…</div>';
  try{
@@ -1489,27 +1544,118 @@ async function loadFiles(botId,path){
   document.querySelectorAll("[data-file-download]").forEach(b=>b.onclick=()=>downloadBotFile(id,b.dataset.fileDownload));
  }catch(e){if(status)status.textContent=e.message;if(list)list.innerHTML='<div class="dashboard-empty">'+escapeHtml(e.message)+'</div>'}
 }
+function safePackageName(value){
+ return String(value||"meu-bot").trim().toLowerCase()
+  .normalize("NFD").replace(/[\\u0300-\\u036f]/g,"")
+  .replace(/[^a-z0-9._-]+/g,"-").replace(/^-+|-+$/g,"").slice(0,64)||"meu-bot";
+}
+function uploadSignedFiles(url,field,files,onProgress){
+ return new Promise((resolve,reject)=>{
+  const form=new FormData();
+  files.forEach(item=>form.append(field||"files",item.file,item.name));
+  const xhr=new XMLHttpRequest();
+  xhr.open("POST",url,true);
+  xhr.upload.onprogress=event=>{if(event.lengthComputable&&onProgress)onProgress(event.loaded,event.total)};
+  xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolve(xhr.responseText):reject(new Error("A hospedagem recusou o envio (HTTP "+xhr.status+")."));
+  xhr.onerror=()=>reject(new Error("A conexão caiu durante o envio. Confira sua internet e tente novamente."));
+  xhr.onabort=()=>reject(new Error("O envio foi cancelado."));
+  xhr.send(form);
+ });
+}
+async function analyzeImportedBot(id,packageName,status){
+ if(status)status.textContent="Arquivos enviados. Agora estou lendo a estrutura, procurando o arquivo principal, dependências e imagens…";
+ const result=await api("/bots/"+encodeURIComponent(id)+"/import",{method:"POST",body:JSON.stringify({packageName})});
+ const meta=result.customProject||{};
+ const summary=[
+  "Pacote "+packageName+" importado e salvo.",
+  "Arquivo principal: "+(meta.entryFile||"não identificado"),
+  "Ambiente: "+(meta.runtime==="nodejs"?"Node.js":"Python"),
+  Number(meta.fileCount||0)+" arquivos",
+  Number(meta.imageCount||0)+" imagens"
+ ];
+ if(meta.dependencyFile)summary.push("Dependências: "+meta.dependencyFile);
+ if(status)status.textContent=summary.join(" · ")+". As dependências serão instaladas na primeira inicialização.";
+ await loadBots();
+ state.activeBot=id;
+ if(state.view==="files")render();
+ toast("Pacote analisado e salvo. Revise o token e depois inicie o bot.");
+}
 async function uploadBotFile(){
  const input=$("#fileUploadInput"),file=input?.files?.[0];
  if(!file)return;
- const id=$("#filesBotSelect")?.value,path=$("#filePath")?.value||"/";
+ const id=$("#filesBotSelect")?.value||state.activeBot;
+ const packageName=safePackageName($("#fileBundleName")?.value||file.name.replace(/\\.zip$/i,""));
  const button=$("#fileUploadButton"),status=$("#fileStatus");
- if(!id)return toast("Selecione um bot com hospedagem preparada.");
- if(button){button.disabled=true;button.textContent="Enviando…"}
+ if(!id)return toast("Selecione um bot antes de enviar o pacote.");
+ if(!/\\.zip$/i.test(file.name))return toast("Escolha um arquivo .ZIP para importar o projeto completo.");
+ if(button){button.disabled=true;button.textContent="Enviando pacote…"}
  try{
-  if(status)status.textContent="Preparando envio de "+file.name+"…";
-  const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path})});
-  if(!signed.url)throw new Error("O provedor não retornou um endereço de upload.");
-  const data=new FormData();data.append(signed.field||"files",file,file.name);
-  const upload=await fetch(signed.url,{method:"POST",body:data});
-  if(!upload.ok)throw new Error("Falha no upload (HTTP "+upload.status+").");
-  if(/\.zip$/i.test(file.name)){
-   await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({path,file:file.name})});
-   toast("ZIP enviado e extraído.");
-  }else toast("Arquivo enviado.");
-  await loadFiles(id,path);
- }catch(e){toast(e.message);if(status)status.textContent=e.message}
- finally{if(button){button.disabled=false;button.textContent="⇧ Enviar arquivo / ZIP"}input.value=""}
+  if(status)status.textContent="Preparando espaço e enviando "+file.name+"…";
+  const archiveName=packageName+".zip";
+  const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path:"/"})});
+  if(!signed.url)throw new Error("A hospedagem não retornou um endereço de envio.");
+  await uploadSignedFiles(signed.url,signed.field||"files",[{file,name:archiveName}],(loaded,total)=>{
+   if(status)status.textContent="Enviando ZIP: "+Math.round(loaded/total*100)+"%";
+  });
+  if(status)status.textContent="Upload concluído. Extraindo arquivos e preservando as pastas…";
+  await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({path:"/",file:archiveName})});
+  await analyzeImportedBot(id,packageName,status);
+ }catch(error){
+  toast(error.message||"Não consegui importar este ZIP.");
+  if(status)status.textContent=error.message||"Falha ao importar o pacote.";
+ }finally{
+  if(button){button.disabled=false;button.textContent="⇧ Escolher arquivo ZIP"}
+  input.value="";
+ }
+}
+async function uploadBotFolder(){
+ const input=$("#fileFolderInput"),selected=Array.from(input?.files||[]);
+ if(!selected.length)return;
+ const id=$("#filesBotSelect")?.value||state.activeBot;
+ const packageName=safePackageName($("#fileBundleName")?.value||"meu-bot");
+ const button=$("#fileFolderButton"),status=$("#fileStatus");
+ if(!id)return toast("Selecione um bot antes de enviar a pasta.");
+ const ignored=new Set([".git","node_modules",".venv","venv","__pycache__",".next","vendor"]);
+ const grouped=new Map();
+ let skipped=0;
+ for(const file of selected){
+  const rel=String(file.webkitRelativePath||file.name).replace(/\\\\/g,"/");
+  const parts=rel.split("/").filter(Boolean);
+  if(parts.length>1)parts.shift();
+  if(!parts.length||parts.some(part=>part===".."||part===".")){skipped++;continue}
+  if(parts.some(part=>ignored.has(part))||parts[parts.length-1]===".DS_Store"){skipped++;continue}
+  const name=parts[parts.length-1],dir="/"+parts.slice(0,-1).join("/");
+  if(!grouped.has(dir))grouped.set(dir,[]);
+  grouped.get(dir).push({file,name});
+ }
+ const groups=Array.from(grouped.entries());
+ if(!groups.length)return toast("Não encontrei arquivos válidos na pasta selecionada.");
+ if(button){button.disabled=true;button.textContent="Enviando pasta…"}
+ try{
+  const allBytes=groups.reduce((sum,group)=>sum+group[1].reduce((n,item)=>n+item.file.size,0),0)||1;
+  let uploaded=0;
+  let deploymentReady=false;
+  for(let i=0;i<groups.length;i++){
+   const [path,items]=groups[i];
+   if(status)status.textContent="Preparando pasta "+(i+1)+"/"+groups.length+": "+(path||"/");
+   const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path:path||"/"})});
+   if(!signed.url)throw new Error("A hospedagem não retornou o endereço para a pasta "+path+".");
+   deploymentReady=true;
+   await uploadSignedFiles(signed.url,signed.field||"files",items,(loaded)=>{
+    if(status)status.textContent="Enviando arquivos: "+Math.min(100,Math.round((uploaded+loaded)/allBytes*100))+"% · pasta "+(i+1)+"/"+groups.length;
+   });
+   uploaded+=items.reduce((n,item)=>n+item.file.size,0);
+  }
+  if(!deploymentReady)throw new Error("Nenhum arquivo foi enviado.");
+  await analyzeImportedBot(id,packageName,status);
+  if(skipped&&status)status.textContent+=" "+skipped+" arquivos/pastas de dependências ou cache foram ignorados para evitar um upload desnecessário.";
+ }catch(error){
+  toast(error.message||"Não consegui importar esta pasta.");
+  if(status)status.textContent=error.message||"Falha ao importar a pasta.";
+ }finally{
+  if(button){button.disabled=false;button.textContent="▣ Escolher pasta completa"}
+  input.value="";
+ }
 }
 async function openTextFile(id,path){
  try{
@@ -1615,22 +1761,33 @@ async function loadFileList(){const id=$("#fileBot")?.value,area=$("#fileList");
 async function uploadZip(){const file=$("#zipFile")?.files?.[0],id=$("#fileBot")?.value;if(!file||!id)return toast("Escolha o bot e um arquivo ZIP.");if(file.size>25*1024*1024)return toast("O arquivo excede o limite inicial de 25 MB.");try{const r=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({filename:file.name})});const form=new FormData();form.append(r.field||"files",file,file.name);const sent=await fetch(r.url,{method:"POST",body:form});if(!sent.ok)throw new Error("Falha ao enviar o arquivo para a hospedagem.");await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({filename:file.name})});toast("Pacote enviado. Confira os logs antes de iniciar.");}catch(e){toast(e.message)}}
 async function healthCheck(){
  const area=$("#healthResult");
- if(area)area.innerHTML='<div class="log-line">Verificando…</div>';
+ const button=$("#healthCheck");
+ if(button){button.disabled=true;button.textContent="Verificando…"}
+ if(area)area.innerHTML='<div class="log-line">Consultando API, banco de dados, criptografia e hospedagem…</div>';
  try{
-  const response=await fetch("/api/health",{credentials:"same-origin",cache:"no-store"});
-  const data=await response.json();
-  if(!response.ok)throw new Error(data.error||"Falha no diagnóstico.");
+  const [healthResponse,hostingResult]=await Promise.all([
+   fetch("/api/health",{credentials:"same-origin",cache:"no-store"}),
+   api("/hosting/status")
+  ]);
+  const health=await healthResponse.json();
+  if(!healthResponse.ok)throw new Error(health.error||"Falha no diagnóstico da API.");
+  state.hosting=!!hostingResult.connected;
+  state.hostingCanCreate=!!hostingResult.canCreateDeployments;
   const rows=[
-   ["API do painel",data.ok],
-   ["PostgreSQL conectado",data.databaseConfigured],
-   ["Consulta real ao banco",data.databaseQuery],
-   ["Segredo de sessão",data.secretsConfigured?.session],
-   ["Criptografia de credenciais",data.secretsConfigured?.encryption],
-   ["OAuth de conta Discord",data.secretsConfigured?.discordOAuth]
+   ["API do painel",!!health.checks?.api,"Essencial"],
+   ["Banco de dados",!!health.databaseQuery,health.databaseError||"Essencial"],
+   ["Segredo de sessão",!!health.secretsConfigured?.session,"Essencial"],
+   ["Criptografia",!!health.secretsConfigured?.encryption,"Essencial"],
+   ["Bot-Hosting",!!hostingResult.connected,hostingResult.connected?(hostingResult.canCreateDeployments?"Permissão para criar hospedagens":"Reconectar e liberar permissões"): "Conectar em Integrações"],
+   ["OAuth de conta Discord",!!health.secretsConfigured?.discordOAuth,"Opcional para o funcionamento básico do site"]
   ];
-  if(area)area.innerHTML=rows.map(([name,ok])=>'<div class="log-line">'+escapeHtml(name)+': <strong style="color:'+(ok?'#8aefc5':'#ffb2c0')+'">'+(ok?'Configurado':'Pendente')+'</strong></div>').join("");
+  const operational=health.operational===true;
+  if(area)area.innerHTML='<div class="project-note '+(operational?"":"changes-pending")+'"><strong>'+ (operational?"Serviços essenciais operacionais":"O site está parcialmente operacional")+'</strong><br>'+ (operational?"API, banco, sessão e criptografia passaram nos testes.":"Confira os itens pendentes abaixo.")+'</div>'+
+   rows.map(([name,ok,note])=>'<div class="log-line">'+escapeHtml(name)+': <strong style="color:'+(ok?'#8aefc5':'#ffb2c0')+'">'+(ok?'Operacional':(note==="Opcional para o funcionamento básico do site"?"Não configurado":"Pendente"))+'</strong><small style="display:block;color:#a9a0b7">'+escapeHtml(note)+'</small></div>').join("");
  }catch(error){
   if(area)area.innerHTML='<div class="log-line">'+escapeHtml(error.message)+'</div>';
+ }finally{
+  if(button){button.disabled=false;button.textContent="Testar sistema"}
  }
 }
 function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
