@@ -433,7 +433,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 </style>
 <link rel="stylesheet" href="/studio-ui.css?v=1">
 <link rel="stylesheet" href="/studio-dashboard.css?v=4">
-<link rel="stylesheet" href="/studio-extra.css?v=1">
+<link rel="stylesheet" href="/studio-extra.css?v=2">
 </head>
 <body>
 
@@ -574,6 +574,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
    <button class="nav-btn" data-view="logs"><span>≋</span> Logs</button>
    <button class="nav-btn" disabled><span>♧</span> Alertas <span class="nav-soon">EM BREVE</span></button>
    <button class="nav-btn" data-view="settings"><span>⚙</span> Configurações</button>
+   <button class="nav-btn" data-view="decoration"><span>✧</span> Decoração</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Ajuda e conta</div>
    <button class="nav-btn" data-view="docs"><span>▤</span> Documentação</button>
@@ -633,7 +634,7 @@ function hidePublicScreens(){ $("#landingScreen").classList.add("hidden");$("#ga
 function showLanding(){hidePublicScreens();$("#landingScreen").classList.remove("hidden");window.scrollTo({top:0,behavior:"smooth"})}
 function showGate(){hidePublicScreens();$("#gateScreen").classList.remove("hidden")}
 function showAuth(){hidePublicScreens();$("#authScreen").classList.remove("hidden")}
-function showApp(){hidePublicScreens();$("#app").classList.remove("hidden");const route=window.location.pathname.replace(/\/+$/,"")||"/";state.adminPortal=route==="/admin"&&state.user?.role==="owner";if(route==="/admin"&&!state.adminPortal){window.history.replaceState({},document.title,"/app");toast("Esta área é exclusiva da conta administradora.");}else if(route!=="/admin"&&route!=="/app"&&route!=="/"){window.history.replaceState({},document.title,"/app");}$("#app").classList.toggle("admin-portal",state.adminPortal);document.querySelectorAll(".owner-only").forEach(el=>el.classList.toggle("hidden",!state.adminPortal));$("#adminBackToApp").classList.toggle("hidden",!state.adminPortal);$("#userLabel").textContent=state.user?.username||state.user?.email||"Conta";$("#avatar").textContent=(state.user?.name||"B").slice(0,1).toUpperCase();navigate(state.adminPortal?"verificationAdmin":"overview");if(!state.adminPortal){loadSettings();loadBots();}}
+function showApp(){hidePublicScreens();$("#app").classList.remove("hidden");loadSavedDecoration();const route=window.location.pathname.replace(/\/+$/,"")||"/";state.adminPortal=route==="/admin"&&state.user?.role==="owner";if(route==="/admin"&&!state.adminPortal){window.history.replaceState({},document.title,"/app");toast("Esta área é exclusiva da conta administradora.");}else if(route!=="/admin"&&route!=="/app"&&route!=="/"){window.history.replaceState({},document.title,"/app");}$("#app").classList.toggle("admin-portal",state.adminPortal);document.querySelectorAll(".owner-only").forEach(el=>el.classList.toggle("hidden",!state.adminPortal));$("#adminBackToApp").classList.toggle("hidden",!state.adminPortal);$("#userLabel").textContent=state.user?.username||state.user?.email||"Conta";$("#avatar").textContent=(state.user?.name||"B").slice(0,1).toUpperCase();navigate(state.adminPortal?"verificationAdmin":"overview");if(!state.adminPortal){loadSettings();loadBots();}}
 async function enterStudio(){try{const me=await api("/me");if(!me.gate){showGate();return}if(me.user){state.user=me.user;showApp()}else showAuth()}catch{showGate()}}
 document.querySelectorAll("[data-enter-studio]").forEach(b=>b.addEventListener("click",enterStudio));
 const siteMenu=$("#siteMenuBtn");if(siteMenu)siteMenu.onclick=()=>$(".site-nav").classList.toggle("open");const closeSide=$("#closeSidebar");if(closeSide)closeSide.onclick=()=>$("#sidebar").classList.remove("open");
@@ -647,9 +648,53 @@ $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#regi
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){if(state.adminPortal&&view!=="verificationAdmin")return;if(!state.adminPortal&&view==="verificationAdmin")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações",verificationAdmin:"Administração · Verificação"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){if(state.adminPortal&&view!=="verificationAdmin")return;if(!state.adminPortal&&view==="verificationAdmin")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"Administração · Verificação"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
-function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
+function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
+
+const DECORATION_OPTIONS=[
+ {id:"sakura",name:"Sakura Neon",tag:"ROXO · SAKURA",description:"Lua violeta, pétalas e brilho anime.",symbol:"🌸",scene:"decor-scene-sakura"},
+ {id:"samurai",name:"Samurai Rubro",tag:"VERMELHO · SAMURAI",description:"Visual vermelho, escuro e marcante.",symbol:"⚔️",scene:"decor-scene-samurai"},
+ {id:"neon",name:"Tokyo Neon",tag:"ROSA · TOKYO",description:"Cidade neon, rosa e roxo vibrante.",symbol:"🎧",scene:"decor-scene-neon"},
+ {id:"mono",name:"Monocromático",tag:"PRATA · SOMBRA",description:"Preto, branco e prata com contraste.",symbol:"☯",scene:"decor-scene-mono"}
+];
+function decorationStorageKey(){
+ const user=state.user||{};
+ const identity=String(user.id||user.username||user.email||"conta").toLowerCase();
+ return "bz-decoration:"+identity;
+}
+function applyDecoration(id,save=true){
+ const valid=DECORATION_OPTIONS.some(item=>item.id===id)?id:"sakura";
+ state.decoration=valid;
+ const app=$("#app");
+ if(app)app.dataset.decoration=valid;
+ if(save){
+  try{localStorage.setItem(decorationStorageKey(),valid)}catch{}
+ }
+ document.querySelectorAll("[data-decoration-choice]").forEach(button=>{
+  const selected=button.dataset.decorationChoice===valid;
+  button.classList.toggle("is-selected",selected);
+  button.setAttribute("aria-pressed",selected?"true":"false");
+ });
+}
+function loadSavedDecoration(){
+ let stored="sakura";
+ try{stored=localStorage.getItem(decorationStorageKey())||"sakura"}catch{}
+ applyDecoration(stored,false);
+}
+function decorationView(){
+ const current=state.decoration||"sakura";
+ const cards=DECORATION_OPTIONS.map(item=>
+  '<button type="button" class="decoration-card '+(current===item.id?"is-selected":"")+'" data-decoration-choice="'+item.id+'" aria-pressed="'+(current===item.id?"true":"false")+'">'+
+   '<span class="decor-scene '+item.scene+'"><span class="decor-moon"></span><span class="decor-landscape"></span><span class="decor-symbol">'+item.symbol+'</span><span class="decor-tag">'+item.tag+'</span></span>'+
+   '<span class="decor-card-copy"><span><b>'+item.name+'</b><small>'+item.description+'</small></span><span class="decor-check">✓</span></span>'+
+  '</button>'
+ ).join("");
+ return pageHead("Decoração","Escolha um visual para personalizar as cores e o clima do seu painel.",'<button class="btn secondary" id="resetDecoration">Restaurar visual padrão</button>')+
+  '<section class="decoration-intro dashboard-panel"><div class="decoration-intro-mark">✧</div><div><b>Seu painel, do seu jeito</b><p>Selecione uma das quatro inspirações. A mudança é aplicada na hora e fica salva para sua conta neste navegador.</p></div></section>'+
+  '<div class="decoration-grid">'+cards+'</div>'+
+  '<div class="decoration-footnote">A decoração altera somente a aparência do Estúdio. Seus bots, arquivos, tokens e configurações de hospedagem não são modificados.</div>';
+}
 function overviewView(){
  const bots=state.bots||[];
  const online=bots.filter(b=>b.discordOnline===true).length;
@@ -1250,6 +1295,22 @@ function bindView(){
  document.querySelectorAll("[data-setup-module]").forEach(b=>b.onclick=()=>{if(!state.bots.length){toast("Crie um projeto primeiro.");navigate("bots");return}caosModal(activeBotForResources()?.id)});
  document.querySelectorAll("[data-action='create-bot']").forEach(b=>b.onclick=add);
  document.querySelectorAll("[data-view]").forEach(b=>{if(!b.dataset.bound){b.dataset.bound="1";b.addEventListener("click",()=>navigate(b.dataset.view))}});
+
+ document.querySelectorAll("[data-decoration-choice]").forEach(button=>{
+  button.onclick=()=>{
+   applyDecoration(button.dataset.decorationChoice,true);
+   render();
+   const chosen=DECORATION_OPTIONS.find(item=>item.id===button.dataset.decorationChoice);
+   toast("Visual "+(chosen?.name||"atualizado")+" aplicado.");
+  };
+ });
+ const resetDecoration=$("#resetDecoration");
+ if(resetDecoration)resetDecoration.onclick=()=>{
+  applyDecoration("sakura",true);
+  render();
+  toast("Visual padrão restaurado.");
+ };
+
  const fleetSelectAll=$("#fleetSelectAll");
  if(fleetSelectAll)fleetSelectAll.onchange=()=>{
   state.bulkSelected=fleetSelectAll.checked?state.bots.map(bot=>bot.id):[];
