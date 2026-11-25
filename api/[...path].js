@@ -440,8 +440,8 @@ export async function onRequest(context) {
         }
         const encryptedToken = await encryptSecret(discordToken, env);
         await env.DB.prepare(
-          "UPDATE bots SET discord_token_enc=?, updated_at=? WHERE id=? AND user_id=?"
-        ).bind(encryptedToken, Date.now(), id, user.id).run();
+          "UPDATE bots SET discord_token_enc=?,discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?"
+        ).bind(encryptedToken, verifiedToken.botId, verifiedToken.botName || null, Date.now(), id, user.id).run();
       } else if (!ownedBot.discord_token_enc) {
         return reply({ error: "Informe o Bot Token do Discord para este projeto." }, 400);
       }
@@ -465,13 +465,21 @@ export async function onRequest(context) {
     }
     if (path === "/bots" && request.method === "GET") {
       const rows = await env.DB.prepare(
-        "SELECT id,name,runtime,state,modules,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token FROM bots WHERE user_id=? ORDER BY created_at DESC"
+        "SELECT id,name,runtime,state,modules,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE user_id=? ORDER BY created_at DESC"
       ).bind(user.id).all();
       return reply({ deployments: rows.map(row => ({
         ...row,
         modules: typeof row.modules === "string" ? JSON.parse(row.modules) : row.modules,
         hasDiscordToken: !!row.has_discord_token,
-        executionAvailable: false
+        discordBotId: row.discord_bot_id || null,
+        discordBotName: row.discord_bot_name || null,
+        hostingDeploymentId: row.hosting_deployment_id || null,
+        scheduleEnabled: !!row.schedule_enabled,
+        scheduleStart: row.schedule_start || "00:00",
+        scheduleEnd: row.schedule_end || "23:59",
+        scheduleTimezone: row.schedule_timezone || "America/Bahia",
+        guildId: row.guild_id || "",
+        executionAvailable: !!row.hosting_deployment_id
       })) });
     }
     if (path === "/bots" && request.method === "POST") {
@@ -500,8 +508,8 @@ export async function onRequest(context) {
       const id = randomToken(12);
       const now = Date.now();
       await env.DB.prepare(
-        "INSERT INTO bots (id,user_id,name,runtime,state,modules,discord_token_enc,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)"
-      ).bind(id, user.id, name, runtime, "draft", JSON.stringify({}), encryptedToken, now, now).run();
+        "INSERT INTO bots (id,user_id,name,runtime,state,modules,discord_token_enc,discord_bot_id,discord_bot_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+      ).bind(id, user.id, name, runtime, "draft", JSON.stringify({}), encryptedToken, verifiedToken.botId, verifiedToken.botName || null, now, now).run();
       return reply({
         id, name, runtime, state: "draft", modules: {},
         hasDiscordToken: true,
@@ -520,12 +528,24 @@ export async function onRequest(context) {
 
       if (!action && request.method === "GET") {
         const bot = await env.DB.prepare(
-          "SELECT id,name,runtime,state,modules,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token FROM bots WHERE id=? AND user_id=?"
+          "SELECT id,name,runtime,state,modules,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE id=? AND user_id=?"
         ).bind(id, user.id).first();
         if (bot && typeof bot.modules === "string") bot.modules = JSON.parse(bot.modules);
-        if (bot) bot.hasDiscordToken = !!bot.has_discord_token;
-        if (bot) delete bot.has_discord_token;
-        return reply({ ...bot, executionAvailable: false });
+        if (bot) {
+          bot.hasDiscordToken = !!bot.has_discord_token;
+          bot.discordBotId = bot.discord_bot_id || null;
+          bot.discordBotName = bot.discord_bot_name || null;
+          bot.hostingDeploymentId = bot.hosting_deployment_id || null;
+          bot.scheduleEnabled = !!bot.schedule_enabled;
+          bot.scheduleStart = bot.schedule_start || "00:00";
+          bot.scheduleEnd = bot.schedule_end || "23:59";
+          bot.scheduleTimezone = bot.schedule_timezone || "America/Bahia";
+          bot.guildId = bot.guild_id || "";
+          delete bot.has_discord_token; delete bot.discord_bot_id; delete bot.discord_bot_name;
+          delete bot.hosting_deployment_id; delete bot.schedule_enabled; delete bot.schedule_start;
+          delete bot.schedule_end; delete bot.schedule_timezone; delete bot.guild_id;
+        }
+        return reply({ ...bot, executionAvailable: !!bot?.hostingDeploymentId });
       }
 
       if (action === "config" && request.method === "POST") {
@@ -550,8 +570,8 @@ export async function onRequest(context) {
           }
           const encryptedToken = await encryptSecret(discordToken, env);
           await env.DB.prepare(
-            "UPDATE bots SET discord_token_enc=?, updated_at=? WHERE id=? AND user_id=?"
-          ).bind(encryptedToken, Date.now(), id, user.id).run();
+            "UPDATE bots SET discord_token_enc=?,discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?"
+          ).bind(encryptedToken, verifiedToken.botId, verifiedToken.botName || null, Date.now(), id, user.id).run();
         } else {
           const saved = await env.DB.prepare(
             "SELECT discord_token_enc FROM bots WHERE id=? AND user_id=?"
