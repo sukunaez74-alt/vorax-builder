@@ -207,3 +207,14 @@
  .bot-action{font-size:6px}
  .quick-action-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+
+/* Explicit save/cancel and destructive actions for bot settings */
+.changes-state{margin:12px 0 10px;padding:10px 12px;border:1px solid #315c4b;border-radius:9px;background:#0c241d;color:#92e8c1;font-size:10px;line-height:1.6}
+.changes-state.changes-pending{border-color:#775129;background:#2a1e10;color:#ffd18a}
+.config-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:12px}
+.config-actions .btn{min-width:145px}
+.config-actions .btn:disabled{opacity:.4;filter:saturate(.5);cursor:not-allowed}
+#botDelete{background:linear-gradient(120deg,#8b2949,#53162f);border:1px solid #c34d72;color:#ffe9f0;box-shadow:0 6px 20px #a52c4d22}
+#botDelete:hover:not(:disabled){background:linear-gradient(120deg,#a83258,#651a3b);border-color:#e36b8e}
+@media(max-width:520px){.config-actions{display:grid;grid-template-columns:1fr}.config-actions .btn{width:100%}}
