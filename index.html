@@ -876,7 +876,7 @@ function verificationAdminView(){
  (r.hostingDiagnostic?'<br><b>Hospedagem:</b> '+escapeHtml(r.hostingDiagnostic.message||"Sem diagnóstico"):"")+
  (Array.isArray(runtime.logs)&&runtime.logs.length?'<pre class="terminal">'+runtime.logs.map(line=>escapeHtml(line)).join("\\n")+'</pre>':"")+
  '</div><div class="hero-actions" style="margin-top:14px">'+
- (!hostingReady?'<button class="btn" id="verificationConnectHosting">'+(r.hostingConnected?"Autorizar hospedagem ↗":"Conectar hospedagem ↗")+'</button>':"")+
+ ((!hostingReady||!hostingApiOk)?'<button class="btn" id="verificationConnectHosting">'+(r.hostingConnected?"Reconectar hospedagem ↗":"Conectar hospedagem ↗")+'</button>':"")+
  '<button class="btn" id="verificationStart" '+(!canStart?"disabled":"")+'>▶ Iniciar bot</button>'+
  '<button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"") +'>■ Parar bot</button>'+
  '<button class="btn secondary" id="verificationRefresh">↻ Atualizar</button></div>'+
