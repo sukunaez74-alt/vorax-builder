@@ -39,3 +39,15 @@ CREATE TABLE IF NOT EXISTS app_state (
 INSERT INTO app_state (id, owner_user_id)
 VALUES ('main', NULL)
 ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS bots (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  runtime TEXT NOT NULL CHECK (runtime IN ('python','nodejs')),
+  state TEXT NOT NULL DEFAULT 'draft',
+  modules JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bots_user_created ON bots(user_id, created_at DESC);
