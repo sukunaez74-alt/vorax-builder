@@ -2765,6 +2765,7 @@ export async function onRequest(context) {
           const b = await body(request);
           const items = Array.isArray(b.files) ? b.files : [];
           if (!items.length || items.length > 60) return reply({ error: "Selecione de 1 a 60 arquivos para exportar de uma vez." }, 400);
+          const root = safeVolumePath(b.root || "/");
           const token = await providerToken(user.id, "squarecloud", env);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Square Cloud nas Configurações." }, 409);
           const zip = new JSZip();
