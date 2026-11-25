@@ -633,7 +633,7 @@ async function openBot(id){
  const connected=!!state.hosting;
  const botId=b.discordBotId||null;
  const invite=botId?"https://discord.com/oauth2/authorize?client_id="+encodeURIComponent(botId)+"&permissions=288484432&scope=bot%20applications.commands":"";
- const isRunning=b.state==="running";
+ const serverRunning=b.state==="running";const isRunning=serverRunning && b.botOnlineNow!==false;
  const schedule=b.scheduleEnabled;
  const scheduleText=schedule?(b.scheduleStart+" até "+b.scheduleEnd+" • America/Bahia"):"Sem horário limitado (conforme a disponibilidade da hospedagem)";
  const connectPanel=connected
@@ -643,11 +643,11 @@ async function openBot(id){
  '<div class="modal-head"><h3>'+escapeHtml(b.name||"Projeto")+'</h3><button class="close" id="closeModal">×</button></div>'+
  '<p class="muted small">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token do Discord protegido":"Token do Discord pendente")+'</p>'+
  '<div class="grid stats" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:15px 0">'+
- '<div class="card"><div class="stat-label">STATUS DO SERVIDOR</div><div class="stat-value" style="font-size:17px">'+(isRunning?"Online":(b.hostingDeploymentId?"Parado":"Não iniciado"))+'</div></div>'+
+ '<div class="card"><div class="stat-label">STATUS DO SERVIDOR</div><div class="stat-value" style="font-size:17px">'+(isRunning?"Online":(serverRunning&&b.scheduleEnabled?"Fora do horário":(b.hostingDeploymentId?"Parado":"Não iniciado")))+'</div></div>'+
  '<div class="card"><div class="stat-label">MÓDULOS ATIVOS</div><div class="stat-value">'+enabled+'</div></div></div>'+
  connectPanel+
  '<div class="hero-actions" style="margin-top:14px;flex-wrap:wrap">'+
- (connected?'<button class="btn" id="botStart" '+(isRunning?"disabled":"")+'>▶ Iniciar</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!isRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar Bot-Hosting</button>')+
+ (connected?'<button class="btn" id="botStart" '+(serverRunning?"disabled":"")+'>▶ Iniciar</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!serverRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar Bot-Hosting</button>')+
  '<button class="btn secondary" id="botModules">Configurar token e módulos</button></div>'+
  '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Horário de funcionamento</h3><span class="status off">'+(schedule?"Agendado":"Sem agenda")+'</span></div>'+
  '<label class="module" style="display:flex;align-items:center;gap:12px"><input id="scheduleEnabled" type="checkbox" class="toggle" '+(schedule?"checked":"")+'><span><strong>Ativar horário diário</strong><small>O supervisor liga e desliga o processo do bot automaticamente</small></span></label>'+
