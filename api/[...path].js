@@ -2168,7 +2168,7 @@ export async function onRequest(context) {
         const encrypted = await encryptSecret(token, env);
         await env.DB.prepare(
           "INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,'cubecloud',?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at"
-        ).bind(user.id, String(usage.accountId || ""), String(usage.plan.name || ""), Date.now()).run();
+        ).bind(user.id, encrypted, String(usage.accountId || ""), String(usage.plan.name || ""), Date.now()).run();
         return reply({
           ok: true, connected: true, provider: "cubecloud",
           accountLabel: usage.accountId || null, plan: usage.plan.name || null,
@@ -3015,7 +3015,9 @@ export async function onRequest(context) {
           const token = await providerToken(user.id, "cubecloud", env);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
           const root = safeVolumePath(url.searchParams.get("path") || "/");
-          const data = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)) + "/files?path=" + encodeURIComponent(cubeRelativePath(root)));
+          const relativeRoot = cubeRelativePath(root);
+          const query = relativeRoot ? "?path=" + encodeURIComponent(relativeRoot) : "";
+          const data = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)) + "/files" + query);
           const entries = (Array.isArray(data.items) ? data.items : []).map(item => ({
             name: String(item.name || ""),
             type: String(item.type || "").toLowerCase() === "directory" ? "directory" : "file",
