@@ -816,7 +816,7 @@ function filesView(){
    '<section class="dashboard-panel"><div class="project-note"><strong>Projeto do bot padrão</strong><br>Os arquivos oficiais são administrados pelo Estúdio e não são substituídos por envios particulares. Para usar o código que você já tem, crie outro projeto e escolha <b>Meu próprio bot</b>.</div>'+
    '<div class="hero-actions"><button class="btn" id="fileOpenTokenConfig">Configurar token do Discord</button><button class="btn secondary" data-openbot="'+escapeHtml(bot.id)+'">Abrir projeto ↗</button></div></section>';
  }
- const selectedRuntime=bot.customProject?.runtime==="nodejs"?"nodejs":(bot.customProject?.runtime==="python"?"python":"auto");
+ const selectedRuntime="auto";
  const statusText=bot.hostingDeploymentId
   ? "Servidor preparado. Envie ou atualize o código deste projeto."
   : "O servidor será preparado automaticamente no primeiro envio.";
@@ -830,7 +830,7 @@ function filesView(){
   '<input id="fileUploadInput" type="file" hidden accept=".zip,application/zip,application/x-zip-compressed">'+
   '<input id="fileFolderInput" type="file" hidden webkitdirectory directory multiple>'+
   '<input id="fileMultipleInput" type="file" hidden multiple>'+
-  '<span class="file-import-hint">O Estúdio preserva subpastas, imagens e configurações. Depois identifica o arquivo inicial e as dependências.</span></div>'+
+  '<span class="file-import-hint">Pode enviar o ZIP ou a pasta já extraída. O Estúdio mantém comandos, subpastas, fotos, imagens, configurações e outros arquivos do projeto; a linguagem e o arquivo de início são detectados automaticamente.</span></div>'+
   '<div id="fileStatus" class="project-note file-import-status">'+escapeHtml(statusText)+'</div>'+
   '<div class="project-note"><strong>Token do Discord:</strong> você pode salvar no botão acima, de forma criptografada. Também pode usar o token que já estiver no seu próprio código; nesse caso, o campo do painel pode ficar vazio. Por segurança, recomendamos guardar o token no painel e usar a variável de ambiente <code>DISCORD_TOKEN</code>.</div>'+
   '<div class="file-path-row"><span>CAMINHO</span><input id="filePath" value="/" spellcheck="false"><button class="btn secondary" id="fileGo" '+(!bot.hostingDeploymentId?"disabled":"")+'>Abrir</button><button class="btn ghost" id="fileUp" '+(!bot.hostingDeploymentId?"disabled":"")+'>↑ Subir pasta</button></div>'+
@@ -1748,9 +1748,10 @@ async function uploadBotFile(){
  try{
   if(status)status.textContent="Lendo o índice do ZIP e procurando package.json, requirements.txt e o arquivo principal…";
   let detected="python";
+  let quickDetection=true;
   try{detected=await detectZipRuntime(file)}catch(error){
-   if(runtimeChoice==="auto")throw error;
-   detected=runtimeChoice;
+   quickDetection=false;
+   detected=currentBot?.runtime==="nodejs"?"nodejs":"python";
   }
   const runtime=runtimeChoice==="auto"?detected:runtimeChoice;
   if(currentBot?.hostingDeploymentId&&currentBot.runtime!==runtime&&
@@ -1758,7 +1759,7 @@ async function uploadBotFile(){
   if(currentBot?.customProject&&
     !window.confirm("Este projeto já tem um pacote importado. Os arquivos com o mesmo nome poderão ser substituídos. Continuar?"))return;
   if(button)button.textContent="Enviando ZIP…";
-  if(status)status.textContent="ZIP reconhecido como "+(runtime==="nodejs"?"Node.js":"Python")+". Enviando "+file.name+"…";
+  if(status)status.textContent=(quickDetection?"ZIP reconhecido como ":"A pré-leitura não foi compatível; o servidor fará a análise completa. Enviando pacote em ambiente inicial "+(runtime==="nodejs"?"Node.js":"Python")+". ")+(runtime==="nodejs"?"Node.js":"Python")+" · "+file.name+"…";
   const archiveName=packageName+".zip";
   const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path:"/",runtime})});
   if(!signed.url)throw new Error("A hospedagem não retornou um endereço de envio.");
