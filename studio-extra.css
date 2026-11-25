@@ -151,3 +151,80 @@
 .decor-scene-mono .decor-symbol{color:#eef1ff;filter:drop-shadow(0 0 18px #d2d9ec99)}
 .decoration-footnote{margin-top:16px;color:#8e91b4;font-size:10px;line-height:1.6}
 @media(max-width:760px){.decoration-grid{grid-template-columns:1fr}.decor-scene{height:165px}.decoration-intro{align-items:flex-start}}
+
+
+/* TEMAS COMPLETOS: paisagem, atmosfera, fundos, detalhes e emojis */
+#app{position:relative;isolation:isolate;overflow:clip}
+#app::before{
+ content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+ background-image:linear-gradient(90deg,rgba(3,4,14,.60),rgba(3,4,14,.28) 48%,rgba(3,4,14,.56)),url("/themes/sakura.svg");
+ background-size:cover;background-position:center;background-repeat:no-repeat;
+ opacity:.95;transition:background-image .35s ease,opacity .35s ease
+}
+#app[data-decoration="sakura"]::before{background-image:linear-gradient(90deg,rgba(3,4,14,.61),rgba(4,4,17,.25) 50%,rgba(3,4,14,.56)),url("/themes/sakura.svg")}
+#app[data-decoration="samurai"]::before{background-image:linear-gradient(90deg,rgba(13,3,7,.65),rgba(13,3,7,.22) 48%,rgba(13,3,7,.55)),url("/themes/samurai.svg")}
+#app[data-decoration="neon"]::before{background-image:linear-gradient(90deg,rgba(7,3,17,.62),rgba(7,3,17,.23) 48%,rgba(7,3,17,.58)),url("/themes/neon.svg")}
+#app[data-decoration="mono"]::before{background-image:linear-gradient(90deg,rgba(3,5,10,.68),rgba(3,5,10,.28) 48%,rgba(3,5,10,.65)),url("/themes/mono.svg")}
+#app::after{
+ content:"🌸  🌙  ⛩️  ✨";position:fixed;z-index:4;top:92px;right:28px;
+ color:#f6dcff;font:700 22px/1.2 "Manrope",sans-serif;letter-spacing:8px;
+ text-shadow:0 0 16px var(--bz-decor-accent,#bf70ff);
+ opacity:.8;pointer-events:none;animation:theme-float 5s ease-in-out infinite
+}
+#app[data-decoration="samurai"]::after{content:"⚔️  🔥  🏯  🌕";text-shadow:0 0 16px #ff4659}
+#app[data-decoration="neon"]::after{content:"🎧  🚗  🌃  💗";text-shadow:0 0 16px #ed55d5}
+#app[data-decoration="mono"]::after{content:"☯️  🌑  🗻  ✨";text-shadow:0 0 16px #c8d0df}
+@keyframes theme-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+#app .sidebar{background:linear-gradient(180deg,rgba(5,5,18,.92),rgba(8,7,22,.82));backdrop-filter:blur(16px)}
+#app .main{background:transparent}
+#app .dashboard-panel{
+ background:linear-gradient(145deg,rgba(8,9,24,.88),rgba(8,10,25,.72));
+ border-color:color-mix(in srgb,var(--bz-decor-accent,#a65cff) 34%,transparent);
+ backdrop-filter:blur(13px)
+}
+#app .cosmic-hero{
+ min-height:260px;isolation:isolate;overflow:hidden;
+ background-image:linear-gradient(90deg,rgba(4,4,16,.86) 0%,rgba(4,4,16,.48) 50%,rgba(4,4,16,.12) 100%),url("/themes/sakura.svg");
+ background-size:cover;background-position:center 42%;
+ box-shadow:0 18px 48px #0009,0 0 35px color-mix(in srgb,var(--bz-decor-accent) 19%,transparent)
+}
+#app[data-decoration="sakura"] .cosmic-hero{background-image:linear-gradient(90deg,rgba(4,4,16,.86),rgba(4,4,16,.46) 50%,rgba(4,4,16,.1)),url("/themes/sakura.svg")}
+#app[data-decoration="samurai"] .cosmic-hero{background-image:linear-gradient(90deg,rgba(13,3,7,.88),rgba(13,3,7,.48) 50%,rgba(13,3,7,.1)),url("/themes/samurai.svg")}
+#app[data-decoration="neon"] .cosmic-hero{background-image:linear-gradient(90deg,rgba(8,3,17,.88),rgba(8,3,17,.45) 50%,rgba(8,3,17,.1)),url("/themes/neon.svg")}
+#app[data-decoration="mono"] .cosmic-hero{background-image:linear-gradient(90deg,rgba(3,5,10,.9),rgba(3,5,10,.48) 50%,rgba(3,5,10,.1)),url("/themes/mono.svg")}
+#app .cosmic-hero:after{background:linear-gradient(90deg,transparent,rgba(0,0,0,.12));opacity:.1}
+.theme-emoji-line{display:flex;gap:13px;margin-top:14px;font-size:20px;letter-spacing:4px;filter:drop-shadow(0 0 8px var(--bz-decor-accent))}
+#app[data-decoration="samurai"] .theme-emoji-line{filter:drop-shadow(0 0 8px #ef4d5b)}
+#app[data-decoration="neon"] .theme-emoji-line{filter:drop-shadow(0 0 8px #ed55d5)}
+#app[data-decoration="mono"] .theme-emoji-line{filter:grayscale(1) drop-shadow(0 0 8px #c8d0df)}
+#app .decoration-card{background:rgba(5,6,17,.88)}
+#app .decor-scene{
+ height:190px;background-size:cover;background-position:center;background-repeat:no-repeat
+}
+#app .decor-scene:before,#app .decor-scene:after{display:none}
+#app .decor-scene-sakura{background-image:url("/themes/sakura.svg")}
+#app .decor-scene-samurai{background-image:url("/themes/samurai.svg")}
+#app .decor-scene-neon{background-image:url("/themes/neon.svg")}
+#app .decor-scene-mono{background-image:url("/themes/mono.svg")}
+#app .decor-scene .decor-symbol{
+ left:16px;right:auto;top:auto;bottom:15px;font-size:28px;
+ padding:5px 8px;border-radius:10px;background:rgba(4,4,16,.66)
+}
+#app .decor-scene .decor-tag{background:rgba(4,4,16,.78)}
+.decoration-preview-panel{display:grid;grid-template-columns:minmax(200px,.75fr) minmax(0,1.25fr);gap:18px;overflow:hidden;margin-top:17px;padding:14px}
+.decoration-preview-copy{align-self:center;padding:12px}
+.decoration-preview-copy b{display:block;margin-top:8px;font-size:15px}
+.decoration-preview-copy p{font-size:11px;color:#aaa8c7;line-height:1.7}
+.decoration-preview-emojis{margin-top:14px;font-size:25px;letter-spacing:7px}
+.decoration-preview-art{min-height:190px;border:1px solid color-mix(in srgb,var(--bz-decor-accent) 50%,transparent);border-radius:12px;background-size:cover;background-position:center;background-repeat:no-repeat}
+.decoration-preview-art.decor-scene-sakura{background-image:url("/themes/sakura.svg")}
+.decoration-preview-art.decor-scene-samurai{background-image:url("/themes/samurai.svg")}
+.decoration-preview-art.decor-scene-neon{background-image:url("/themes/neon.svg")}
+.decoration-preview-art.decor-scene-mono{background-image:url("/themes/mono.svg")}
+@media(max-width:760px){
+ #app::after{top:74px;right:12px;font-size:15px;letter-spacing:2px}
+ #app .cosmic-hero{min-height:230px;background-position:60% center}
+ .theme-emoji-line{font-size:16px}
+ .decoration-preview-panel{grid-template-columns:1fr}
+ .decoration-preview-art{min-height:150px}
+}
