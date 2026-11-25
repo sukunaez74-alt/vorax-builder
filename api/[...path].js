@@ -274,6 +274,15 @@ function runnerTemplate() {
 }
 
 
+
+function isInsideSchedule(start, end, timezone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || "America/Bahia", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+    const now = parts.find(x => x.type === "hour").value + ":" + parts.find(x => x.type === "minute").value;
+    return start < end ? now >= start && now < end : now >= start || now < end;
+  } catch { return false; }
+}
+
 async function setHostEnv(userId, env, deploymentId, key, value, secret = false) {
   return hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/env", "POST", {
     key, value: String(value ?? ""), secret
@@ -587,68 +596,69 @@ export async function onRequest(context) {
         message: "Projeto criado. O token Discord foi armazenado criptografado no servidor."
       }, 201);
     }
-    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|config|resources|files|shell))?$/);
+    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|config|resources|files|shell|schedule|diagnose))?$/);
     if (match) {
       const id = match[1];
       const action = match[2] || "";
-      const ownedBot = await env.DB.prepare(
-        "SELECT id FROM bots WHERE id=? AND user_id=?"
-      ).bind(id, user.id).first();
-      if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
+      const bot = await getOwnedBot(id, user.id, env);
+      if (!bot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
 
       if (!action && request.method === "GET") {
-        const bot = await env.DB.prepare(
-          "SELECT id,name,runtime,state,modules,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE id=? AND user_id=?"
-        ).bind(id, user.id).first();
-        if (bot && typeof bot.modules === "string") bot.modules = JSON.parse(bot.modules);
-        if (bot) {
-          bot.hasDiscordToken = !!bot.has_discord_token;
-          bot.discordBotId = bot.discord_bot_id || null;
-          bot.discordBotName = bot.discord_bot_name || null;
-          bot.hostingDeploymentId = bot.hosting_deployment_id || null;
-          bot.scheduleEnabled = !!bot.schedule_enabled;
-          bot.scheduleStart = bot.schedule_start || "00:00";
-          bot.scheduleEnd = bot.schedule_end || "23:59";
-          bot.scheduleTimezone = bot.schedule_timezone || "America/Bahia";
-          bot.guildId = bot.guild_id || "";
-          delete bot.has_discord_token; delete bot.discord_bot_id; delete bot.discord_bot_name;
-          delete bot.hosting_deployment_id; delete bot.schedule_enabled; delete bot.schedule_start;
-          delete bot.schedule_end; delete bot.schedule_timezone; delete bot.guild_id;
+        const hasToken = !!bot.discord_token_enc;
+        let state = bot.state || "draft";
+        let runtimeInfo = null;
+        if (bot.hosting_deployment_id) {
+          try {
+            runtimeInfo = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/diagnose?waitSeconds=0");
+            state = runtimeInfo.state || runtimeInfo.deployment?.state || state;
+          } catch (error) {
+            runtimeInfo = { error: error.message };
+          }
         }
-        return reply({ ...bot, executionAvailable: !!bot?.hostingDeploymentId });
+        const modules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
+        return reply({
+          id: bot.id, name: bot.name, runtime: bot.runtime, state,
+          modules, hasDiscordToken: hasToken,
+          discordBotId: bot.discord_bot_id || null,
+          discordBotName: bot.discord_bot_name || null,
+          hostingDeploymentId: bot.hosting_deployment_id || null,
+          scheduleEnabled: !!bot.schedule_enabled,
+          scheduleStart: bot.schedule_start || "00:00",
+          scheduleEnd: bot.schedule_end || "23:59",
+          scheduleTimezone: bot.schedule_timezone || "America/Bahia",
+          guildId: bot.guild_id || "",
+          executionAvailable: !!bot.hosting_deployment_id,
+          runtimeInfo
+        });
       }
 
       if (action === "config" && request.method === "POST") {
         const b = await body(request);
         const discordToken = String(b.discordToken || "").trim();
+        let identity = null;
         if (discordToken) {
           if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
             return reply({ error: "O token Discord precisa ter pelo menos 30 caracteres e não pode conter espaços." }, 400);
           }
-          const verifiedToken = await validateDiscordBotToken(discordToken);
-          if (verifiedToken.unavailable) {
-            const message = verifiedToken.reason === "rate_limited"
+          identity = await validateDiscordBotToken(discordToken);
+          if (identity.unavailable) {
+            const message = identity.reason === "rate_limited"
               ? "O Discord limitou temporariamente as verificações. Aguarde um minuto e tente novamente."
               : "Não foi possível alcançar o Discord para validar o token. Verifique a conexão e tente novamente.";
-            return reply({ error: message, code: verifiedToken.reason || "discord_unavailable" }, 503);
+            return reply({ error: message, code: identity.reason || "discord_unavailable" }, 503);
           }
-          if (!verifiedToken.valid) {
-            const message = verifiedToken.reason === "not_a_bot"
+          if (!identity.valid) {
+            const message = identity.reason === "not_a_bot"
               ? "A credencial foi aceita, mas não pertence a um usuário Bot. Use o Bot Token da seção Bot no Discord Developer Portal."
               : "O Discord recusou o token. Gere ou copie novamente o Bot Token na seção Bot do Discord Developer Portal; não use Client Secret, Client ID ou Public Key.";
-            return reply({ error: message, code: verifiedToken.reason || "invalid_discord_token" }, 400);
+            return reply({ error: message, code: identity.reason || "invalid_discord_token" }, 400);
           }
           const encryptedToken = await encryptSecret(discordToken, env);
           await env.DB.prepare(
             "UPDATE bots SET discord_token_enc=?,discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?"
-          ).bind(encryptedToken, verifiedToken.botId, verifiedToken.botName || null, Date.now(), id, user.id).run();
-        } else {
-          const saved = await env.DB.prepare(
-            "SELECT discord_token_enc FROM bots WHERE id=? AND user_id=?"
-          ).bind(id, user.id).first();
-          if (!saved?.discord_token_enc) {
-            return reply({ error: "Informe o token do bot Discord para salvar a configuração deste projeto." }, 400);
-          }
+          ).bind(encryptedToken, identity.botId, identity.botName || null, Date.now(), id, user.id).run();
+        } else if (!bot.discord_token_enc) {
+          return reply({ error: "Informe o token do bot Discord para este projeto." }, 400);
         }
         const allowed = ["music","tickets","attendance","team","goals","warnings","recruitment","logs"];
         const modules = {};
@@ -657,21 +667,103 @@ export async function onRequest(context) {
           "UPDATE bots SET modules=?::jsonb, updated_at=? WHERE id=? AND user_id=?"
         ).bind(JSON.stringify(modules), Date.now(), id, user.id).run();
         return reply({
-          ok: true,
-          modules,
-          hasDiscordToken: true,
-          tokenUpdated: !!discordToken,
-          state: "draft",
-          executionAvailable: false,
-          note: "Token armazenado criptografado e preferências salvas. A conexão com o Discord e a execução ainda dependem do executor de bots."
+          ok: true, modules, hasDiscordToken: true, tokenUpdated: !!discordToken,
+          discordBotId: identity?.botId || bot.discord_bot_id || null,
+          state: bot.state || "draft",
+          executionAvailable: !!bot.hosting_deployment_id,
+          note: "Token protegido e módulos salvos. Conecte a hospedagem para instalar e iniciar o bot."
         });
       }
 
-      if (["power","logs","resources","files","shell","upload-url","extract"].includes(action)) {
+      if (action === "schedule" && request.method === "POST") {
+        const b = await body(request);
+        const enabled = !!b.enabled;
+        const startClock = String(b.start || "00:00");
+        const endClock = String(b.end || "23:59");
+        const guildId = String(b.guildId || "").trim();
+        if (!validClock(startClock) || !validClock(endClock) || (enabled && startClock === endClock)) {
+          return reply({ error: "Informe horários válidos e diferentes, no formato HH:MM." }, 400);
+        }
+        if (guildId && !/^\d{17,20}$/.test(guildId)) {
+          return reply({ error: "O ID do servidor Discord deve conter 17 a 20 números." }, 400);
+        }
+        await env.DB.prepare(
+          "UPDATE bots SET schedule_enabled=?,schedule_start=?,schedule_end=?,schedule_timezone='America/Bahia',guild_id=?,updated_at=? WHERE id=? AND user_id=?"
+        ).bind(enabled, startClock, endClock, guildId || null, Date.now(), id, user.id).run();
+        if (bot.hosting_deployment_id && await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first()) {
+          const deploymentId = bot.hosting_deployment_id;
+          await setHostEnv(user.id, env, deploymentId, "CAOS_SCHEDULE_ENABLED", enabled ? "1" : "0", false);
+          await setHostEnv(user.id, env, deploymentId, "CAOS_SCHEDULE_START", startClock, false);
+          await setHostEnv(user.id, env, deploymentId, "CAOS_SCHEDULE_END", endClock, false);
+          await setHostEnv(user.id, env, deploymentId, "GUILD_ID", guildId, false);
+          const live = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=0");
+          if ((live.state || live.deployment?.state) === "running") {
+            await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "restart", waitSeconds: 35 });
+          }
+        }
+        return reply({ ok: true, scheduleEnabled: enabled, start: startClock, end: endClock, timezone: "America/Bahia", guildId });
+      }
+
+      if (action === "power" && request.method === "POST") {
+        const b = await body(request);
+        const signal = String(b.action || "").toLowerCase();
+        if (!["start","stop","restart"].includes(signal)) return reply({ error: "Ação de energia inválida." }, 400);
+        const connected = await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first();
+        if (!connected) return reply({ code: "hosting_not_connected", error: "Conecte sua conta Bot-Hosting para habilitar os controles reais de iniciar e parar." }, 409);
+        let deploymentId = bot.hosting_deployment_id;
+        let botId = bot.discord_bot_id;
+        try {
+          if (signal === "start" || signal === "restart") {
+            const provisioned = await ensureBotDeployment(bot, user.id, env);
+            deploymentId = provisioned.deploymentId;
+            botId = provisioned.botId;
+          }
+          if (!deploymentId) return reply({ error: "Este bot ainda não tem um servidor de execução. Pressione Iniciar para preparar a hospedagem." }, 409);
+          const result = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", {
+            action: signal, waitSeconds: signal === "start" || signal === "restart" ? 45 : 0
+          });
+          const actualState = String(result.state || "").toLowerCase();
+          await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
+            .bind(actualState || (signal === "stop" ? "stopped" : "starting"), Date.now(), id, user.id).run();
+          const lines = Array.isArray(result.logs) ? result.logs : [];
+          const logText = lines.join("\n");
+          const commandsSynced = logText.includes("Comandos globais sincronizados") || logText.includes("Comandos sincronizados no servidor de teste");
+          const started = signal === "stop" || actualState === "running";
+          if (!started) {
+            return reply({
+              ok: false, state: actualState || "starting", deploymentId,
+              logs: lines.slice(-30), hint: result.hint || "O servidor ainda não confirmou que o bot iniciou."
+            }, 502);
+          }
+          return reply({
+            ok: true, action: signal, state: actualState || (signal === "stop" ? "stopped" : "running"),
+            deploymentId, discordBotId: botId || null, commandsSynced,
+            scheduled: !!bot.schedule_enabled,
+            botOnlineNow: !bot.schedule_enabled || isInsideSchedule(bot.schedule_start || "00:00", bot.schedule_end || "23:59", bot.schedule_timezone || "America/Bahia"),
+            logs: lines.slice(-35), hint: result.hint || null
+          });
+        } catch (error) {
+          return reply({ ok: false, error: error.message || "Falha ao controlar o bot no Bot-Hosting." }, 502);
+        }
+      }
+
+      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET") {
+        if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Este projeto ainda não foi iniciado em uma hospedagem." }, 409);
+        try {
+          const path = action === "logs"
+            ? "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/logs?size=100&waitSeconds=1"
+            : "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/diagnose?waitSeconds=0";
+          return reply(await hostRequest(user.id, env, path));
+        } catch (error) {
+          return reply({ error: error.message || "Não consegui consultar o servidor do bot." }, 502);
+        }
+      }
+
+      if (["upload-url","extract","files","shell"].includes(action)) {
         return reply({
-          code: "runtime_not_connected",
-          error: "Este projeto está salvo no Estúdio, mas ainda não há um executor de bots conectado. Nenhuma ação foi simulada."
-        }, 409);
+          code: "feature_not_ready",
+          error: "Esta área ainda não foi conectada ao armazenamento de arquivos. Os controles de execução e horários já usam a hospedagem real."
+        }, 501);
       }
     }
     return reply({ error: "Rota não encontrada." }, 404);
