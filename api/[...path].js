@@ -996,6 +996,61 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao executar comando." }, 502); }
       }
 
+      if (action === "backups" && subPath === "manual" && request.method === "POST") {
+        if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Prepare a hospedagem antes de criar um backup manual." }, 409);
+        try {
+          const pending = [{ path: "/", depth: 0 }];
+          const visited = new Set();
+          const files = [];
+          while (pending.length && files.length < 400) {
+            const current = pending.shift();
+            if (visited.has(current.path) || current.depth > 7) continue;
+            visited.add(current.path);
+            const listing = await hostRequest(
+              user.id, env,
+              "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files?path=" + encodeURIComponent(current.path)
+            );
+            const entries = Array.isArray(listing.entries) ? listing.entries : [];
+            for (const entry of entries) {
+              if (!entry?.name || entry.name === "." || entry.name === "..") continue;
+              const fullPath = safeVolumePath((current.path === "/" ? "" : current.path) + "/" + entry.name);
+              if (entry.type === "directory" || entry.type === "folder") {
+                if (current.depth < 7 && !["node_modules", ".git", ".venv", "__pycache__"].includes(entry.name)) {
+                  pending.push({ path: fullPath, depth: current.depth + 1 });
+                }
+              } else if (entry.type === "file") {
+                if (!/^black-zone-manual-backup-/i.test(entry.name)) files.push(fullPath);
+                if (files.length >= 400) break;
+              }
+            }
+          }
+          if (!files.length) return reply({ error: "Não encontrei arquivos para incluir no backup." }, 409);
+          if (pending.length) return reply({ error: "Este projeto tem arquivos demais para um backup manual único. Exporte pastas menores pela área Arquivos." }, 413);
+          const compressed = await hostRequest(
+            user.id, env,
+            "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/compress",
+            "POST",
+            { root: "/", files }
+          );
+          if (!compressed.archive) return reply({ error: "O provedor não retornou o nome do ZIP criado." }, 502);
+          const archivePath = safeVolumePath(compressed.archive);
+          const download = await hostRequest(
+            user.id, env,
+            "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/download-url?path=" + encodeURIComponent(archivePath)
+          );
+          if (!download.url) return reply({ error: "O ZIP foi criado, mas o provedor não forneceu o link de download." }, 502);
+          return reply({
+            ok: true,
+            archive: archivePath,
+            downloadUrl: download.url,
+            filesCount: files.length,
+            note: "Backup manual compactado no container e pronto para baixar. Guarde o ZIP fora da hospedagem."
+          });
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao criar backup manual." }, 502);
+        }
+      }
+
       if (action === "backups" && !subPath && request.method === "GET") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Prepare a hospedagem para consultar os pontos de restauração." }, 409);
         try {
