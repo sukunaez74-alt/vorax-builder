@@ -1155,14 +1155,54 @@ async function prepareDiscloudProject(archiveBytes, bot, requestedRuntime, env) 
   envValues.set("APP_URL", "https://black-zone-estudio.vercel.app");
   envValues.set("BOT_NAME", bot.name || "Discord Bot");
   output.file(".env", [...envValues.entries()].map(([key, value]) => key + "=" + JSON.stringify(String(value))).join("\n") + "\n");
-  const shell = "set -a; [ ! -f .env ] || . ./.env; set +a; " + startCommand;
+  let mainFile = "";
+  if (runtime === "nodejs") {
+    mainFile = "blackzone_launcher.cjs";
+    const launcher = String.raw`const fs=require("node:fs");
+const path=require("node:path");
+const {pathToFileURL}=require("node:url");
+for(const line of (fs.existsSync(".env")?fs.readFileSync(".env","utf8"):"").split(/\\r?\\n/)){
+ const m=line.match(/^\\s*([A-Za-z_][A-Za-z0-9_.-]*)\\s*=\\s*(.*)\\s*$/);
+ if(!m)continue;
+ let value=m[2].trim();
+ if((value.startsWith('"')&&value.endsWith('"'))||(value.startsWith("'")&&value.endsWith("'")))value=value.slice(1,-1);
+ process.env[m[1]]=value;
+}
+(async()=>{
+ const target=path.resolve(process.cwd(), ${JSON.stringify(entryFile)});
+ await import(pathToFileURL(target).href);
+})().catch(error=>{console.error("BLACK ZONE launcher:",error);process.exitCode=1;});`;
+    output.file(mainFile, launcher);
+  } else {
+    mainFile = "blackzone_launcher.py";
+    const launcher = String.raw`from pathlib import Path
+import os
+import runpy
+
+env_file = Path(".env")
+if env_file.exists():
+    for raw in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if key:
+            os.environ[key] = value
+
+runpy.run_path(${JSON.stringify(entryFile)}, run_name="__main__")
+`;
+    output.file(mainFile, launcher);
+  }
   const config = [
     "NAME=" + botName,
     "TYPE=bot",
-    "MAIN=" + entryFile,
+    "MAIN=" + mainFile,
     "RAM=100",
-    "VERSION=latest",
-    "START=sh -c " + shellQuote(shell)
+    "VERSION=latest"
   ].join("\n") + "\n";
   output.file("discloud.config", config);
   const bytes = await output.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
@@ -1973,7 +2013,7 @@ export async function onRequest(context) {
 
     if (path === "/bots" && request.method === "GET") {
       const rows = await env.DB.prepare(
-        "SELECT id,name,runtime,state,modules,project_type,custom_project,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE user_id=? ORDER BY created_at DESC"
+        "SELECT id,name,runtime,state,modules,project_type,custom_project,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token,discord_bot_id,discord_bot_name,hosting_deployment_id,hosting_provider,provider_app_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE user_id=? ORDER BY created_at DESC"
       ).bind(user.id).all();
       return reply({ deployments: rows.map(row => ({
         ...row,
@@ -1983,13 +2023,15 @@ export async function onRequest(context) {
         hasDiscordToken: !!row.has_discord_token,
         discordBotId: row.discord_bot_id || null,
         discordBotName: row.discord_bot_name || null,
-        hostingDeploymentId: row.hosting_deployment_id || null,
+        hostingDeploymentId: row.hosting_provider === "discloud" ? (row.provider_app_id || null) : (row.hosting_deployment_id || null),
+        hostingProvider: row.hosting_provider || "bot-hosting",
+        providerAppId: row.provider_app_id || null,
         scheduleEnabled: !!row.schedule_enabled,
         scheduleStart: row.schedule_start || "00:00",
         scheduleEnd: row.schedule_end || "23:59",
         scheduleTimezone: row.schedule_timezone || "America/Bahia",
         guildId: row.guild_id || "",
-        executionAvailable: !!row.hosting_deployment_id
+        executionAvailable: !!(row.hosting_deployment_id || row.provider_app_id)
       })) });
     }
     if (path === "/bots" && request.method === "POST") {
@@ -2059,7 +2101,17 @@ export async function onRequest(context) {
 
       if (!action && request.method === "DELETE") {
         let deploymentDeleted = false;
-        if (bot.hosting_deployment_id) {
+        if (bot.hosting_provider === "discloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "discloud", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Discloud antes de excluir a aplicação para não deixar recursos abandonados." }, 409);
+            await discloudRequest(token, "/app/" + encodeURIComponent(bot.provider_app_id) + "/delete", "DELETE");
+            deploymentDeleted = true;
+          } catch (error) {
+            return reply({ error: "Não consegui remover a aplicação da Discloud. O projeto continua salvo no painel. " + (error.message || "") }, 502);
+          }
+        }
+        if (bot.hosting_deployment_id && bot.hosting_provider !== "discloud") {
           const otherReference = await env.DB.prepare("SELECT id FROM bots WHERE hosting_deployment_id=? AND id<>? LIMIT 1").bind(bot.hosting_deployment_id, id).first();
           const centralSettings = await verificationBotSettings(env);
           const usedByVerificationBot = String(centralSettings?.hosting_deployment_id || "") === String(bot.hosting_deployment_id);
@@ -2100,7 +2152,18 @@ export async function onRequest(context) {
         let state = bot.state || "draft";
         let runtimeInfo = null;
         let discordStatus = null;
-        if (bot.hosting_deployment_id) {
+        if (bot.hosting_provider === "discloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "discloud", env);
+            if (!token) throw new Error("Conta Discloud desconectada.");
+            const status = await discloudRequest(token, "/app/" + encodeURIComponent(bot.provider_app_id) + "/status");
+            runtimeInfo = status.apps || status;
+            const container = String(status.apps?.container || "").toLowerCase();
+            state = container === "online" || container === "running" ? "running" : (container === "offline" || container === "stopped" ? "stopped" : "starting");
+          } catch (error) {
+            runtimeInfo = { error: error.message || "Falha ao consultar Discloud." };
+          }
+        } else if (bot.hosting_deployment_id) {
           try {
             runtimeInfo = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/diagnose?waitSeconds=0");
             state = runtimeInfo.state || state;
@@ -2120,7 +2183,9 @@ export async function onRequest(context) {
           projectType: bot.project_type === "custom" || bot.custom_project ? "custom" : "standard",
           hasDiscordToken: hasToken,
           discordBotId, discordBotName,
-          hostingDeploymentId: bot.hosting_deployment_id || null,
+          hostingDeploymentId: bot.hosting_provider === "discloud" ? (bot.provider_app_id || null) : (bot.hosting_deployment_id || null),
+          hostingProvider: bot.hosting_provider || "bot-hosting",
+          providerAppId: bot.provider_app_id || null,
           scheduleEnabled: !!bot.schedule_enabled,
           scheduleActiveNow: scheduleAllowed,
           botOnlineNow: discordOnline,
@@ -2139,7 +2204,7 @@ export async function onRequest(context) {
           scheduleEnd: bot.schedule_end || "23:59",
           scheduleTimezone: bot.schedule_timezone || "America/Bahia",
           guildId: "",
-          executionAvailable: !!bot.hosting_deployment_id,
+          executionAvailable: !!(bot.hosting_deployment_id || bot.provider_app_id),
           runtimeInfo
         });
       }
@@ -2155,7 +2220,7 @@ export async function onRequest(context) {
         await env.DB.prepare(
           "UPDATE bots SET schedule_enabled=?,schedule_start=?,schedule_end=?,schedule_timezone='America/Bahia',guild_id=NULL,updated_at=? WHERE id=? AND user_id=?"
         ).bind(enabled, startClock, endClock, Date.now(), id, user.id).run();
-        if (bot.hosting_deployment_id) {
+        if (bot.hosting_deployment_id && bot.hosting_provider !== "discloud") {
           await setHostEnv(user.id, env, bot.hosting_deployment_id, "CAOS_SCHEDULE_ENABLED", enabled ? "1" : "0", false);
           await setHostEnv(user.id, env, bot.hosting_deployment_id, "CAOS_SCHEDULE_START", startClock, false);
           await setHostEnv(user.id, env, bot.hosting_deployment_id, "CAOS_SCHEDULE_END", endClock, false);
@@ -2171,6 +2236,29 @@ export async function onRequest(context) {
         const b = await body(request);
         const signal = String(b.action || "").toLowerCase();
         if (!["start","stop","restart"].includes(signal)) return reply({ error: "Ação de energia inválida." }, 400);
+        if (bot.hosting_provider === "discloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "discloud", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "A conexão Discloud não está disponível. Reconecte o provedor em Configurações." }, 409);
+            const appId = encodeURIComponent(bot.provider_app_id);
+            const result = await discloudRequest(token, "/app/" + appId + "/" + signal, "PUT");
+            const status = await discloudRequest(token, "/app/" + appId + "/status");
+            const container = String(status.apps?.container || status.app?.container || "").toLowerCase();
+            const online = container === "online" || container === "running";
+            const state = signal === "stop" ? "stopped" : (online ? "running" : "starting");
+            await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
+              .bind(state, Date.now(), id, user.id).run();
+            return reply({
+              ok: true, action: signal, state, provider: "discloud",
+              providerAppId: bot.provider_app_id,
+              discordOnline: false,
+              hint: signal === "stop" ? "Parada solicitada à Discloud." : "Comando enviado à Discloud. Confira os logs para confirmar a conexão do bot com o Discord.",
+              providerMessage: result.message || null
+            });
+          } catch (error) {
+            return reply({ ok: false, code: "provider_action_failed", error: error.message || "Falha ao controlar a aplicação na Discloud." }, 502);
+          }
+        }
         const connected = await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first();
         if (!connected) return reply({ code: "hosting_not_connected", error: "Conecte sua conta Bot-Hosting para habilitar os controles reais de iniciar e parar." }, 409);
 
@@ -2316,6 +2404,26 @@ export async function onRequest(context) {
         }
       }
 
+      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "discloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "discloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Discloud nas Configurações." }, 409);
+          const appId = encodeURIComponent(bot.provider_app_id);
+          if (action === "logs") {
+            const result = await discloudRequest(token, "/app/" + appId + "/logs");
+            const terminal = result.apps?.terminal || result.terminal || {};
+            const raw = String(terminal.big || terminal.small || result.message || "");
+            const lines = raw.split(/\\r?\\n/).filter(Boolean).slice(-200);
+            return reply({ provider: "discloud", lines, logs: lines, raw });
+          }
+          if (action === "diagnose") {
+            return reply(await discloudRequest(token, "/app/" + appId + "/status"));
+          }
+          return reply({ provider: "discloud", resources: null, note: "A API pública da Discloud não fornece os mesmos limites detalhados de CPU e armazenamento do Bot-Hosting." });
+        } catch (error) {
+          return reply({ error: error.message || "Não consegui consultar a Discloud." }, 502);
+        }
+      }
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Este bot ainda não foi iniciado em uma hospedagem." }, 409);
         try {
@@ -2386,6 +2494,64 @@ export async function onRequest(context) {
         try {
           return reply(await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/delete", "POST", { root: "/", files: [filePath] }));
         } catch (error) { return reply({ error: error.message || "Falha ao excluir arquivo." }, 502); }
+      }
+
+      if (action === "auto-upload" && request.method === "POST") {
+        if (bot.project_type !== "custom" && !bot.custom_project) {
+          return reply({ code: "custom_project_required", error: "Este projeto precisa ser criado como Meu próprio bot antes de importar um ZIP." }, 409);
+        }
+        try {
+          const b = await body(request);
+          const archiveName = String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
+          if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
+          const archiveBytes = decodeBase64Bytes(b.archiveBase64);
+          if (archiveBytes.byteLength > 3 * 1024 * 1024) {
+            return reply({ code: "fallback_zip_too_large", error: "Este ZIP passa de 3 MB. O envio direto ao provedor alternativo precisa ficar abaixo desse tamanho por limite da conexão segura do painel. O arquivo original continua no seu computador." }, 413);
+          }
+          const token = await providerToken(user.id, "discloud", env);
+          if (!token) return reply({
+            code: "provider_not_connected",
+            error: "O Bot-Hosting está sem vaga. Conecte a Discloud em Configurações para o Estúdio tentar a próxima hospedagem automaticamente."
+          }, 409);
+
+          const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
+          const form = new FormData();
+          form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
+          let uploaded;
+          let appId = bot.hosting_provider === "discloud" && bot.provider_app_id ? String(bot.provider_app_id) : "";
+          if (appId) {
+            uploaded = await discloudRequest(token, "/app/" + encodeURIComponent(appId) + "/commit", "PUT", form);
+          } else {
+            uploaded = await discloudRequest(token, "/upload", "POST", form);
+            appId = String(uploaded.app?.id || "");
+            if (!appId) throw new Error("A Discloud recebeu o ZIP, mas não retornou o ID da aplicação.");
+          }
+          await env.DB.prepare(
+            "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
+          ).bind(appId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
+
+          let startResult = null;
+          try { startResult = await discloudRequest(token, "/app/" + encodeURIComponent(appId) + "/start", "PUT"); }
+          catch (startError) {
+            const text = String(startError?.message || "");
+            if (!/already|online|running|process|in process|409/i.test(text)) throw startError;
+          }
+          return reply({
+            ok: true, provider: "discloud", providerAppId: appId,
+            runtime: prepared.runtime, customProject: prepared.customProject,
+            app: uploaded.app || null, start: startResult,
+            message: "ZIP enviado à Discloud. O provedor recebeu o projeto e o Estúdio solicitou a inicialização."
+          });
+        } catch (error) {
+          const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
+          const capacity = /capacity|limit|maximum|plan|app limit|ram|quota|slots|applications/i.test(message);
+          return reply({
+            code: capacity ? "discloud_capacity_full" : "discloud_upload_failed",
+            error: capacity
+              ? "A Discloud também recusou a criação por limite do plano ou de recursos. Nenhum bot existente foi alterado. Conecte outra hospedagem compatível ou amplie o plano."
+              : message
+          }, capacity ? 402 : 502);
+        }
       }
 
       if (action === "upload-url" && request.method === "POST") {
