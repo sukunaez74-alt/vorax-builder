@@ -365,7 +365,7 @@ async function hostRequest(userId, env, path, method = "GET", data = null) {
 const CAOS_MAIN_PY = "";
 const CAOS_REQUIREMENTS = "discord.py[voice]==2.7.1\ndavey==0.1.7\nPyNaCl>=1.6.0,<1.7.0\npython-dotenv>=1.0,<2.0\nyt-dlp[default]>=2026.10.26\ndeno>=2.3.0\nimageio-ffmpeg>=0.8.1\n";
 function runnerTemplate() {
-  return String.raw\`import json, os, signal, subprocess, sys, time
+  return String.raw`import json, os, signal, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -440,7 +440,7 @@ try:
 finally:
     stop_child("supervisor_shutdown")
     print("BLACK ZONE supervisor encerrado.", flush=True)
-\`;
+`;
 }
 
 
