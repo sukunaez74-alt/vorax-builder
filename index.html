@@ -816,15 +816,15 @@ function filesView(){
    '<section class="dashboard-panel"><div class="project-note"><strong>Projeto do bot padrão</strong><br>Os arquivos oficiais são administrados pelo Estúdio e não são substituídos por envios particulares. Para usar o código que você já tem, crie outro projeto e escolha <b>Meu próprio bot</b>.</div>'+
    '<div class="hero-actions"><button class="btn" id="fileOpenTokenConfig">Configurar token do Discord</button><button class="btn secondary" data-openbot="'+escapeHtml(bot.id)+'">Abrir projeto ↗</button></div></section>';
  }
- const selectedRuntime=bot.runtime==="nodejs"?"nodejs":"python";
+ const selectedRuntime=bot.customProject?.runtime==="nodejs"?"nodejs":(bot.customProject?.runtime==="python"?"python":"auto");
  const statusText=bot.hostingDeploymentId
   ? "Servidor preparado. Envie ou atualize o código deste projeto."
   : "O servidor será preparado automaticamente no primeiro envio.";
- return pageHead("Meu próprio bot","Envie ZIP, pasta completa ou selecione vários arquivos. O Estúdio vai analisar e organizar o projeto.")+
+ return pageHead("Meu próprio bot","Envie o ZIP ou a pasta extraída. O Estúdio identifica a linguagem, o arquivo de início, comandos, dependências e recursos sem desmontar as subpastas.")+
  '<section class="dashboard-panel file-manager file-import-panel">'+
   '<div class="file-toolbar"><div class="field"><label>PROJETO</label><select id="filesBotSelect">'+choices+'</select></div>'+
   '<div class="field file-package-name"><label>NOME DO PROJETO</label><input id="fileBundleName" value="'+escapeHtml(bot.name||"meu-bot")+'" maxlength="64" placeholder="meu-bot"></div>'+
-  '<div class="field file-runtime-choice"><label>LINGUAGEM</label><select id="fileRuntime"><option value="python" '+(selectedRuntime==="python"?"selected":"")+'>Python 3.11</option><option value="nodejs" '+(selectedRuntime==="nodejs"?"selected":"")+'>Node.js 22</option></select></div>'+
+  '<div class="field file-runtime-choice"><label>DETECÇÃO DA LINGUAGEM</label><select id="fileRuntime"><option value="auto" '+(selectedRuntime==="auto"?"selected":"")+'>Automática · recomendada</option><option value="python" '+(selectedRuntime==="python"?"selected":"")+'>Forçar Python 3.11</option><option value="nodejs" '+(selectedRuntime==="nodejs"?"selected":"")+'>Forçar Node.js 22</option></select></div>'+
   '<div class="file-toolbar-actions"><button class="btn secondary" id="fileOpenTokenConfig">Token do Discord</button><button class="btn secondary" id="fileRefresh" '+(!bot.hostingDeploymentId?"disabled":"")+'>↻ Atualizar arquivos</button><button class="btn secondary" id="fileExportZip" '+(!bot.hostingDeploymentId?"disabled":"")+'>▣ Exportar ZIP</button></div></div>'+
   '<div class="file-import-actions"><button class="btn" id="fileUploadButton">⇧ Enviar ZIP</button><button class="btn secondary" id="fileFolderButton">▣ Enviar pasta completa</button><button class="btn secondary" id="fileMultipleButton">＋ Escolher arquivos</button>'+
   '<input id="fileUploadInput" type="file" hidden accept=".zip,application/zip,application/x-zip-compressed">'+
@@ -1599,25 +1599,131 @@ function uploadSignedFiles(url,field,files,onProgress){
   const xhr=new XMLHttpRequest();
   xhr.open("POST",url,true);
   xhr.upload.onprogress=event=>{if(event.lengthComputable&&onProgress)onProgress(event.loaded,event.total)};
-  xhr.onload=()=>xhr.status>=200&&xhr.status<300?resolve(xhr.responseText):reject(new Error("A hospedagem recusou o envio (HTTP "+xhr.status+")."));
+  xhr.onload=()=>{
+   if(xhr.status<200||xhr.status>=300)return reject(new Error("A hospedagem recusou o envio (HTTP "+xhr.status+"). "+String(xhr.responseText||"").slice(0,240)));
+   const raw=String(xhr.responseText||"");
+   if(raw){
+    try{
+     const payload=JSON.parse(raw);
+     if(payload?.ok===false||payload?.error)return reject(new Error(String(payload.error||payload.message||"A hospedagem informou uma falha ao gravar os arquivos.")));
+    }catch(error){
+     if(error instanceof Error && /A hospedagem informou/.test(error.message))return reject(error);
+    }
+   }
+   resolve(raw);
+  };
   xhr.onerror=()=>reject(new Error("A conexão caiu durante o envio. Confira sua internet e tente novamente."));
   xhr.onabort=()=>reject(new Error("O envio foi cancelado."));
   xhr.send(form);
  });
 }
+function normalizedProjectPaths(paths){
+ return paths.map(path=>String(path||"").replace(/\\/g,"/").replace(/^\/+/,"").split("/").filter(part=>part&&part!=="."&&part!=="..").join("/")).filter(Boolean);
+}
+function inferProjectRuntime(paths,packageJson){
+ const normalized=normalizedProjectPaths(paths);
+ const lower=normalized.map(path=>path.toLowerCase());
+ const hasPython=lower.some(path=>/\.py$/i.test(path))||
+  lower.some(path=>/(?:^|\/)(?:requirements\.txt|pyproject\.toml|pipfile|setup\.py)$/i.test(path));
+ const jsPaths=normalized.filter(path=>/\.(?:js|mjs|cjs)$/i.test(path));
+ const pythonEntry=lower.some(path=>/(?:^|\/)(?:main|bot|run|app|index|start)\.py$/i.test(path));
+ const hasPackage=lower.some(path=>/(?:^|\/)package\.json$/i.test(path));
+ const hasNodeStart=!!(packageJson?.scripts?.start||packageJson?.main);
+ if(hasPackage&&jsPaths.length&&(hasNodeStart||!hasPython))return "nodejs";
+ if(pythonEntry||hasPython&&!jsPaths.length)return "python";
+ if(jsPaths.length||hasPackage)return "nodejs";
+ if(hasPython)return "python";
+ return "python";
+}
+async function readZipProjectManifest(file){
+ const tailSize=Math.min(file.size,65557);
+ const tailBuffer=await file.slice(file.size-tailSize).arrayBuffer();
+ const tail=new DataView(tailBuffer);
+ let eocd=-1;
+ for(let i=tail.byteLength-22;i>=0;i--){
+  if(tail.getUint32(i,true)===0x06054b50){eocd=i;break}
+ }
+ if(eocd<0)throw new Error("Este arquivo não parece ser um ZIP válido ou está incompleto.");
+ const total=tail.getUint16(eocd+10,true);
+ const centralSize=tail.getUint32(eocd+12,true);
+ const centralOffset=tail.getUint32(eocd+16,true);
+ if(total===0xffff||centralOffset===0xffffffff||centralSize===0xffffffff)throw new Error("Este ZIP usa um formato ZIP64 muito grande para a leitura automática do navegador.");
+ if(!total||total>30000)throw new Error("O ZIP está vazio ou contém arquivos demais para analisar.");
+ const centralBuffer=await file.slice(centralOffset,centralOffset+centralSize).arrayBuffer();
+ const central=new DataView(centralBuffer);
+ const decoder=new TextDecoder("utf-8");
+ const paths=[];
+ let packageEntry=null;
+ let offset=0;
+ for(let i=0;i<total&&offset+46<=central.byteLength;i++){
+  if(central.getUint32(offset,true)!==0x02014b50)break;
+  const flags=central.getUint16(offset+8,true);
+  const method=central.getUint16(offset+10,true);
+  const compressedSize=central.getUint32(offset+20,true);
+  const uncompressedSize=central.getUint32(offset+24,true);
+  const nameLength=central.getUint16(offset+28,true);
+  const extraLength=central.getUint16(offset+30,true);
+  const commentLength=central.getUint16(offset+32,true);
+  const localOffset=central.getUint32(offset+42,true);
+  const name=decoder.decode(new Uint8Array(centralBuffer,offset+46,nameLength)).replace(/\\/g,"/");
+  offset+=46+nameLength+extraLength+commentLength;
+  if(!name||name.endsWith("/")||name.includes("../")||name.startsWith("/"))continue;
+  paths.push(name);
+  if(name.toLowerCase().endsWith("package.json")&&(!packageEntry||name.split("/").length<packageEntry.name.split("/").length)){
+   packageEntry={name,flags,method,compressedSize,uncompressedSize,localOffset};
+  }
+ }
+ let pkg=null;
+ if(packageEntry&&packageEntry.uncompressedSize<=1024*1024&&!(packageEntry.flags&1)){
+  const localBuffer=await file.slice(packageEntry.localOffset,packageEntry.localOffset+30).arrayBuffer();
+  const local=new DataView(localBuffer);
+  if(local.byteLength>=30&&local.getUint32(0,true)===0x04034b50){
+   const localNameLength=local.getUint16(26,true),localExtraLength=local.getUint16(28,true);
+   const dataStart=packageEntry.localOffset+30+localNameLength+localExtraLength;
+   const compressed=await file.slice(dataStart,dataStart+packageEntry.compressedSize).arrayBuffer();
+   try{
+    let manifestBytes;
+    if(packageEntry.method===0)manifestBytes=compressed;
+    else if(packageEntry.method===8&&typeof DecompressionStream!=="undefined"){
+     const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+     manifestBytes=await new Response(stream).arrayBuffer();
+    }
+    if(manifestBytes)pkg=JSON.parse(new TextDecoder("utf-8").decode(manifestBytes));
+   }catch{}
+  }
+ }
+ return {paths,packageJson:pkg};
+}
+async function detectZipRuntime(file){
+ const inspected=await readZipProjectManifest(file);
+ return inferProjectRuntime(inspected.paths,inspected.packageJson);
+}
+async function detectFilesRuntime(files){
+ const paths=Array.from(files||[]).map(file=>String(file.webkitRelativePath||file.name||"").replace(/\\/g,"/"));
+ let packageJson=null;
+ const manifest=Array.from(files||[]).find(file=>String(file.name||"").toLowerCase()==="package.json");
+ if(manifest){
+  try{packageJson=JSON.parse(await manifest.text())}catch{}
+ }
+ return inferProjectRuntime(paths,packageJson);
+}
 async function analyzeImportedBot(id,packageName,status){
- if(status)status.textContent="Arquivos enviados. Agora estou lendo a estrutura, procurando o arquivo principal, dependências e imagens…";
+ if(status)status.textContent="Arquivos enviados. Estou conferindo o projeto inteiro: estrutura, arquivo principal, comandos, dependências, imagens e outros recursos…";
  const result=await api("/bots/"+encodeURIComponent(id)+"/import",{method:"POST",body:JSON.stringify({packageName})});
  const meta=result.customProject||{};
  const summary=[
-  "Pacote "+packageName+" importado e salvo.",
-  "Arquivo principal: "+(meta.entryFile||"não identificado"),
-  "Ambiente: "+(meta.runtime==="nodejs"?"Node.js":"Python"),
+  "Projeto "+packageName+" reconhecido e salvo.",
+  "Inicialização: "+(meta.entryFile||"não identificada"),
+  "Ambiente: "+(meta.runtime==="nodejs"?"Node.js 22":"Python 3.11"),
   Number(meta.fileCount||0)+" arquivos",
-  Number(meta.imageCount||0)+" imagens"
+  Number(meta.directoryCount||0)+" pastas",
+  Number(meta.imageCount||0)+" imagens",
+  Number(meta.resourceCount||0)+" recursos de mídia"
  ];
- if(meta.dependencyFile)summary.push("Dependências: "+meta.dependencyFile);
- const finalSummary=summary.join(" · ")+". As dependências serão instaladas na primeira inicialização.";
+ if(meta.commandFileCount)summary.push(Number(meta.commandFileCount)+" arquivos em comandos/extensões");
+ if(meta.detectedFolders?.length)summary.push("Pastas reconhecidas: "+meta.detectedFolders.join(", "));
+ if(meta.dependencyFile)summary.push("Manifesto: "+meta.dependencyFile);
+ const finalSummary=summary.join(" · ")+". Os arquivos e subpastas enviados ficam preservados; as dependências são instaladas na inicialização.";
  if(status)status.textContent=finalSummary;
  await loadBots();
  state.activeBot=id;
@@ -1626,39 +1732,47 @@ async function analyzeImportedBot(id,packageName,status){
   const finalStatus=$("#fileStatus");
   if(finalStatus)finalStatus.textContent=finalSummary;
  }
- toast("Pacote analisado e salvo. Revise o token e depois inicie o bot.");
+ toast("Projeto reconhecido. Confira os logs depois de iniciar para validar a conexão do Discord.");
 }
 async function uploadBotFile(){
  const input=$("#fileUploadInput"),file=input?.files?.[0];
  if(!file)return;
  const id=$("#filesBotSelect")?.value||state.activeBot;
  const packageName=safePackageName($("#fileBundleName")?.value||file.name.replace(/\.zip$/i,""));
- const runtime=$("#fileRuntime")?.value||"python";
+ const runtimeChoice=$("#fileRuntime")?.value||"auto";
  const currentBot=state.bots.find(bot=>bot.id===id);
  const button=$("#fileUploadButton"),status=$("#fileStatus");
  if(!id)return toast("Selecione um bot antes de enviar o pacote.");
- if(currentBot?.hostingDeploymentId&&currentBot.runtime!==runtime&&
-    !window.confirm("Trocar de Python para Node.js (ou o contrário) limpa os arquivos atuais da hospedagem antes de enviar o novo pacote. Continuar?"))return;
- if(currentBot?.customProject&&
-    !window.confirm("Este projeto já tem um pacote importado. Os arquivos com o mesmo nome poderão ser substituídos. Continuar?"))return;
  if(!/\.zip$/i.test(file.name))return toast("Escolha um arquivo .ZIP para importar o projeto completo.");
- if(button){button.disabled=true;button.textContent="Enviando pacote…"}
+ if(button){button.disabled=true;button.textContent="Analisando ZIP…"}
  try{
-  if(status)status.textContent="Preparando espaço e enviando "+file.name+"…";
+  if(status)status.textContent="Lendo o índice do ZIP e procurando package.json, requirements.txt e o arquivo principal…";
+  let detected="python";
+  try{detected=await detectZipRuntime(file)}catch(error){
+   if(runtimeChoice==="auto")throw error;
+   detected=runtimeChoice;
+  }
+  const runtime=runtimeChoice==="auto"?detected:runtimeChoice;
+  if(currentBot?.hostingDeploymentId&&currentBot.runtime!==runtime&&
+    !window.confirm("O pacote foi identificado como "+(runtime==="nodejs"?"Node.js":"Python")+". Para trocar o ambiente do servidor atual, os arquivos antigos serão substituídos pelo pacote novo. Continuar?"))return;
+  if(currentBot?.customProject&&
+    !window.confirm("Este projeto já tem um pacote importado. Os arquivos com o mesmo nome poderão ser substituídos. Continuar?"))return;
+  if(button)button.textContent="Enviando ZIP…";
+  if(status)status.textContent="ZIP reconhecido como "+(runtime==="nodejs"?"Node.js":"Python")+". Enviando "+file.name+"…";
   const archiveName=packageName+".zip";
   const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path:"/",runtime})});
   if(!signed.url)throw new Error("A hospedagem não retornou um endereço de envio.");
   await uploadSignedFiles(signed.url,signed.field||"files",[{file,name:archiveName}],(loaded,total)=>{
    if(status)status.textContent="Enviando ZIP: "+Math.round(loaded/total*100)+"%";
   });
-  if(status)status.textContent="Upload concluído. Extraindo arquivos e preservando as pastas…";
+  if(status)status.textContent="Upload concluído. Extraindo todos os arquivos e mantendo a estrutura original…";
   await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({path:"/",file:archiveName})});
   await analyzeImportedBot(id,packageName,status);
  }catch(error){
   toast(error.message||"Não consegui importar este ZIP.");
   if(status)status.textContent=error.message||"Falha ao importar o pacote.";
  }finally{
-  if(button){button.disabled=false;button.textContent="⇧ Escolher arquivo ZIP"}
+  if(button){button.disabled=false;button.textContent="⇧ Enviar ZIP"}
   input.value="";
  }
 }
@@ -1666,29 +1780,31 @@ async function uploadLooseFiles(){
  const input=$("#fileMultipleInput"),selected=Array.from(input?.files||[]);
  if(!selected.length)return;
  const id=$("#filesBotSelect")?.value||state.activeBot;
- const runtime=$("#fileRuntime")?.value||"python";
+ const runtimeChoice=$("#fileRuntime")?.value||"auto";
  const packageName=safePackageName($("#fileBundleName")?.value||"meu-bot");
  const currentBot=state.bots.find(bot=>bot.id===id);
  const button=$("#fileMultipleButton"),status=$("#fileStatus");
  if(!id)return toast("Selecione um projeto.");
- if(currentBot?.hostingDeploymentId&&currentBot.runtime!==runtime&&!window.confirm("Trocar a linguagem pode limpar os arquivos da hospedagem. Deseja continuar?"))return;
  if(currentBot?.customProject&&!window.confirm("Alguns arquivos com o mesmo nome podem ser substituídos. Continuar?"))return;
- const groups=new Map();
- for(const file of selected){
-  const name=String(file.name||"").replace(/[\\/]/g,"");
-  if(!name||name==="."||name==="..")continue;
-  if(!groups.has("/"))groups.set("/",[]);
-  groups.get("/").push({file,name});
- }
- if(!groups.size)return toast("Nenhum arquivo válido foi selecionado.");
- if(button){button.disabled=true;button.textContent="Enviando arquivos…"}
+ if(button){button.disabled=true;button.textContent="Analisando arquivos…"}
  try{
-  const allBytes=selected.reduce((sum,file)=>sum+file.size,0)||1;
-  let uploaded=0;
+  const detected=await detectFilesRuntime(selected);
+  const runtime=runtimeChoice==="auto"?detected:runtimeChoice;
+  if(currentBot?.hostingDeploymentId&&currentBot.runtime!==runtime&&
+    !window.confirm("Os arquivos parecem ser "+(runtime==="nodejs"?"Node.js":"Python")+". A troca de ambiente substituirá os arquivos atuais pelo novo envio. Continuar?"))return;
+  const groups=new Map();
+  for(const file of selected){
+   const name=String(file.name||"").replace(/[\\/]/g,"");
+   if(!name||name==="."||name==="..")continue;
+   if(!groups.has("/"))groups.set("/",[]);
+   groups.get("/").push({file,name});
+  }
+  if(!groups.size)throw new Error("Nenhum arquivo válido foi selecionado.");
+  if(button)button.textContent="Enviando arquivos…";
   const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path:"/",runtime})});
   if(!signed.url)throw new Error("A hospedagem não retornou o endereço para envio.");
-  await uploadSignedFiles(signed.url,signed.field||"files",groups.get("/"),(loaded)=>{
-   if(status)status.textContent="Enviando arquivos selecionados: "+Math.min(100,Math.round((uploaded+loaded)/allBytes*100))+"%";
+  await uploadSignedFiles(signed.url,signed.field||"files",groups.get("/"),loaded=>{
+   if(status)status.textContent="Enviando arquivos: "+Math.min(100,Math.round(loaded/(selected.reduce((sum,file)=>sum+file.size,0)||1)*100))+"%";
   });
   await analyzeImportedBot(id,packageName,status);
  }catch(error){
@@ -1704,15 +1820,14 @@ async function uploadBotFolder(){
  if(!selected.length)return;
  const id=$("#filesBotSelect")?.value||state.activeBot;
  const packageName=safePackageName($("#fileBundleName")?.value||"meu-bot");
- const runtime=$("#fileRuntime")?.value||"python";
+ const runtimeChoice=$("#fileRuntime")?.value||"auto";
  const currentBot=state.bots.find(bot=>bot.id===id);
  const button=$("#fileFolderButton"),status=$("#fileStatus");
  if(!id)return toast("Selecione um bot antes de enviar a pasta.");
- if(currentBot?.hostingDeploymentId&&currentBot.runtime!==runtime&&
-    !window.confirm("Trocar de Python para Node.js (ou o contrário) limpa os arquivos atuais da hospedagem antes de enviar o novo pacote. Continuar?"))return;
  if(currentBot?.customProject&&
     !window.confirm("Este projeto já tem um pacote importado. Os arquivos com o mesmo nome poderão ser substituídos. Continuar?"))return;
- const ignored=new Set([".git","node_modules",".venv","venv","__pycache__",".next","vendor"]);
+ if(button){button.disabled=true;button.textContent="Analisando pasta…"}
+ const ignored=new Set([".git","node_modules",".venv","venv","__pycache__",".pytest_cache",".mypy_cache",".next","__MACOSX"]);
  const grouped=new Map();
  let skipped=0;
  for(const file of selected){
@@ -1720,37 +1835,41 @@ async function uploadBotFolder(){
   const parts=rel.split("/").filter(Boolean);
   if(parts.length>1)parts.shift();
   if(!parts.length||parts.some(part=>part===".."||part===".")){skipped++;continue}
-  if(parts.some(part=>ignored.has(part))||parts[parts.length-1]===".DS_Store"){skipped++;continue}
+  if(parts.some(part=>ignored.has(part.toLowerCase()))||parts[parts.length-1]===".DS_Store"){skipped++;continue}
   const name=parts[parts.length-1],dir="/"+parts.slice(0,-1).join("/");
   if(!grouped.has(dir))grouped.set(dir,[]);
   grouped.get(dir).push({file,name});
  }
  const groups=Array.from(grouped.entries());
- if(!groups.length)return toast("Não encontrei arquivos válidos na pasta selecionada.");
- if(button){button.disabled=true;button.textContent="Enviando pasta…"}
+ if(!groups.length){if(button){button.disabled=false;button.textContent="▣ Enviar pasta completa"}return toast("Não encontrei arquivos válidos na pasta selecionada.")}
  try{
+  const detected=await detectFilesRuntime(selected);
+  const runtime=runtimeChoice==="auto"?detected:runtimeChoice;
+  if(currentBot?.hostingDeploymentId&&currentBot.runtime!==runtime&&
+    !window.confirm("A pasta foi identificada como "+(runtime==="nodejs"?"Node.js":"Python")+". A troca de ambiente substituirá os arquivos atuais pelo projeto novo. Continuar?"))return;
+  if(button)button.textContent="Enviando pasta…";
   const allBytes=groups.reduce((sum,group)=>sum+group[1].reduce((n,item)=>n+item.file.size,0),0)||1;
   let uploaded=0;
   let deploymentReady=false;
   for(let i=0;i<groups.length;i++){
    const [path,items]=groups[i];
-   if(status)status.textContent="Preparando pasta "+(i+1)+"/"+groups.length+": "+(path||"/");
+   if(status)status.textContent="Enviando arquivos da pasta "+(i+1)+"/"+groups.length+": "+(path||"/");
    const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path:path||"/",runtime})});
    if(!signed.url)throw new Error("A hospedagem não retornou o endereço para a pasta "+path+".");
    deploymentReady=true;
-   await uploadSignedFiles(signed.url,signed.field||"files",items,(loaded)=>{
-    if(status)status.textContent="Enviando arquivos: "+Math.min(100,Math.round((uploaded+loaded)/allBytes*100))+"% · pasta "+(i+1)+"/"+groups.length;
+   await uploadSignedFiles(signed.url,signed.field||"files",items,loaded=>{
+    if(status)status.textContent="Enviando projeto: "+Math.min(100,Math.round((uploaded+loaded)/allBytes*100))+"% · "+(i+1)+"/"+groups.length+" pastas";
    });
    uploaded+=items.reduce((n,item)=>n+item.file.size,0);
   }
   if(!deploymentReady)throw new Error("Nenhum arquivo foi enviado.");
   await analyzeImportedBot(id,packageName,status);
-  if(skipped&&status)status.textContent+=" "+skipped+" arquivos/pastas de dependências ou cache foram ignorados para evitar um upload desnecessário.";
+  if(skipped&&status)status.textContent+=" "+skipped+" itens de cache/dependências locais foram ignorados; os arquivos do projeto, comandos e recursos foram mantidos.";
  }catch(error){
   toast(error.message||"Não consegui importar esta pasta.");
-  if(status)status.textContent=error.message||"Falha ao importar a pasta.";
+  if(status)status.textContent=error.message||"Falha no envio.";
  }finally{
-  if(button){button.disabled=false;button.textContent="▣ Escolher pasta completa"}
+  if(button){button.disabled=false;button.textContent="▣ Enviar pasta completa"}
   input.value="";
  }
 }
