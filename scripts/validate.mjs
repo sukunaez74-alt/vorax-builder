@@ -19,7 +19,7 @@ for (const backend of backends) check(backend);
 check("api/caos-main.js");
 const apiSource = readFileSync(backends[0], "utf8");
 const caosSource = readFileSync("api/caos-main.js", "utf8");
-const caosMain = caosSource.match(/export const CAOS_MAIN_PY = String\.raw\x60([\s\S]*?)\x60;/);
+const caosMain = caosSource.match(/export const CAOS_MAIN_PY = String\.raw`([\s\S]*?)`;/);
 if (!caosMain) throw new Error("Código-fonte do CAOS não encontrado");
 const caosFile = join(tmpdir(), "black-zone-caos-main.py");
 try {
