@@ -201,11 +201,11 @@ async function createSession(userId, env) {
 }
 async function currentUser(request, env) {
   const token = cookieMap(request).bz_session; if (!token) return null;
-  const row = await env.DB.prepare("SELECT users.id,users.name,users.username,users.email,users.role,users.discord_id FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?")
+  const row = await env.DB.prepare("SELECT users.id,users.name,users.username,users.email,users.role,users.discord_id,users.discord_username,users.discord_linked_at FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?")
     .bind(await sha(token), Date.now()).first();
   return row || null;
 }
-function publicUser(user) { return { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role, discordLinked: !!user.discord_id }; }
+function publicUser(user) { return { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role, discordLinked: !!user.discord_id, discordUsername: user.discord_username || null, discordLinkedAt: user.discord_linked_at || null }; }
 async function body(request) {
   const len = Number(request.headers.get("content-length") || 0); if (len > 30 * 1024 * 1024) throw new Error("Requisição muito grande.");
   try { return await request.json(); } catch { throw new Error("Corpo JSON inválido."); }
@@ -484,6 +484,106 @@ async function startDiscord(request, env) {
   return new Response(null, { status: 302, headers: { location: url.href, "set-cookie": setCookie("bz_oauth_state", state, 600) } });
 }
 
+async function startDiscordAccountLink(request, user, env) {
+  if (!env.DISCORD_CLIENT_ID || !env.DISCORD_CLIENT_SECRET) {
+    return { error: "O login OAuth do Discord ainda não foi configurado pelo proprietário do Estúdio.", status: 503 };
+  }
+  const state = randomToken(24);
+  await env.DB.prepare(
+    "INSERT INTO discord_link_states (state,user_id,expires_at) VALUES (?,?,?)"
+  ).bind(state, user.id, Date.now() + 10 * 60 * 1000).run();
+  const redirectUri = new URL("/api/discord/link/callback", request.url).href;
+  const authorizationUrl = new URL("https://discord.com/oauth2/authorize");
+  authorizationUrl.searchParams.set("client_id", env.DISCORD_CLIENT_ID);
+  authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("scope", "identify");
+  authorizationUrl.searchParams.set("state", state);
+  authorizationUrl.searchParams.set("prompt", "consent");
+  return {
+    authorizationUrl: authorizationUrl.href,
+    cookie: setCookie("bz_discord_link_state", state, 600)
+  };
+}
+
+async function discordAccountLinkCallback(request, env) {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  const issuer = url.searchParams.get("iss");
+  if (issuer && issuer !== "https://discord.com") {
+    return reply({ error: "O emissor OAuth retornado não corresponde ao Discord." }, 400);
+  }
+  const cookieState = cookieMap(request).bz_discord_link_state;
+  if (!code || !state || !cookieState || !same(state, cookieState)) {
+    return reply({ error: "A confirmação de segurança da vinculação expirou. Comece novamente." }, 400, {
+      "set-cookie": clearCookie("bz_discord_link_state")
+    });
+  }
+  const saved = await env.DB.prepare(
+    "SELECT user_id FROM discord_link_states WHERE state=? AND expires_at>?"
+  ).bind(state, Date.now()).first();
+  await env.DB.prepare("DELETE FROM discord_link_states WHERE state=?").bind(state).run();
+  const signedInUser = await currentUser(request, env);
+  if (!saved || !signedInUser || saved.user_id !== signedInUser.id) {
+    return reply({ error: "A sessão do Estúdio expirou ou mudou. Entre novamente e refaça a vinculação." }, 401, {
+      "set-cookie": clearCookie("bz_discord_link_state")
+    });
+  }
+
+  const redirectUri = new URL("/api/discord/link/callback", request.url).href;
+  const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+    body: new URLSearchParams({
+      client_id: env.DISCORD_CLIENT_ID,
+      client_secret: env.DISCORD_CLIENT_SECRET,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri
+    }),
+    signal: AbortSignal.timeout(12000)
+  });
+  const tokenData = await tokenResponse.json().catch(() => ({}));
+  if (!tokenResponse.ok || !tokenData.access_token) {
+    return reply({ error: "O Discord não concluiu a autorização da conta. Tente novamente." }, 401, {
+      "set-cookie": clearCookie("bz_discord_link_state")
+    });
+  }
+
+  const profileResponse = await fetch("https://discord.com/api/v10/users/@me", {
+    headers: { authorization: "Bearer " + tokenData.access_token, accept: "application/json" },
+    signal: AbortSignal.timeout(12000)
+  });
+  const profile = await profileResponse.json().catch(() => ({}));
+  if (!profileResponse.ok || !profile.id || !profile.username) {
+    return reply({ error: "Não consegui confirmar o perfil do Discord autorizado." }, 502, {
+      "set-cookie": clearCookie("bz_discord_link_state")
+    });
+  }
+
+  const conflict = await env.DB.prepare(
+    "SELECT id FROM users WHERE discord_id=? AND id<>?"
+  ).bind(String(profile.id), signedInUser.id).first();
+  if (conflict) {
+    return reply({ error: "Esta conta Discord já está vinculada a outro usuário do Estúdio." }, 409, {
+      "set-cookie": clearCookie("bz_discord_link_state")
+    });
+  }
+
+  const discordUsername = String(profile.global_name || profile.username).slice(0, 100);
+  await env.DB.prepare(
+    "UPDATE users SET discord_id=?,discord_username=?,discord_linked_at=? WHERE id=?"
+  ).bind(String(profile.id), discordUsername, Date.now(), signedInUser.id).run();
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: new URL("/?discord=linked", request.url).href,
+      "set-cookie": clearCookie("bz_discord_link_state")
+    }
+  });
+}
+
 async function claimOwner(userId, env) {
   const claimed = await env.DB.prepare("UPDATE app_state SET owner_user_id=? WHERE id='main' AND owner_user_id IS NULL RETURNING owner_user_id")
     .bind(userId).first();
@@ -514,12 +614,12 @@ async function discordCallback(request, env) {
   let user = await env.DB.prepare("SELECT * FROM users WHERE discord_id=?").bind(String(me.id)).first();
   if (!user) {
     user = await env.DB.prepare("SELECT * FROM users WHERE email=?").bind(String(me.email).toLowerCase()).first();
-    if (user) await env.DB.prepare("UPDATE users SET discord_id=? WHERE id=?").bind(String(me.id), user.id).run();
+    if (user) await env.DB.prepare("UPDATE users SET discord_id=?,discord_username=?,discord_linked_at=? WHERE id=?").bind(String(me.id), String(me.global_name || me.username || "Discord").slice(0,100), Date.now(), user.id).run();
     else {
       const username = (String(me.username || "discord").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 24) || "discord") + "_" + String(me.id).slice(-4);
       const id = randomToken(16); const pass = await hashPassword(randomToken(36)); const name = String(me.global_name || me.username || "Discord User").slice(0, 80);
-      await env.DB.prepare("INSERT INTO users (id,name,username,email,password_hash,role,discord_id,created_at) VALUES (?,?,?,?,?,?,?,?)")
-        .bind(id, name, username, String(me.email).toLowerCase(), pass, "member", String(me.id), Date.now()).run();
+      await env.DB.prepare("INSERT INTO users (id,name,username,email,password_hash,role,discord_id,discord_username,discord_linked_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
+        .bind(id, name, username, String(me.email).toLowerCase(), pass, "member", String(me.id), String(me.global_name || me.username || "Discord").slice(0,100), Date.now(), Date.now()).run();
       await claimOwner(id, env);
       user = await env.DB.prepare("SELECT * FROM users WHERE id=?").bind(id).first();
     }
@@ -565,6 +665,18 @@ export async function onRequest(context) {
     if (path === "/me" && request.method === "GET") {
       if (!(await gateOk(request, env))) return reply({ gate: false, user: null });
       const user = await currentUser(request, env); return reply({ gate: true, user: user ? publicUser(user) : null });
+    }
+    if (path === "/discord/link/start" && request.method === "GET") {
+      const required = await requireUser(request, env);
+      if (required.error) return required.error;
+      const result = await startDiscordAccountLink(request, required.user, env);
+      if (result.error) return reply({ error: result.error }, result.status);
+      return reply({ authorizationUrl: result.authorizationUrl }, 200, {
+        "set-cookie": result.cookie
+      });
+    }
+    if (path === "/discord/link/callback" && request.method === "GET") {
+      return await discordAccountLinkCallback(request, env);
     }
     if (path.startsWith("/auth/discord/") && path === "/auth/discord/start" && request.method === "GET") {
       if (!(await gateOk(request, env))) return reply({ error: "Informe a chave de entrada antes do Discord." }, 403);
@@ -1218,6 +1330,7 @@ async function ensureSchema(db) {
         "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)",
         `CREATE TABLE IF NOT EXISTS discord_states (state TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)`,
+        `CREATE TABLE IF NOT EXISTS discord_link_states (state TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at BIGINT NOT NULL)`,
         "CREATE INDEX IF NOT EXISTS idx_discord_states_expiry ON discord_states(expires_at)",
         `CREATE TABLE IF NOT EXISTS hosting_keys (
           user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -1241,6 +1354,9 @@ async function ensureSchema(db) {
         "CREATE TABLE IF NOT EXISTS hosting_connections (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,access_token_enc TEXT NOT NULL,refresh_token_enc TEXT NOT NULL,expires_at BIGINT NOT NULL,scope TEXT,updated_at BIGINT NOT NULL)"
       ];
       for (const statement of statements) await db.raw(statement);
+      await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_username TEXT");
+      await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_linked_at BIGINT");
+      await db.raw("CREATE INDEX IF NOT EXISTS idx_discord_link_states_expiry ON discord_link_states(expires_at)");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_token_enc TEXT");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_bot_id TEXT");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_bot_name TEXT");
