@@ -148,7 +148,7 @@ from discord.ext import commands, tasks
 TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 APP_URL = os.getenv("APP_URL", "https://black-zone-estudio.vercel.app").rstrip("/")
 INVITE_URL = os.getenv("SERVER_INVITE", "").strip()
-VERIFY_URL = APP_URL + "/api/verification/start"
+VERIFY_URL = INVITE_URL
 STATUS_FILE = Path("verification-status.json")
 
 def write_status(status, **extra):
@@ -185,11 +185,11 @@ async def heartbeat():
     if bot.user:
         write_status("online", botId=str(bot.user.id), botName=str(bot.user), guilds=len(bot.guilds))
 
-@bot.tree.command(name="verificar", description="Faça login para verificar sua conta e receber o convite")
+@bot.tree.command(name="verificar", description="Receba o convite do servidor")
 async def verificar(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Verificação de conta",
-        description="Entre com sua conta Discord para confirmar sua identidade. Depois da autorização, você receberá o convite para entrar no servidor.",
+        description="Use o botão abaixo para receber o convite e entrar no servidor.",
         color=discord.Color.blurple()
     )
     embed.set_footer(text="BLACK ZONE • Verificação segura")
@@ -203,7 +203,7 @@ async def verificar(interaction: discord.Interaction):
 async def painel_verificacao(interaction: discord.Interaction):
     embed = discord.Embed(
         title="Seja bem-vindo(a)! ✦",
-        description="Entre com sua conta Discord para confirmar sua identidade. Depois da autorização, você receberá o convite para entrar no servidor.",
+        description="Use o botão abaixo para receber o convite e entrar no servidor.",
         color=discord.Color.blurple()
     )
     embed.set_footer(text="BLACK ZONE • Central de verificação")
@@ -218,7 +218,7 @@ async def link_servidor(interaction: discord.Interaction):
         return
     view = discord.ui.View(timeout=None)
     view.add_item(discord.ui.Button(label="Entrar e verificar", style=discord.ButtonStyle.link, url=VERIFY_URL))
-    await interaction.response.send_message("Inicie o login Discord pelo botão abaixo para receber o convite:", view=view, ephemeral=True)
+    await interaction.response.send_message("Use o botão abaixo para entrar no servidor:", view=view, ephemeral=True)
 
 @bot.event
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
