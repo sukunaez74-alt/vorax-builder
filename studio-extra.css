@@ -48,3 +48,13 @@
  .shell-command-row{flex-direction:column}
  .backup-entry{align-items:flex-start;flex-wrap:wrap}.backup-actions{width:100%}.backup-actions .btn{flex:1}
 }
+
+
+.token-saved-card{display:grid;gap:6px;padding:12px 13px;border:1px solid #3f7f67;border-radius:10px;background:linear-gradient(110deg,#0c251f,#101b27);color:#d9fbea}
+.token-saved-card strong{font:800 8px 'Manrope',sans-serif;letter-spacing:.15em;color:#a9c9bc}
+.token-saved-card code{display:inline-block;width:max-content;max-width:100%;padding:6px 10px;border:1px solid #35634f;border-radius:7px;background:#071812;color:#82e4b5;font:800 13px ui-monospace,monospace;letter-spacing:.18em}
+.token-saved-card small{color:#91b9a6;font-size:9px;line-height:1.65}
+.token-saved-indicator{display:flex;align-items:center;gap:7px;color:#82e4b5;font:900 8px 'Manrope',sans-serif;letter-spacing:.12em}
+.token-saved-indicator i{width:7px;height:7px;border-radius:50%;background:#55e59a;box-shadow:0 0 10px #55e59a99}
+.token-empty-indicator{color:#ffc978;font:900 8px 'Manrope',sans-serif;letter-spacing:.12em}
+.token-saved-card.token-not-saved{border-color:#7b542b;background:linear-gradient(110deg,#291c0c,#171b25)}
