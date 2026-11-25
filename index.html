@@ -1219,16 +1219,56 @@ async function openBot(id){
  };
  const runPower=async(action)=>{
    const btn=$("#bot"+(action==="start"?"Start":action==="stop"?"Stop":"Restart"));
-   if(btn){btn.disabled=true;btn.textContent=action==="start"?"Iniciando...":action==="stop"?"Parando...":"Reiniciando...";}
+   const original=btn?.textContent||"";
+   if(btn){btn.disabled=true;btn.textContent=action==="start"?"Preparando CAOS…":action==="stop"?"Parando…":"Reiniciando…";}
    try{
-     const result=await api("/bots/"+encodeURIComponent(id)+"/power",{method:"POST",body:JSON.stringify({action})});
+     await api("/bots/"+encodeURIComponent(id)+"/power",{method:"POST",body:JSON.stringify({action})});
+     if(action==="stop"){
+       await loadBots();
+       toast("Processo parado na hospedagem.");
+       await openBot(id);
+       return;
+     }
+
+     toast("Preparação enviada. Instalando dependências, conectando ao Discord e publicando os comandos.");
+     let latest=null;
+     const deadline=Date.now()+240000;
+     for(let attempt=0;attempt<48&&Date.now()<deadline;attempt++){
+       if(btn){
+         btn.textContent=latest?.runtimeInfo?.installing||latest?.state==="installing"?"Instalando dependências…":
+           latest?.discordStatus?.status==="online"?"Conferindo comandos…":"Conectando ao Discord…";
+       }
+       await new Promise(resolve=>setTimeout(resolve,5000));
+       latest=await api("/bots/"+encodeURIComponent(id));
+       const current=state.bots.find(x=>x.id===id);
+       if(current)Object.assign(current,latest);
+       if(latest.discordOnline===true)break;
+       const status=latest.discordStatus?.status;
+       if(["token_error","intents_error","error"].includes(status))break;
+       const errors=Array.isArray(latest.discordStatus?.commandSyncErrors)?latest.discordStatus.commandSyncErrors:[];
+       if(errors.length)break;
+       if(["offline","stopped"].includes(String(latest.state||"").toLowerCase())&&!latest.runtimeInfo?.installing&&attempt>=3)break;
+     }
+
      await loadBots();
-     if(action==="stop")toast("Processo parado na hospedagem.");
-     else if(result.discordOnline)toast("CAOS confirmou o login e está online no Discord.");
-     else if(result.state==="running")toast("Container ligado, mas o Discord ainda não confirmou o login. Consulte o terminal.");
-     else toast("Solicitação enviada. Confira o estado e os logs da hospedagem.");
+     if(latest?.discordOnline){
+       toast("CAOS está online no Discord e os comandos foram publicados.");
+     }else if(latest?.discordStatus?.status==="token_error"){
+       toast("O Discord recusou o Bot Token. Abra os logs e confira a credencial.");
+     }else if(latest?.discordStatus?.status==="intents_error"){
+       toast("Ative Server Members Intent e Message Content Intent no Developer Portal.");
+     }else if(Array.isArray(latest?.discordStatus?.commandSyncErrors)&&latest.discordStatus.commandSyncErrors.length){
+       toast("O bot conectou, mas houve erro ao publicar os comandos. Confira o diagnóstico.");
+     }else if(latest?.state==="running"){
+       toast("O container continua ativo. O Discord ainda não confirmou a conexão; confira os logs.");
+     }else{
+       toast("A inicialização ainda não foi confirmada. Abra os logs para ver a etapa que falhou.");
+     }
      await openBot(id);
-   }catch(e){toast(e.message);if(btn){btn.disabled=false;btn.textContent=action==="start"?"▶ Iniciar":action==="stop"?"■ Parar":"↻ Reiniciar";}}
+   }catch(e){
+     toast(e.message);
+     if(btn){btn.disabled=false;btn.textContent=original||"▶ Iniciar";}
+   }
  };
  if($("#botStart"))$("#botStart").onclick=()=>runPower("start");
  if($("#botStop"))$("#botStop").onclick=()=>runPower("stop");
