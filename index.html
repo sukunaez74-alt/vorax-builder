@@ -893,7 +893,7 @@ function filesView(){
     '<button class="btn" id="fileUploadButton">⇧ Escolha um ZIP</button>'+
     '<input id="fileUploadInput" type="file" hidden accept=".zip,application/zip,application/x-zip-compressed">'+
    '</div>'+
-   '<div class="project-note">Limite de envio do painel: <strong>5.000 KB por ZIP</strong>.</div>'+
+   '<div class="project-note">Limite de envio do painel: <strong>25.000 KB (25 MB) por ZIP</strong>.</div>'+
     '<div id="fileStatus" class="project-note file-import-status">'+escapeHtml(summary)+'</div>'+
   '</section>';
 }
@@ -2066,8 +2066,8 @@ async function uploadBotFile(){
  let completed=false;
  if(!id)return toast("Selecione um bot antes de enviar o pacote.");
  if(!/\.zip$/i.test(file.name))return toast("Escolha um arquivo .ZIP para importar o projeto completo.");
- const maxZipBytes=5000*1024;
- if(file.size>maxZipBytes)return toast("Este ZIP tem "+Math.ceil(file.size/1024).toLocaleString("pt-BR")+" KB. O limite configurado no painel é 5.000 KB.");
+ const maxZipBytes=25*1024*1024;
+ if(file.size>maxZipBytes)return toast("Este ZIP tem "+Math.ceil(file.size/1024).toLocaleString("pt-BR")+" KB. O limite configurado no painel é 25.000 KB (25 MB).");
  if(button){button.disabled=true;button.textContent="Analisando ZIP…"}
  try{
   if(status)status.textContent="Lendo o índice do ZIP e procurando package.json, requirements.txt e o arquivo principal…";
