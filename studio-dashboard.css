@@ -665,3 +665,96 @@
   min-width:175px;
   max-width:230px;
 }
+
+
+/* Two creation paths: studio bot or user-owned project */
+#app:not(.admin-portal) .project-type-heading{
+  display:grid;
+  gap:4px;
+  margin:18px 0 10px;
+}
+#app:not(.admin-portal) .project-type-heading b{
+  color:#eee7ff;
+  font:800 13px 'Manrope',sans-serif;
+}
+#app:not(.admin-portal) .project-type-heading span{
+  color:#a99bb9;
+  font-size:10px;
+}
+#app:not(.admin-portal) .project-type-choices{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+}
+#app:not(.admin-portal) .project-type-option{
+  position:relative;
+  display:block;
+  cursor:pointer;
+}
+#app:not(.admin-portal) .project-type-option>input{
+  position:absolute;
+  opacity:0;
+  pointer-events:none;
+}
+#app:not(.admin-portal) .project-type-card{
+  height:100%;
+  min-height:142px;
+  display:flex;
+  flex-direction:column;
+  gap:9px;
+  padding:15px;
+  border:1px solid #51406d;
+  border-radius:13px;
+  background:linear-gradient(145deg,#1a1427,#10101d);
+  transition:border-color .18s,background .18s,transform .18s;
+}
+#app:not(.admin-portal) .project-type-card b{
+  color:#f3eaff;
+  font:800 12px 'Manrope',sans-serif;
+}
+#app:not(.admin-portal) .project-type-card small{
+  color:#b5a9c5;
+  font-size:10px;
+  line-height:1.65;
+}
+#app:not(.admin-portal) .project-type-card em{
+  margin-top:auto;
+  color:#d0b0ff;
+  font-size:9px;
+  font-style:normal;
+  font-weight:800;
+}
+#app:not(.admin-portal) .project-type-option>input:checked+.project-type-card{
+  border-color:#a779e8;
+  background:linear-gradient(145deg,#2a1d40,#151426);
+  box-shadow:0 0 0 2px #9869d826,0 10px 28px #0003;
+}
+#app:not(.admin-portal) .project-type-option:hover .project-type-card{
+  transform:translateY(-2px);
+  border-color:#9874b8;
+}
+#app:not(.admin-portal) .custom-project-setup{
+  display:grid;
+  gap:12px;
+  margin-top:13px;
+}
+#app:not(.admin-portal) .custom-project-setup[hidden],
+#app:not(.admin-portal) #standardProjectSetup[hidden]{
+  display:none!important;
+}
+#app:not(.admin-portal) .custom-project-setup .project-note{
+  line-height:1.75;
+}
+#app:not(.admin-portal) .pill-running{
+  color:#c7e9ff;
+  border-color:#5798cb66;
+  background:#17324a;
+}
+#app:not(.admin-portal) .pill-running i{
+  background:#70c8ff;
+  box-shadow:0 0 10px #70c8ff90;
+}
+@media(max-width:640px){
+ #app:not(.admin-portal) .project-type-choices{grid-template-columns:1fr}
+ #app:not(.admin-portal) .project-type-card{min-height:118px}
+}
