@@ -1787,7 +1787,8 @@ export async function onRequest(context) {
           } catch (error) {
             runtimeInfo = { error: error.message };
           }
-          discordStatus = await readDiscordRuntimeStatus(user.id, env, bot.hosting_deployment_id);
+          const customProjectMode = bot.project_type === "custom" || !!bot.custom_project;
+          discordStatus = customProjectMode ? null : await readDiscordRuntimeStatus(user.id, env, bot.hosting_deployment_id);
         }
         const scheduleAllowed = !bot.schedule_enabled ||
           isInsideSchedule(bot.schedule_start || "00:00", bot.schedule_end || "23:59", bot.schedule_timezone || "America/Bahia");
@@ -1864,7 +1865,8 @@ export async function onRequest(context) {
           }
           if (!deploymentId) return reply({ error: "Este bot ainda não tem um servidor de execução." }, 409);
 
-          if (signal !== "stop") {
+          const customProjectMode = bot.project_type === "custom" || !!bot.custom_project;
+          if (signal !== "stop" && !customProjectMode) {
             await hostRequest(
               user.id, env,
               "/deployments/" + encodeURIComponent(deploymentId) + "/files/content",
@@ -1921,7 +1923,7 @@ export async function onRequest(context) {
           await env.DB.prepare("UPDATE bots SET state=?,hosting_deployment_id=?,updated_at=? WHERE id=? AND user_id=?")
             .bind(actualState, deploymentId, Date.now(), id, user.id).run();
 
-          const discordStatus = signal === "stop"
+          const discordStatus = signal === "stop" || customProjectMode
             ? null
             : await readDiscordRuntimeStatus(user.id, env, deploymentId);
           const scheduleAllowed = !bot.schedule_enabled ||
