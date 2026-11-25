@@ -2200,7 +2200,7 @@ export async function onRequest(context) {
                   runtimeVersion: requestedRuntime === "nodejs" ? "22" : "3.11"
                 });
               } catch (createError) {
-                if (/HTTP 402\\b/.test(String(createError?.message || ""))) {
+                if (/HTTP 402\b/.test(String(createError?.message || ""))) {
                   return reply({
                     code: "hosting_capacity_full",
                     error: "O plano da sua conta Bot-Hosting está sem vagas livres. O bot central do ADM já tem uma implantação vinculada e o provedor recusou a criação de outro servidor. Seu ZIP não foi enviado nem alterado. Para manter os dois bots ativos, libere uma vaga adicional no Bot-Hosting ou altere o plano."
