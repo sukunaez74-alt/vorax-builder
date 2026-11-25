@@ -660,3 +660,8 @@
  #app:not(.admin-portal) .file-import-actions .btn{width:100%;min-width:0}
  #app:not(.admin-portal) .file-import-hint{min-width:0}
 }
+
+#app:not(.admin-portal) .file-runtime-choice{
+  min-width:175px;
+  max-width:230px;
+}
