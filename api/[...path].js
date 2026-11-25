@@ -864,21 +864,23 @@ export async function onRequest(context) {
       const ownedBot = await env.DB.prepare(
         "SELECT id,discord_token_enc,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
       ).bind(id, user.id).first();
-      if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta. Atualize a lista de bots." }, 404);
+      if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
 
+      // Backward-compatible: older clients may still send a token together
+      // with modules. New clients save the token through /bot-token separately.
       const newToken = String(b.discordToken || "").trim();
       let tokenResult = null;
       if (newToken) {
         tokenResult = await saveDiscordBotToken(id, user.id, newToken, env);
         if (!tokenResult.ok) return reply({ error: tokenResult.error }, tokenResult.status);
-      } else {
-        if (!ownedBot.discord_token_enc) {
-          return reply({ error: "Informe o Bot Token do Discord e clique em Salvar alterações." }, 400);
-        }
+      } else if (ownedBot.discord_token_enc) {
+        // A blank token means "leave unchanged", not "delete".
         let existingToken = null;
         try { existingToken = await decryptSecret(ownedBot.discord_token_enc, env); } catch {}
         if (!existingToken) {
-          return reply({ error: "O token antigo não pode ser aberto com a chave de criptografia atual. Cole um Bot Token novo e salve novamente." }, 409);
+          return reply({
+            error: "O token já registrado não pode ser aberto com a chave de criptografia atual. Salve um Bot Token novo antes de continuar."
+          }, 409);
         }
       }
 
@@ -892,26 +894,33 @@ export async function onRequest(context) {
       const confirmed = await env.DB.prepare(
         "SELECT discord_token_enc,modules,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
       ).bind(id, user.id).first();
-      if (!confirmed?.discord_token_enc) {
-        return reply({ error: "As opções foram enviadas, mas a confirmação final não encontrou um Bot Token salvo." }, 500);
+      const tokenStored = !!confirmed?.discord_token_enc;
+      if (tokenStored) {
+        let roundTrip = null;
+        try { roundTrip = await decryptSecret(confirmed.discord_token_enc, env); } catch {}
+        if (!roundTrip) {
+          return reply({
+            error: "Os módulos foram enviados, mas a integridade do token guardado não pôde ser confirmada. Salve um Bot Token novo."
+          }, 409);
+        }
       }
-      let verifiedToken = null;
-      try { verifiedToken = await decryptSecret(confirmed.discord_token_enc, env); } catch {}
-      if (!verifiedToken) {
-        return reply({ error: "O token está registrado, mas a verificação criptográfica falhou. Salve um Bot Token novo." }, 409);
-      }
-      const savedModules = typeof confirmed.modules === "string" ? JSON.parse(confirmed.modules || "{}") : (confirmed.modules || {});
+
+      const savedModules = typeof confirmed?.modules === "string"
+        ? JSON.parse(confirmed.modules || "{}")
+        : (confirmed?.modules || {});
       return reply({
         ok: true,
-        tokenStored: true,
-        hasDiscordToken: true,
+        tokenStored,
+        hasDiscordToken: tokenStored,
         tokenUpdated: !!tokenResult?.tokenUpdated,
         modules: savedModules,
-        discordBotId: confirmed.discord_bot_id || tokenResult?.discordBotId || null,
-        discordBotName: confirmed.discord_bot_name || tokenResult?.discordBotName || null,
+        discordBotId: confirmed?.discord_bot_id || tokenResult?.discordBotId || null,
+        discordBotName: confirmed?.discord_bot_name || tokenResult?.discordBotName || null,
         message: tokenResult?.tokenUpdated
-          ? "Token validado, criptografado e confirmado; módulos salvos."
-          : "Módulos salvos e token anterior mantido e confirmado."
+          ? "Token validado e salvo; módulos atualizados."
+          : (tokenStored
+            ? "Módulos salvos; o token anterior foi mantido."
+            : "Módulos salvos. Nenhum token foi alterado.")
       });
     }
 
