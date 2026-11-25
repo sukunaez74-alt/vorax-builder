@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#090b20">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <meta name="description" content="ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio é um painel em português para organizar projetos e bots de Discord, configurar módulos e acompanhar a preparação das suas aplicações.">
 <meta name="robots" content="index, follow, max-image-preview:large">
 <link rel="canonical" href="https://black-zone-estudio.vercel.app/">
@@ -79,6 +80,21 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
 .project-note{padding:16px;border-radius:15px;border:1px solid #8f87cf36;background:linear-gradient(110deg,#8370ff16,#4bd1e910);color:#c8c9ed;font-size:12px;line-height:1.65}
 .project-note strong{color:#eeeaff}
 @media(max-width:420px){.auth-card,#gateScreen .auth-card{padding:25px}.public-seo{margin-top:20px;padding-top:15px}}
+ 
+.public-showcase{width:min(1040px,100%);padding:20px 0 12px;display:grid;gap:18px}
+.showcase-heading{max-width:760px;text-align:center;margin:4px auto 0}
+.showcase-heading h2{font-size:clamp(24px,4vw,36px);letter-spacing:-.045em;line-height:1.12;margin:9px 0;color:#f4f1ff}
+.showcase-heading p{max-width:660px;margin:0 auto;color:#aeb4d6;font-size:13px;line-height:1.75}
+.showcase-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+.showcase-card{padding:20px;border:1px solid #a69aff25;border-radius:19px;background:linear-gradient(145deg,#1b2046d9,#10152fdf);box-shadow:inset 0 1px 0 #ffffff08}
+.showcase-icon{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(140deg,#9277ff35,#59d6ec1c);color:#d8d0ff;font-size:20px}
+.showcase-card h3{font-size:14px;margin:14px 0 6px}
+.showcase-card p{font-size:11px;line-height:1.7;color:#a3a9cb;margin:0}
+.showcase-bottom{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:15px 18px;border-radius:17px;border:1px solid #a69aff20;background:#111631a8}
+.showcase-bottom strong,.showcase-bottom span:not(.pill){display:block}
+.showcase-bottom strong{font-size:12px;color:#e9e5ff}
+.showcase-bottom span:not(.pill){font-size:10px;color:#a7aed0;margin-top:3px}
+@media(max-width:700px){.public-showcase{padding-top:8px}.showcase-grid{grid-template-columns:1fr}.showcase-card{padding:16px}.showcase-bottom{align-items:flex-start;flex-direction:column}.showcase-heading{text-align:left}.showcase-heading p{margin:0}}
 </style></head>
 <body>
 <section id="gateScreen">
@@ -93,9 +109,39 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}.hidden{display:
    <p>Uma central web para organizar projetos de bots, escolher módulos, acompanhar a preparação das aplicações e manter as configurações reunidas em um só lugar.</p>
    <div class="pill-row"><span class="pill">Projetos Discord</span><span class="pill">Módulos CAOS</span><span class="pill">Painel em português</span></div>
   </div>
-  <div class="auth-links"><span class="muted">Área privada • acesso protegido</span><span class="muted">v1.1</span></div>
+  <div class="auth-links"><span class="muted">Área privada • acesso protegido</span><span class="muted">v1.2</span></div>
  </div>
+ </div>
+ <section class="public-showcase" aria-labelledby="public-title">
+  <div class="showcase-heading">
+   <div class="caps">UM ESPAÇO PARA CONSTRUIR</div>
+   <h2 id="public-title">Seus projetos Discord, organizados em um só estúdio.</h2>
+   <p>O ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio reúne a configuração dos seus projetos em um painel simples, com identidade visual própria e foco em organização.</p>
+  </div>
+  <div class="showcase-grid">
+   <article class="showcase-card">
+    <div class="showcase-icon">✦</div>
+    <h3>Workspace de projetos</h3>
+    <p>Crie projetos Python ou Node.js, mantenha seus dados organizados e volte às configurações quando precisar.</p>
+   </article>
+   <article class="showcase-card">
+    <div class="showcase-icon">⌘</div>
+    <h3>Módulos sob seu controle</h3>
+    <p>Escolha somente os recursos que seu código utiliza, como tickets, música, equipe, metas e registros.</p>
+   </article>
+   <article class="showcase-card">
+    <div class="showcase-icon">◈</div>
+    <h3>Credenciais protegidas</h3>
+    <p>O token de cada bot é validado com o Discord e guardado criptografado no servidor, sem reaparecer na tela.</p>
+   </article>
+  </div>
+  <div class="showcase-bottom">
+   <div><strong>Preparado para seus próximos projetos.</strong><span>Um painel em português para administrar suas configurações com clareza.</span></div>
+   <div class="pill-row"><span class="pill">Discord</span><span class="pill">Python</span><span class="pill">Node.js</span><span class="pill">CAOS</span></div>
+  </div>
+ </section>
 </section>
+
 <section id="authScreen" class="hidden">
  <div class="auth-card">
   <div class="brand"><div class="brand-mark">✦</div><div class="brand-name">ʙʟᴀᴄᴋ ᴢᴏɴᴇ<br><span class="caps">ESTÚDIO</span></div></div>
