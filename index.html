@@ -849,6 +849,7 @@ function logsView(){
 }function backupsView(){
  const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
  if(!bot)return pageHead("Backups e restauração","Nenhum bot cadastrado.")+'<div class="dashboard-empty">Crie um bot para usar esta área.</div>';
+ if(bot.hostingProvider==="discloud")return pageHead("Backups e restauração","A hospedagem atual é Discloud.")+'<div class="dashboard-empty">Use o <a href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer">Dashboard da Discloud</a> para consultar e criar backups desta aplicação. O Estúdio não chama o backup do Bot-Hosting para uma aplicação hospedada na Discloud.</div>';
  if(!bot.hostingDeploymentId)return pageHead("Backups e restauração","Exporte uma cópia quando a hospedagem estiver preparada.")+'<div class="dashboard-empty">Prepare a hospedagem deste bot primeiro.</div>';
  return pageHead("Backups e restauração","Crie um ZIP para baixar ao seu computador ou restaure um ponto automático do Bot-Hosting.")+
  '<section class="dashboard-panel"><div class="backup-toolbar"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="backup-toolbar-actions"><button class="btn" id="backupManualCreate">↓ Criar e baixar ZIP</button><button class="btn secondary" id="backupRefresh">↻ Atualizar pontos</button></div></div><div id="backupStatus" class="project-note">O ZIP manual é uma cópia dos arquivos atuais. Os pontos de restauração automáticos são fornecidos pelo Bot-Hosting.</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Consultando pontos de restauração…</div></div></section>';
@@ -947,21 +948,21 @@ function verificationAdminView(){
 async function loadDiscloudHostingState(){
  const node=$("#settingsDiscloudState");
  if(!node)return;
- node.innerHTML="<strong>Consultando conexão…</strong><br>Validando a conta Discloud.";
+ node.innerHTML="<strong>Consultando provedores do pool…</strong><br>Verificando conexões e limites da conta.";
  try{
-  const r=await api("/hosting/discloud/status");
-  if(r.connected&&r.valid){
-   node.innerHTML="<strong>Discloud conectada e validada.</strong><br>Conta: "+escapeHtml(r.accountLabel||"Conta Discloud")+" · Plano: "+escapeHtml(r.plan||"não informado")+(r.appsCount!==null&&r.appsCount!==undefined?" · Aplicações: "+Number(r.appsCount):"")+".";
-   node.classList.remove("changes-pending");
-  }else if(r.connected){
-   node.innerHTML="<strong>A chave Discloud precisa ser atualizada.</strong><br>"+escapeHtml(r.error||"Validação pendente.");
-   node.classList.add("changes-pending");
-  }else{
-   node.innerHTML="<strong>Discloud ainda não conectada.</strong><br>Adicione a API Key para registrar esse provedor no pool.";
-   node.classList.add("changes-pending");
-  }
+  const result=await api("/hosting/pool/status");
+  const providers=Array.isArray(result.providers)?result.providers:[];
+  const primary=providers.find(provider=>provider.id==="bot-hosting")||{};
+  const backup=providers.find(provider=>provider.id==="discloud")||{};
+  const primaryText=primary.connected?(primary.canCreate?"Bot-Hosting conectado e autorizado":"Bot-Hosting conectado; permissão de criação pendente"):"Bot-Hosting não conectado";
+  const backupText=backup.valid
+   ? "Discloud validada · "+escapeHtml(backup.accountLabel||"Conta conectada")+" · plano "+escapeHtml(backup.plan||"não informado")+" · "+Number(backup.appsCount||0)+" aplicação(ões) · "+Number(backup.ramUsedMb||0)+"/"+Number(backup.totalRamMb||0)+" MB RAM"
+   : (backup.connected?"Discloud conectada, mas a API Key precisa ser atualizada":"Discloud ainda não conectada");
+  node.innerHTML="<strong>"+escapeHtml(primaryText)+"</strong><br>"+backupText+
+   "<br><small>Ao enviar um ZIP, o Estúdio tenta o Bot-Hosting primeiro e usa a Discloud quando a primeira hospedagem recusa por capacidade. Cada provedor mantém seu próprio limite.</small>";
+  node.classList.toggle("changes-pending",!backup.valid);
  }catch(error){
-  node.innerHTML="<strong>Não consegui consultar a Discloud.</strong><br>"+escapeHtml(error.message||"Falha de conexão.");
+  node.innerHTML="<strong>Não consegui consultar o pool.</strong><br>"+escapeHtml(error.message||"Falha de conexão.");
   node.classList.add("changes-pending");
  }
 }
@@ -1566,6 +1567,11 @@ async function loadFiles(botId,path){
  const status=$("#fileStatus"),list=$("#fileEntries");
  const selectedBot=state.bots.find(bot=>bot.id===id);
  if(selectedBot?.projectType!=="custom")return;
+ if(selectedBot?.hostingProvider==="discloud"&&selectedBot?.providerAppId){
+  if(status)status.textContent="Este projeto está hospedado na Discloud. O envio de ZIP, inicialização, parada e logs são controlados pelo Estúdio; a API pública da Discloud não oferece a mesma navegação de arquivos do Bot-Hosting. Use o Dashboard da Discloud para explorar ou editar arquivos.";
+  if(list)list.innerHTML='<div class="dashboard-empty">Gerenciamento detalhado de arquivos: <a href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer">abrir Dashboard Discloud ↗</a></div>';
+  return;
+ }
  if(!selectedBot?.hostingDeploymentId){
   if(status)status.textContent="O servidor ainda não foi criado. Escolha um ZIP ou envie uma pasta completa para preparar a hospedagem automaticamente.";
   if(list)list.innerHTML='<div class="dashboard-empty">Os arquivos do projeto aparecerão aqui depois da importação.</div>';
