@@ -2176,11 +2176,40 @@ export async function onRequest(context) {
               return reply({ code: "hosting_scope_missing", error: "A autorização do Bot-Hosting precisa liberar criação e envio de arquivos. Reconecte a hospedagem nas Configurações." }, 403);
             }
             const safeName = ("black-zone-" + String(bot.name || "bot").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + String(bot.id).slice(0, 5)).replace(/-+/g, "-");
-            const created = await hostRequest(user.id, env, "/deployments", "POST", {
-              name: safeName, source: "blank", runtime: requestedRuntime,
-              runtimeVersion: requestedRuntime === "nodejs" ? "22" : "3.11"
-            });
-            deploymentId = String((created.deployment || created).id || "");
+
+            // Recover a deployment created by an earlier attempt for this exact bot.
+            // This avoids consuming another plan slot when the first request succeeded
+            // at the provider but the browser/session did not finish the import.
+            let recovered = null;
+            try {
+              const existing = await hostRequest(user.id, env, "/deployments?name=" + encodeURIComponent(safeName) + "&brief=true");
+              const matches = Array.isArray(existing.deployments) ? existing.deployments : [];
+              recovered = matches.find(item =>
+                item && item.name === safeName && item.owned !== false && item.id &&
+                String(item.runtime || "").toLowerCase() === requestedRuntime
+              ) || null;
+            } catch {}
+
+            if (recovered) {
+              deploymentId = String(recovered.id);
+            } else {
+              let created;
+              try {
+                created = await hostRequest(user.id, env, "/deployments", "POST", {
+                  name: safeName, source: "blank", runtime: requestedRuntime,
+                  runtimeVersion: requestedRuntime === "nodejs" ? "22" : "3.11"
+                });
+              } catch (createError) {
+                if (/HTTP 402\\b/.test(String(createError?.message || ""))) {
+                  return reply({
+                    code: "hosting_capacity_full",
+                    error: "O plano da sua conta Bot-Hosting está sem vagas livres. O bot central do ADM já tem uma implantação vinculada e o provedor recusou a criação de outro servidor. Seu ZIP não foi enviado nem alterado. Para manter os dois bots ativos, libere uma vaga adicional no Bot-Hosting ou altere o plano."
+                  }, 402);
+                }
+                throw createError;
+              }
+              deploymentId = String((created.deployment || created).id || "");
+            }
             if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID do servidor para receber arquivos.");
             await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,runtime=?,project_type='custom',state='draft',updated_at=? WHERE id=? AND user_id=?")
               .bind(deploymentId, requestedRuntime, Date.now(), id, user.id).run();
