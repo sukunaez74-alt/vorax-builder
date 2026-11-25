@@ -2770,7 +2770,8 @@ export async function onRequest(context) {
           const zip = new JSZip();
           let totalBytes = 0;
           for (const item of items) {
-            const filePath = safeVolumePath(item);
+            const rawPath = String(item || "");
+            const filePath = safeVolumePath(rawPath.startsWith("/") ? rawPath : (root === "/" ? "/" + rawPath : root + "/" + rawPath));
             const content = await squareCloudRequest(token, "/apps/" + encodeURIComponent(squareAppId(bot.provider_app_id)) + "/files/content?path=" + encodeURIComponent(filePath) + "&encoding=base64");
             if (!content?.data) continue;
             const binary = atob(content.data);
