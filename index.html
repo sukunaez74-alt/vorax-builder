@@ -629,6 +629,7 @@ async function openBot(id){
  try{b={...b,...await api("/bots/"+encodeURIComponent(id))};}catch(e){toast(e.message);}
  state.activeBot=id;
  const enabled=Object.values(b.modules||{}).filter(Boolean).length;
+ try{const hostStatus=await api("/hosting/status");state.hosting=!!hostStatus.connected;}catch{state.hosting=false;}
  const connected=!!state.hosting;
  const botId=b.discordBotId||null;
  const invite=botId?"https://discord.com/oauth2/authorize?client_id="+encodeURIComponent(botId)+"&permissions=288484432&scope=bot%20applications.commands":"";
@@ -674,8 +675,9 @@ async function openBot(id){
      const result=await api("/bots/"+encodeURIComponent(id)+"/power",{method:"POST",body:JSON.stringify({action})});
      await loadBots();
      if(action==="stop")toast("Servidor parado.");
+     else if(result.scheduled&&!result.botOnlineNow)toast("Supervisor iniciado. O bot ficará offline até o horário configurado.");
      else if(result.commandsSynced)toast("Bot iniciado. Comandos do Discord sincronizados.");
-     else toast("Servidor iniciado. Confira os logs enquanto o Discord registra os comandos.");
+     else toast("Bot iniciado. Confira os logs enquanto o Discord registra os comandos.");
      await openBot(id);
    }catch(e){toast(e.message);if(btn){btn.disabled=false;btn.textContent=action==="start"?"▶ Iniciar":action==="stop"?"■ Parar":"↻ Reiniciar";}}
  };
