@@ -98,7 +98,7 @@ async function hostRequest(userId, env, path, method = "GET", data = null) {
     body: data ? JSON.stringify(data) : undefined
   });
   const text = await response.text(); let parsed; try { parsed = JSON.parse(text); } catch { parsed = { error: text.slice(0, 600) }; }
-  if (!response.ok) throw new Error(parsed.error || parsed.message || ("Bot-Hosting retornou HTTP " + response.status));
+  if (!response.ok) throw new Error(parsed.error || parsed.message || parsed.detail || ("Bot-Hosting retornou HTTP " + response.status) + (parsed.hint ? " — " + parsed.hint : ""));
   return parsed;
 }
 async function startDiscord(request, env) {
@@ -148,6 +148,9 @@ async function discordCallback(request, env) {
 }
 export async function onRequest(context) {
   const { request, env } = context; const url = new URL(request.url); const path = url.pathname.replace(/^\/api/, "") || "/";
+  if (path === "/health" && request.method === "GET") {
+    return reply({ ok: true, service: "black-zone-estudio", databaseConfigured: !!env.DB, secretsConfigured: { gate: !!env.APP_GATE_PHRASE, session: !!env.APP_SESSION_SECRET, encryption: !!env.APP_ENCRYPTION_KEY, discordOAuth: !!(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET) } });
+  }
   if (!env.DB) return reply({ error: "Banco D1 não está vinculado. Crie o banco e adicione o binding DB no Pages." }, 503);
   try {
     if (path === "/gate" && request.method === "POST") {
@@ -196,7 +199,7 @@ export async function onRequest(context) {
     }
     if (path === "/settings/hosting" && request.method === "POST") {
       const b = await body(request); const key = String(b.apiKey || "").trim();
-      if (!/^bhk_[A-Za-z0-9_-]{20,}$/.test(key)) return reply({ error: "A chave informada não parece ser uma chave Bot-Hosting válida." }, 400);
+      if (!/^bhk_[A-Za-z0-9_-]{1,200}$/.test(key)) return reply({ error: "A chave deve começar com bhk_ e conter apenas letras, números, _ ou -." }, 400);
       const check = await fetch(HOST + "/deployments?brief=true", { headers: { authorization: "Bearer " + key } });
       const data = await check.json(); if (!check.ok) return reply({ error: data.error || "A chave foi recusada ou não tem o escopo deployments:read." }, 400);
       const encrypted = await encryptSecret(key, env);
@@ -244,7 +247,7 @@ export async function onRequest(context) {
         const modules = {}; for (const key of allowed) modules[key] = !!(b.modules && b.modules[key]);
         await hostRequest(user.id, env, "/deployments/" + id + "/env", "POST", { key: "DISCORD_TOKEN", value: token, secret: true });
         await hostRequest(user.id, env, "/deployments/" + id + "/env", "POST", { key: "CAOS_MODULES", value: JSON.stringify(modules), secret: false });
-        return reply({ ok: true, note: "Segredos e seleções salvos. O código CAOS precisa ler CAOS_MODULES para aplicar os módulos." });
+        return reply({ ok: true, restartRequired: true, note: "Segredos e seleções foram salvos. Reinicie o bot para aplicar as variáveis de ambiente." });
       }
     }
     return reply({ error: "Rota não encontrada." }, 404);
