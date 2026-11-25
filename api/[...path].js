@@ -1054,7 +1054,7 @@ async function scanImportedProject(userId, env, deploymentId) {
     if (item.path === "/") rootEntries = entries;
     for (const e of entries) {
       const name = String(e?.name || "");
-      if (!name || name === "." || name === ".." || name === ".DS_Store") continue;
+      if (!name || name === "." || name === ".." || name === ".DS_Store" || name.startsWith("._")) continue;
       const full = safeVolumePath((item.path === "/" ? "" : item.path) + "/" + name);
       const type = String(e?.type || "").toLowerCase();
       if (type === "directory" || type === "folder" || type === "dir") {
@@ -1070,7 +1070,7 @@ async function scanImportedProject(userId, env, deploymentId) {
     throw new Error("O projeto tem mais de 12.000 arquivos ou pastas profundas demais para a análise automática. Remova caches e dependências já instaladas (node_modules, .venv e __pycache__) e envie novamente.");
   }
 
-  const rootFiles = rootEntries.filter(e => String(e?.type || "").toLowerCase() === "file");
+  const rootFiles = rootEntries.filter(e => String(e?.type || "").toLowerCase() === "file" && String(e?.name || "") !== ".DS_Store" && !String(e?.name || "").startsWith("._"));
   const rootDirs = rootEntries.filter(e => {
     const type = String(e?.type || "").toLowerCase();
     return (type === "directory" || type === "folder" || type === "dir") && !ignored.has(String(e.name || "").toLowerCase());
