@@ -375,7 +375,7 @@ ENABLED = os.getenv("CAOS_SCHEDULE_ENABLED", "0") == "1"
 START = os.getenv("CAOS_SCHEDULE_START", "00:00")
 END = os.getenv("CAOS_SCHEDULE_END", "23:59")
 STATUS = Path("caos-status.json")
-FATAL_STATUSES = {"token_error", "intents_error", "token_missing"}
+FATAL_STATUSES = {"token_error", "intents_error", "token_missing", "error"}
 child = None
 stop_requested = False
 blocked = False
@@ -465,6 +465,12 @@ finally:
 }
 
 
+async function caosBundleVersion() {
+  const payload = CAOS_MAIN_PY + "\n" + CAOS_REQUIREMENTS + "\n" + runnerTemplate();
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload));
+  return b64(digest);
+}
+
 function isInsideSchedule(start, end, timezone) {
   try {
     const parts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || "America/Bahia", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
@@ -480,7 +486,7 @@ async function setHostEnv(userId, env, deploymentId, key, value, secret = false)
 }
 async function ensureBotDeployment(bot, userId, env) {
   if (bot.runtime !== "python") {
-    throw new Error("A integração automática atual prepara o modelo CAOS em Python. Para Node.js, envie um ZIP com o código do seu bot.");
+    throw new Error("A integração automática atual prepara o modelo CAOS em Python 3.11. Para Node.js, envie um ZIP com o código do seu bot.");
   }
   if (!CAOS_MAIN_PY || CAOS_MAIN_PY.length < 10000) {
     throw new Error("O pacote CAOS não foi incluído nesta publicação do servidor. Atualize o painel e tente novamente.");
@@ -490,9 +496,12 @@ async function ensureBotDeployment(bot, userId, env) {
   if (!token) throw new Error("Não consegui abrir o token protegido deste projeto. Salve novamente o token do Discord.");
   const identity = await validateDiscordBotToken(token);
   if (!identity.valid) throw new Error("O Discord não aceitou o token salvo. Abra Configurar token e módulos e atualize a credencial.");
+
   const modules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
   let deploymentId = bot.hosting_deployment_id || null;
-  if (!deploymentId) {
+  const isNewDeployment = !deploymentId;
+
+  if (isNewDeployment) {
     const safeName = ("black-zone-" + String(bot.name || "caos").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + String(bot.id).slice(0, 5)).replace(/-+/g, "-");
     const created = await hostRequest(userId, env, "/deployments", "POST", {
       name: safeName,
@@ -506,16 +515,37 @@ async function ensureBotDeployment(bot, userId, env) {
     await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,discord_bot_id=?,discord_bot_name=?,state='draft',updated_at=? WHERE id=? AND user_id=?")
       .bind(deploymentId, identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
   }
-  const writeResult = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/writeMany", "POST", {
-    files: [
-      { path: "/main.py", content: CAOS_MAIN_PY, mode: "overwrite" },
-      { path: "/requirements.txt", content: CAOS_REQUIREMENTS, mode: "overwrite" },
-      { path: "/runner.py", content: runnerTemplate(), mode: "overwrite" }
-    ]
-  });
-  if (Array.isArray(writeResult.failed) && writeResult.failed.length) {
-    throw new Error("Não consegui enviar todos os arquivos do CAOS: " + writeResult.failed.map(x => x.path + " — " + x.error).join("; "));
+
+  // Só reenviamos o pacote CAOS quando a versão instalada mudou.
+  // Isso evita baixar e reinstalar as mesmas dependências a cada clique em Iniciar.
+  const bundleVersion = await caosBundleVersion();
+  let installedVersion = "";
+  if (!isNewDeployment) {
+    try {
+      const current = await hostRequest(
+        userId, env,
+        "/deployments/" + encodeURIComponent(deploymentId) + "/files/content?path=%2Fcaos-version.txt"
+      );
+      installedVersion = String(current.content || "").trim();
+    } catch {
+      installedVersion = "";
+    }
   }
+
+  if (isNewDeployment || installedVersion !== bundleVersion) {
+    const writeResult = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/writeMany", "POST", {
+      files: [
+        { path: "/main.py", content: CAOS_MAIN_PY, mode: "overwrite" },
+        { path: "/requirements.txt", content: CAOS_REQUIREMENTS, mode: "overwrite" },
+        { path: "/runner.py", content: runnerTemplate(), mode: "overwrite" },
+        { path: "/caos-version.txt", content: bundleVersion, mode: "overwrite" }
+      ]
+    });
+    if (Array.isArray(writeResult.failed) && writeResult.failed.length) {
+      throw new Error("Não consegui enviar todos os arquivos do CAOS: " + writeResult.failed.map(x => x.path + " — " + x.error).join("; "));
+    }
+  }
+
   const start = bot.schedule_start || "00:00";
   const end = bot.schedule_end || "23:59";
   await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
@@ -529,11 +559,18 @@ async function ensureBotDeployment(bot, userId, env) {
     runtime: "python",
     runtimeVersion: "3.11",
     entryFile: "runner.py",
-    startCommand: "python -m pip install -r requirements.txt && exec python -u runner.py"
+    // Bot-Hosting installs requirements.txt automatically before running this command.
+    // Do not run pip install a second time on every restart.
+    startCommand: "python -u runner.py"
   });
   await env.DB.prepare("UPDATE bots SET discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?")
     .bind(identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
-  return { deploymentId, botId: identity.botId, botName: identity.botName || null };
+  return {
+    deploymentId,
+    botId: identity.botId,
+    botName: identity.botName || null,
+    packageUpdated: isNewDeployment || installedVersion !== bundleVersion
+  };
 }
 async function getOwnedBot(id, userId, env) {
   return env.DB.prepare(
@@ -550,10 +587,10 @@ function safeVolumePath(value) {
   const normalized = "/" + raw.split("/").filter(Boolean).join("/");
   return normalized === "" ? "/" : normalized;
 }
-function recentDiscordStatus(status) {
+function recentDiscordStatus(status, afterTimestamp = 0) {
   if (!status || status.status !== "online" || !status.updatedAt) return false;
   const updatedAt = Date.parse(status.updatedAt);
-  return Number.isFinite(updatedAt) && Date.now() - updatedAt <= 90000;
+  return Number.isFinite(updatedAt) && updatedAt >= afterTimestamp && Date.now() - updatedAt <= 90000;
 }
 async function readDiscordRuntimeStatus(userId, env, deploymentId) {
   try {
@@ -1152,6 +1189,10 @@ export async function onRequest(context) {
             status: discordStatus.status,
             updatedAt: discordStatus.updatedAt || null,
             guilds: Number(discordStatus.guilds || 0),
+            commandsTotal: Number(discordStatus.commandsTotal || 0),
+            commandsRegistered: Number(discordStatus.commandsRegistered || 0),
+            commandsSyncedGuilds: Number(discordStatus.commandsSyncedGuilds || 0),
+            commandSyncErrors: Array.isArray(discordStatus.commandSyncErrors) ? discordStatus.commandSyncErrors : [],
             error: discordStatus.error || null
           } : null,
           scheduleStart: bot.schedule_start || "00:00",
@@ -1195,6 +1236,7 @@ export async function onRequest(context) {
 
         let deploymentId = bot.hosting_deployment_id;
         let botId = bot.discord_bot_id;
+        const requestStartedAt = Date.now();
         try {
           if (signal === "start" || signal === "restart") {
             const provisioned = await ensureBotDeployment(bot, user.id, env);
@@ -1209,17 +1251,16 @@ export async function onRequest(context) {
               user.id, env,
               "/deployments/" + encodeURIComponent(deploymentId) + "/power",
               "POST",
-              { action: "stop", waitSeconds: 20 }
+              { action: "stop", waitSeconds: 0 }
             );
           } else {
-            // Files, environment variables and startup settings were just written
-            // by ensureBotDeployment. Apply them atomically and let the provider
-            // restart/settle the process before reading its diagnosis.
+            // Apply starts the updated runtime. Return quickly: dependency installation
+            // can take minutes, so the browser follows state/logs in separate requests.
             result = await hostRequest(
               user.id, env,
               "/deployments/" + encodeURIComponent(deploymentId) + "/apply",
               "POST",
-              { restart: true, waitSeconds: 45 }
+              { restart: true, waitSeconds: 0 }
             );
             let appliedState = String(result.state || "").toLowerCase();
             if (["offline","stopped","unknown",""].includes(appliedState)) {
@@ -1227,7 +1268,7 @@ export async function onRequest(context) {
                 user.id, env,
                 "/deployments/" + encodeURIComponent(deploymentId) + "/power",
                 "POST",
-                { action: "start", waitSeconds: 45 }
+                { action: "start", waitSeconds: 0 }
               );
               result = {
                 ...result,
@@ -1240,62 +1281,57 @@ export async function onRequest(context) {
             }
           }
 
-          let actualState = String(result.state || (signal === "stop" ? "offline" : "starting")).toLowerCase();
+          const actualState = String(result.state || (signal === "stop" ? "offline" : "starting")).toLowerCase();
           await env.DB.prepare("UPDATE bots SET state=?,hosting_deployment_id=?,updated_at=? WHERE id=? AND user_id=?")
             .bind(actualState, deploymentId, Date.now(), id, user.id).run();
 
-          let diagnostic = null;
-          let discordStatus = null;
-          if (signal !== "stop" && ["running","starting","installing"].includes(actualState)) {
-            try {
-              diagnostic = await hostRequest(
-                user.id, env,
-                "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=30"
-              );
-              actualState = String(diagnostic.state || actualState).toLowerCase();
-            } catch (error) {
-              diagnostic = { hint: error.message };
-            }
-            discordStatus = await readDiscordRuntimeStatus(user.id, env, deploymentId);
-          }
-
+          const discordStatus = signal === "stop"
+            ? null
+            : await readDiscordRuntimeStatus(user.id, env, deploymentId);
           const scheduleAllowed = !bot.schedule_enabled ||
             isInsideSchedule(bot.schedule_start || "00:00", bot.schedule_end || "23:59", bot.schedule_timezone || "America/Bahia");
-          const discordOnline = signal !== "stop" && actualState === "running" && scheduleAllowed && recentDiscordStatus(discordStatus);
-          const logs = [
-            ...(Array.isArray(result.logs) ? result.logs : []),
-            ...(Array.isArray(diagnostic?.logs) ? diagnostic.logs : [])
-          ].slice(-80);
+          const discordOnline = signal !== "stop" &&
+            actualState === "running" &&
+            scheduleAllowed &&
+            recentDiscordStatus(discordStatus, requestStartedAt);
 
-          if (signal !== "stop" && !["running","starting","installing"].includes(actualState)) {
-            await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
-              .bind(actualState || "offline", Date.now(), id, user.id).run();
+          const logs = (Array.isArray(result.logs) ? result.logs : []).slice(-100);
+          if (signal !== "stop" && ["offline","stopped","unknown"].includes(actualState)) {
             return reply({
               ok: false,
               action: signal,
-              state: actualState || "offline",
+              state: actualState,
               deploymentId,
               discordOnline: false,
-              discordStatus: discordStatus ? { status: discordStatus.status, updatedAt: discordStatus.updatedAt || null, error: discordStatus.error || null } : null,
+              discordStatus: discordStatus ? {
+                status: discordStatus.status,
+                updatedAt: discordStatus.updatedAt || null,
+                guilds: Number(discordStatus.guilds || 0),
+                commandsTotal: Number(discordStatus.commandsTotal || 0),
+                commandsRegistered: Number(discordStatus.commandsRegistered || 0),
+                commandsSyncedGuilds: Number(discordStatus.commandsSyncedGuilds || 0),
+                commandSyncErrors: Array.isArray(discordStatus.commandSyncErrors) ? discordStatus.commandSyncErrors : [],
+                error: discordStatus.error || null
+              } : null,
               logs,
-              hint: diagnostic?.hint || result.hint || "O provedor não confirmou que o processo iniciou. Consulte os logs."
+              hint: result.hint || "A hospedagem não iniciou o processo. Confira os logs de instalação e inicialização."
             }, 502);
           }
 
           await env.DB.prepare("UPDATE bots SET state=?,hosting_deployment_id=?,updated_at=? WHERE id=? AND user_id=?")
             .bind(signal === "stop" ? "stopped" : actualState, deploymentId, Date.now(), id, user.id).run();
 
-          const commandsSynced = logs.some(line =>
-            String(line).includes("Comandos globais sincronizados") ||
-            String(line).includes("Comandos sincronizados no servidor de teste")
-          );
           return reply({
             ok: true,
             action: signal,
             state: signal === "stop" ? "stopped" : actualState,
+            installing: !!result.installing,
             deploymentId,
             discordBotId: botId || null,
-            commandsSynced,
+            commandsSynced: Number(discordStatus?.commandsRegistered || 0),
+            commandsTotal: Number(discordStatus?.commandsTotal || 0),
+            commandsSyncedGuilds: Number(discordStatus?.commandsSyncedGuilds || 0),
+            commandSyncErrors: Array.isArray(discordStatus?.commandSyncErrors) ? discordStatus.commandSyncErrors : [],
             scheduled: !!bot.schedule_enabled,
             scheduleActiveNow: scheduleAllowed,
             botOnlineNow: discordOnline,
@@ -1304,14 +1340,18 @@ export async function onRequest(context) {
               status: discordStatus.status,
               updatedAt: discordStatus.updatedAt || null,
               guilds: Number(discordStatus.guilds || 0),
+              commandsTotal: Number(discordStatus.commandsTotal || 0),
+              commandsRegistered: Number(discordStatus.commandsRegistered || 0),
+              commandsSyncedGuilds: Number(discordStatus.commandsSyncedGuilds || 0),
+              commandSyncErrors: Array.isArray(discordStatus.commandSyncErrors) ? discordStatus.commandSyncErrors : [],
               error: discordStatus.error || null
             } : null,
             logs,
             hint: signal === "stop"
               ? "O processo foi parado na hospedagem."
               : (discordOnline
-                ? "O CAOS confirmou uma sessão ativa com o Discord."
-                : (discordStatus?.error || diagnostic?.hint || result.hint || "O container foi aplicado, mas o login no Discord ainda não foi confirmado. Confira logs e intents."))
+                ? "O CAOS confirmou a conexão e a publicação de comandos no Discord."
+                : (result.hint || "Inicialização solicitada. Acompanhe a instalação, o login no Discord e a publicação dos comandos nos logs."))
           });
         } catch (error) {
           return reply({ ok: false, error: error.message || "Falha ao controlar o bot no Bot-Hosting." }, 502);
@@ -1322,7 +1362,7 @@ export async function onRequest(context) {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Este bot ainda não foi iniciado em uma hospedagem." }, 409);
         try {
           const path = action === "logs"
-            ? "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/logs?size=100&waitSeconds=1"
+            ? "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/logs?size=100&waitSeconds=20"
             : "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/diagnose?waitSeconds=0";
           return reply(await hostRequest(user.id, env, path));
         } catch (error) {
