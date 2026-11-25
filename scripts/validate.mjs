@@ -16,7 +16,24 @@ function check(file) {
 }
 
 for (const backend of backends) check(backend);
+check("api/caos-main.js");
 const apiSource = readFileSync(backends[0], "utf8");
+const caosSource = readFileSync("api/caos-main.js", "utf8");
+const caosMain = caosSource.match(/export const CAOS_MAIN_PY = String\\.raw\x60([\\s\\S]*?)\x60;/);
+if (!caosMain) throw new Error("Código-fonte do CAOS não encontrado");
+const caosFile = join(tmpdir(), "black-zone-caos-main.py");
+try {
+  writeFileSync(caosFile, caosMain[1]);
+  const result = spawnSync("python", ["-m", "py_compile", caosFile], { encoding: "utf8" });
+  if (result.status !== 0) {
+    process.stderr.write(result.stderr || result.stdout || "Falha ao validar o bot CAOS\\n");
+    process.exit(result.status || 1);
+  }
+  console.log("OK: sintaxe do bot CAOS");
+} finally {
+  try { unlinkSync(caosFile); } catch {}
+  try { unlinkSync(caosFile + "c"); } catch {}
+}
 const verificationBot = apiSource.match(/function verificationBotSource\(\)\s*\{\s*return String\.raw`([\s\S]*?)`;\s*\}/);
 if (!verificationBot) throw new Error("Código-fonte do bot de verificação não encontrado");
 const botFile = join(tmpdir(), "black-zone-verification-bot.py");
