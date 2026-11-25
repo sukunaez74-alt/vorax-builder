@@ -1176,12 +1176,28 @@ async function prepareSquareCloudProject(archiveBytes, bot, requestedRuntime, en
   envs.APP_URL = "https://black-zone-estudio.vercel.app";
   envs.BOT_NAME = bot.name || "Discord Bot";
   const displayName = String(bot.name || "Discord Bot").replace(/[^\w .-]/g, "").trim().slice(0, 32) || "Discord Bot";
+  let squareMain = entryFile;
+  if (runtime === "nodejs") {
+    squareMain = "bz_launcher.mjs";
+    output.file(squareMain, [
+      "import { pathToFileURL } from 'node:url';",
+      "import { resolve } from 'node:path';",
+      "await import(pathToFileURL(resolve(process.cwd(), " + JSON.stringify(entryFile) + ")).href);",
+      ""
+    ].join("\n"));
+  } else {
+    squareMain = "bz_launcher.py";
+    output.file(squareMain, [
+      "import runpy",
+      "runpy.run_path(" + JSON.stringify(entryFile) + ", run_name='__main__')",
+      ""
+    ].join("\n"));
+  }
   const config = [
-    "MAIN=" + entryFile,
+    "MAIN=" + squareMain,
     "MEMORY=512",
     "VERSION=recommended",
     "DISPLAY_NAME=" + displayName,
-    "RUNTIME=" + (runtime === "nodejs" ? "nodejs" : "python"),
     startCommand ? "START=" + startCommand : "",
     "AUTORESTART=true"
   ].filter(Boolean).join("\n") + "\n";
@@ -1997,7 +2013,7 @@ export async function onRequest(context) {
     if (path === "/hosting/square/connect" && request.method === "POST") {
       const b = await body(request);
       const token = String(b.apiToken || "").trim();
-      if (token.length < 32 || token.length > 1024) return reply({ error: "Informe uma API Key Square Cloud válida." }, 400);
+      if (token.length < 64 || token.length > 1024) return reply({ error: "Informe uma API Key Square Cloud válida (64 a 1.024 caracteres)." }, 400);
       try {
         const data = await squareCloudRequest(token, "/users/me");
         const userData = data.user || {};
