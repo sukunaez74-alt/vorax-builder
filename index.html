@@ -620,6 +620,20 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 <script>
 const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,adminPortal:false,verificationAdmin:null,view:"overview",modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,hostingCanCreate:false,logs:[]};
 const moduleNames={music:"Música",tickets:"Tickets",attendance:"Bate-ponto",team:"Equipe e cargos",goals:"Metas e ranking",warnings:"Advertências",recruitment:"Recrutamento",logs:"Logs"};
+function displayErrorText(value,depth=0){
+ if(value===null||value===undefined)return "";
+ if(depth>5)return "Detalhes adicionais indisponíveis.";
+ if(typeof value==="string")return value.trim();
+ if(typeof value==="number"||typeof value==="boolean")return String(value);
+ if(Array.isArray(value))return value.map(item=>displayErrorText(item,depth+1)).filter(Boolean).join("; ");
+ if(typeof value==="object"){
+  for(const key of ["message","error_description","description","detail","reason","title","hint","error"]){
+   if(value[key]!==undefined&&value[key]!==value){const message=displayErrorText(value[key],depth+1);if(message)return message;}
+  }
+  try{return JSON.stringify(value).slice(0,1400)}catch{return "O servidor retornou um erro em formato desconhecido."}
+ }
+ return String(value);
+}
 async function api(path,options={}){
  let res;
  try{
@@ -631,7 +645,7 @@ async function api(path,options={}){
  let data={};
  try{data=raw?JSON.parse(raw):{}}catch{}
  if(!res.ok){
-  const message=data.error||data.message||data.detail;
+  const message=displayErrorText(data.error??data.message??data.detail);
   if(message)throw new Error(message);
   throw new Error(res.status===404?"A rota desta função não foi encontrada na versão publicada. Atualize o painel e tente novamente.":"O servidor respondeu com erro HTTP "+res.status+". Atualize a página e tente novamente; se continuar, informe esse código de erro.");
  }
@@ -639,7 +653,7 @@ async function api(path,options={}){
  return data;
 }
 function notice(el,msg,type=""){el.textContent=msg;el.className="notice"+(type?" "+type:"");el.classList.remove("hidden")}
-function toast(msg){const el=document.createElement("div");el.className="toast";el.textContent=msg;$("#toastRoot").append(el);setTimeout(()=>el.remove(),4200)}
+function toast(msg){const el=document.createElement("div");el.className="toast";el.textContent=displayErrorText(msg)||"Ocorreu um erro inesperado.";$("#toastRoot").append(el);setTimeout(()=>el.remove(),5200)}
 function hidePublicScreens(){ $("#landingScreen").classList.add("hidden");$("#gateScreen").classList.add("hidden");$("#authScreen").classList.add("hidden");$("#app").classList.add("hidden") }
 function showLanding(){hidePublicScreens();$("#landingScreen").classList.remove("hidden");window.scrollTo({top:0,behavior:"smooth"})}
 function showGate(){hidePublicScreens();$("#gateScreen").classList.remove("hidden")}
