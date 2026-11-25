@@ -1082,7 +1082,7 @@ async function scanImportedProject(userId, env, deploymentId) {
   if (js.length && (!py.length || pkg)) {
     runtime = "nodejs";
     entryFile = (declaredMain && relative.includes(declaredMain) ? declaredMain : "") || js[0];
-    if (pkg?.scripts?.start) startCommand = "npm start";
+    if (pkg?.scripts?.start) startCommand = "npm install && npm start";
   }
   if (!entryFile) {
     return {
