@@ -758,3 +758,54 @@
  #app:not(.admin-portal) .project-type-choices{grid-template-columns:1fr}
  #app:not(.admin-portal) .project-type-card{min-height:118px}
 }
+
+/* Fleet manager · 100+ project operations */
+#app:not(.admin-portal) .fleet-shell{display:grid;gap:18px}
+#app:not(.admin-portal) .fleet-capacity-panel{padding:22px}
+#app:not(.admin-portal) .fleet-capacity-head{display:flex;align-items:center;justify-content:space-between;gap:18px}
+#app:not(.admin-portal) .fleet-capacity-head h2{margin:7px 0 5px;color:#f2eaff;font:850 clamp(25px,4vw,36px) 'Manrope',sans-serif}
+#app:not(.admin-portal) .fleet-capacity-head h2 span{color:#a99ab9;font-size:15px;font-weight:700}
+#app:not(.admin-portal) .fleet-capacity-head p{max-width:690px;color:#b8adc7;font-size:12px;line-height:1.7}
+#app:not(.admin-portal) .fleet-target-ring{width:88px;height:88px;flex:0 0 88px;border:1px solid #8f68bc88;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle,#37244d,#151321 70%);box-shadow:0 0 25px #8f68bc20}
+#app:not(.admin-portal) .fleet-target-ring strong{color:#ead8ff;font:900 21px 'Manrope',sans-serif}
+#app:not(.admin-portal) .fleet-target-ring small{color:#bba6d0;font-size:9px;text-transform:uppercase;letter-spacing:.1em}
+#app:not(.admin-portal) .fleet-progress-track{height:8px;margin:14px 0 18px;border-radius:30px;overflow:hidden;background:#252033}
+#app:not(.admin-portal) .fleet-progress-track i{display:block;height:100%;border-radius:30px;background:linear-gradient(90deg,#7251b8,#b48cff);box-shadow:0 0 14px #a679e9aa}
+#app:not(.admin-portal) .fleet-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+#app:not(.admin-portal) .fleet-metrics>div{display:grid;gap:4px;padding:12px;border:1px solid #383047;border-radius:12px;background:#14121d}
+#app:not(.admin-portal) .fleet-metrics b{color:#f4eaff;font:850 21px 'Manrope',sans-serif}
+#app:not(.admin-portal) .fleet-metrics span{color:#a99fb6;font-size:10px}
+#app:not(.admin-portal) .fleet-provider-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:14px 0}
+#app:not(.admin-portal) .fleet-provider-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:14px;border:1px solid #393149;border-radius:13px;background:linear-gradient(145deg,#1b1725,#12111a)}
+#app:not(.admin-portal) .fleet-provider-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#app:not(.admin-portal) .fleet-provider-top strong{color:#e9def5;font-size:12px}
+#app:not(.admin-portal) .fleet-provider-dot{width:8px;height:8px;border-radius:50%;background:#6b5d70}
+#app:not(.admin-portal) .fleet-provider-dot.is-ready{background:#70d5a3;box-shadow:0 0 9px #70d5a388}
+#app:not(.admin-portal) .fleet-provider-dot.is-waiting{background:#d2a56a}
+#app:not(.admin-portal) .fleet-provider-card>b{color:#e9dcff;font-size:12px}
+#app:not(.admin-portal) .fleet-provider-card>small{color:#a9a0b6;font-size:10px;line-height:1.5}
+#app:not(.admin-portal) .fleet-provider-state{margin-top:auto;color:#bfa5e7;font-size:10px;font-weight:800}
+#app:not(.admin-portal) .fleet-bulk-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0;padding:12px;border:1px solid #393149;border-radius:12px;background:#14121d}
+#app:not(.admin-portal) .fleet-select-all{display:flex;align-items:center;gap:9px;color:#e6dcf1;font-size:12px;font-weight:800;cursor:pointer}
+#app:not(.admin-portal) .fleet-select-all input,.fleet-project-check{accent-color:#a77ce1;width:16px;height:16px;cursor:pointer}
+#app:not(.admin-portal) .fleet-bulk-actions{display:flex;gap:8px;flex-wrap:wrap}
+#app:not(.admin-portal) .fleet-bulk-actions .btn{min-height:36px;padding:8px 12px;font-size:11px}
+#app:not(.admin-portal) .fleet-project-list{display:grid;gap:7px;max-height:580px;overflow:auto;padding-right:3px}
+#app:not(.admin-portal) .fleet-project-row{display:flex;align-items:center;gap:12px;min-width:0;padding:12px;border:1px solid #302a3b;border-radius:11px;background:#15131e;cursor:pointer;transition:border-color .16s,background .16s}
+#app:not(.admin-portal) .fleet-project-row:hover{border-color:#7c5ba8;background:#1c1728}
+#app:not(.admin-portal) .fleet-project-main{display:grid;gap:4px;min-width:0;flex:1}
+#app:not(.admin-portal) .fleet-project-main strong{overflow:hidden;color:#eee5f7;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+#app:not(.admin-portal) .fleet-project-main small{overflow:hidden;color:#a99fb7;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+#app:not(.admin-portal) .fleet-project-status{flex:0 0 auto;padding:5px 8px;border:1px solid #56445f;border-radius:30px;color:#bca9ca;font-size:9px;font-weight:900;letter-spacing:.05em}
+#app:not(.admin-portal) .fleet-project-status.is-online{border-color:#3a8c68;color:#8de1b5;background:#143326}
+#app:not(.admin-portal) .fleet-bulk-note{margin-top:12px;line-height:1.6}
+#app:not(.admin-portal) .fleet-progress-message{margin:12px 0;color:#e5d3ff;line-height:1.65}
+@media(max-width:640px){
+ #app:not(.admin-portal) .fleet-capacity-head{align-items:flex-start}
+ #app:not(.admin-portal) .fleet-target-ring{width:70px;height:70px;flex-basis:70px}
+ #app:not(.admin-portal) .fleet-metrics{grid-template-columns:1fr}
+ #app:not(.admin-portal) .fleet-bulk-toolbar{align-items:stretch}
+ #app:not(.admin-portal) .fleet-bulk-actions{width:100%}
+ #app:not(.admin-portal) .fleet-bulk-actions .btn{flex:1}
+ #app:not(.admin-portal) .fleet-project-status{font-size:8px}
+}
