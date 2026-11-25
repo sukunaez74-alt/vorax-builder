@@ -1027,7 +1027,7 @@ async function scanImportedProject(userId, env, deploymentId) {
   const files = [];
   let rootEntries = [];
   let directoryCount = 0;
-  while (queue.length && files.length < 900) {
+  while (queue.length && files.length < 3500) {
     const item = queue.shift();
     if (seen.has(item.path) || item.depth > 8) continue;
     seen.add(item.path);
