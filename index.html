@@ -589,6 +589,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
    <button class="nav-btn" data-view="files"><span>▤</span> Arquivos</button>
    <button class="nav-btn" data-view="logs"><span>›_</span> Terminal / Logs</button>
    <button class="nav-btn" data-view="settings"><span>▤</span> Banco de Dados</button>
+   <button class="nav-btn owner-only hidden" data-view="verificationAdmin"><span>⌁</span> Bot de verificação</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Gerenciamento</div>
    <button class="nav-btn" data-view="schedules"><span>◷</span> Agendamentos</button>
@@ -642,7 +643,7 @@ function hidePublicScreens(){ $("#landingScreen").classList.add("hidden");$("#ga
 function showLanding(){hidePublicScreens();$("#landingScreen").classList.remove("hidden");window.scrollTo({top:0,behavior:"smooth"})}
 function showGate(){hidePublicScreens();$("#gateScreen").classList.remove("hidden")}
 function showAuth(){hidePublicScreens();$("#authScreen").classList.remove("hidden")}
-function showApp(){hidePublicScreens();$("#app").classList.remove("hidden");$("#userLabel").textContent=state.user?.username||state.user?.email||"Conta";$("#avatar").textContent=(state.user?.name||"B").slice(0,1).toUpperCase();navigate("overview");loadSettings();loadBots()}
+function showApp(){hidePublicScreens();$("#app").classList.remove("hidden");document.querySelectorAll(".owner-only").forEach(el=>el.classList.toggle("hidden",state.user?.role!=="owner"));$("#userLabel").textContent=state.user?.username||state.user?.email||"Conta";$("#avatar").textContent=(state.user?.name||"B").slice(0,1).toUpperCase();navigate("overview");loadSettings();loadBots()}
 async function enterStudio(){try{const me=await api("/me");if(me.user){state.user=me.user;showApp()}else if(me.gate)showAuth();else showGate()}catch{showGate()}}
 document.querySelectorAll("[data-enter-studio]").forEach(b=>b.addEventListener("click",enterStudio));
 const siteMenu=$("#siteMenuBtn");if(siteMenu)siteMenu.onclick=()=>$(".site-nav").classList.toggle("open");const closeSide=$("#closeSidebar");if(closeSide)closeSide.onclick=()=>$("#sidebar").classList.remove("open");
@@ -657,9 +658,9 @@ $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#regi
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();const labels={overview:"Painel",bots:"Meus Bots",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){if(view==="verificationAdmin"&&state.user?.role!=="owner")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();const labels={overview:"Painel",bots:"Meus Bots",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações",verificationAdmin:"Administração · Verificação"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
-function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
+function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 function overviewView(){
  const bots=state.bots||[];
  const online=bots.filter(b=>b.discordOnline===true).length;
@@ -835,6 +836,36 @@ async function loadSettingsHostingState(){
   }
  }
 }
+
+function verificationAdminView(){
+ const r=state.verificationAdmin||{},runtime=r.runtime||{},live=runtime.online===true;
+ const status=live?"ONLINE":runtime.state==="not_deployed"?"NÃO IMPLANTADO":String(runtime.state||"PENDENTE").toUpperCase();
+ const connection=!r.hostingConnected?"Conecte o Bot-Hosting na página Configurações usando sua conta proprietária.":(!r.configured?"Salve Client ID, Client Secret, Bot Token e o convite do servidor.":"Configuração salva e protegida.");
+ return pageHead("Bot de verificação","Controle o único bot central que atende todos os usuários do Estúdio.")+
+ '<div class="grid two-col">'+
+ '<section class="card"><div class="section-head"><h3>Estado do bot central</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+status+'</span></div>'+
+ '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot ainda não identificado")+'</strong><br>'+escapeHtml(connection)+
+ (runtime.guilds!==undefined?'<br>Servidores conectados: <b>'+Number(runtime.guilds)+'</b>':"")+
+ (runtime.heartbeatAt?'<br>Último sinal: '+escapeHtml(new Date(runtime.heartbeatAt).toLocaleString("pt-BR")):"")+'</div>'+
+ '<div class="hero-actions" style="margin-top:14px"><button class="btn" id="verificationStart" '+(!r.configured||!r.hostingConnected?"disabled":"")+'>▶ Iniciar / atualizar</button><button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="verificationRefresh">↻ Atualizar status</button></div>'+
+ '<p class="muted small" style="margin-top:14px">A implantação é separada dos bots dos usuários e fica na hospedagem autorizada pela conta proprietária. Comandos: /verificar, /painel_verificacao e /link_servidor.</p></section>'+
+ '<section class="card"><div class="section-head"><h3>Link público de verificação</h3><span class="status">Para todos</span></div><p class="muted small">O bot envia este endereço. A pessoa autoriza apenas a identificação básica no Discord e depois é encaminhada ao seu convite.</p>'+
+ '<div class="field"><label>ENDEREÇO DA VERIFICAÇÃO</label><input id="verificationPublicUrl" readonly value="https://black-zone-estudio.vercel.app/api/verification/start"></div><button class="btn secondary" id="verificationCopy">Copiar link</button></section></div>'+
+ '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Credenciais e destino</h3><span class="status">Somente administrador</span></div>'+
+ '<p class="muted small">Use os dados da mesma aplicação no Discord Developer Portal. Client ID e Client Secret habilitam o OAuth2; Bot Token mantém o bot conectado. Os valores são enviados ao servidor e armazenados criptografados. Nunca os envie pelo chat.</p>'+
+ '<form id="verificationBotConfigForm" class="grid settings-grid">'+
+ '<div class="field"><label>APPLICATION ID / CLIENT ID</label><input id="verificationClientId" name="clientId" inputmode="numeric" autocomplete="off" placeholder="ID numérico da aplicação" value="'+escapeHtml(r.clientId||"")+'" required></div>'+
+ '<div class="field"><label>CLIENT SECRET · OAUTH2</label><input id="verificationClientSecret" name="clientSecret" type="password" autocomplete="new-password" placeholder="Cole o Client Secret"></div>'+
+ '<div class="field"><label>BOT TOKEN</label><input id="verificationBotToken" name="botToken" type="password" autocomplete="new-password" placeholder="Cole o Bot Token da aplicação"></div>'+
+ '<div class="field"><label>CONVITE DO SEU SERVIDOR</label><input id="verificationInviteUrl" name="inviteUrl" type="url" value="'+escapeHtml(r.inviteUrl||"")+'" placeholder="https://discord.gg/..." required></div>'+
+ '<div style="grid-column:1/-1"><button class="btn" id="verificationSave" type="submit">Salvar configuração segura</button></div></form>'+
+ '<div class="notice" style="margin-top:14px">Os segredos nunca são exibidos novamente depois de salvos. Deixe os campos de segredo vazios para manter os valores já armazenados.</div></section>';
+}
+async function loadVerificationBotAdmin(){
+ try{const r=await api("/admin/verification-bot/status");state.verificationAdmin=r;if(state.view==="verificationAdmin")render()}
+ catch(error){const area=$("#verificationRuntimeInfo");if(area)area.innerHTML="<strong>Não foi possível consultar o bot central.</strong><br>"+escapeHtml(error.message)}
+}
+
 function settingsView(){
  const linked=!!state.user?.discordLinked;
  const linkedName=state.user?.discordUsername||"Conta Discord vinculada";
@@ -850,6 +881,38 @@ function settingsView(){
  '<section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API, o PostgreSQL e a configuração do ambiente.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>';
 }
 function bindView(){
+
+ const verifyForm=$("#verificationBotConfigForm");
+ if(verifyForm)verifyForm.onsubmit=async e=>{
+  e.preventDefault();const button=$("#verificationSave");if(button){button.disabled=true;button.textContent="Validando e criptografando…"}
+  try{
+   const result=await api("/admin/verification-bot/config",{method:"POST",body:JSON.stringify({
+    clientId:$("#verificationClientId").value.trim(),clientSecret:$("#verificationClientSecret").value,
+    botToken:$("#verificationBotToken").value,inviteUrl:$("#verificationInviteUrl").value.trim()
+   })});
+   $("#verificationClientSecret").value="";$("#verificationBotToken").value="";
+   toast(result.message||"Configuração salva.");await loadVerificationBotAdmin();
+  }catch(error){toast(error.message)}
+  finally{if(button){button.disabled=false;button.textContent="Salvar configuração segura"}}
+ };
+ const verifyStart=$("#verificationStart");if(verifyStart)verifyStart.onclick=async()=>{
+  verifyStart.disabled=true;verifyStart.textContent="Preparando hospedagem…";
+  try{const r=await api("/admin/verification-bot/power",{method:"POST",body:JSON.stringify({action:"start"})});toast(r.message||"Inicialização solicitada.");await loadVerificationBotAdmin()}
+  catch(error){toast(error.message)}
+  finally{if($("#verificationStart")){$("#verificationStart").disabled=false;$("#verificationStart").textContent="▶ Iniciar / atualizar"}}
+ };
+ const verifyStop=$("#verificationStop");if(verifyStop)verifyStop.onclick=async()=>{
+  if(!window.confirm("Deseja parar o bot central de verificação?"))return;verifyStop.disabled=true;
+  try{await api("/admin/verification-bot/power",{method:"POST",body:JSON.stringify({action:"stop"})});toast("Bot central parado.");await loadVerificationBotAdmin()}
+  catch(error){toast(error.message)}finally{if($("#verificationStop"))$("#verificationStop").disabled=false}
+ };
+ const verifyRefresh=$("#verificationRefresh");if(verifyRefresh)verifyRefresh.onclick=loadVerificationBotAdmin;
+ const verifyCopy=$("#verificationCopy");if(verifyCopy)verifyCopy.onclick=async()=>{
+  try{await navigator.clipboard.writeText($("#verificationPublicUrl").value);toast("Link de verificação copiado.")}
+  catch{toast("Não foi possível copiar automaticamente. Selecione o link e copie.")}
+ };
+ if(state.view==="verificationAdmin")loadVerificationBotAdmin();
+
  const add=()=>createBotModal();
  ["addBot","heroCreate"].forEach(id=>{const e=$("#"+id);if(e)e.onclick=add});
  const conf=$("#configureCaos");if(conf)conf.onclick=()=>caosModal();
@@ -1140,6 +1203,10 @@ async function loadSettings(){
    toast("Não foi possível vincular a conta Discord. Confira a configuração OAuth.");
    window.history.replaceState({},document.title,window.location.pathname);
  }
+ 
+ const verifyResult=new URLSearchParams(window.location.search).get("verification");
+ if(verifyResult){const messages={not_configured:"A verificação ainda não foi configurada pelo administrador.",error:"Não foi possível concluir a verificação Discord."};toast(messages[verifyResult]||"Retorno da verificação recebido.");window.history.replaceState({},document.title,window.location.pathname)}
+
  const result=new URLSearchParams(window.location.search).get("hosting");
  if(result){
    const messages={connected:"Conta Bot-Hosting conectada com segurança.",cancelled:"A autorização da hospedagem foi cancelada.",expired:"A autorização expirou. Tente conectar novamente.",error:"Não consegui concluir a autorização do Bot-Hosting."};
