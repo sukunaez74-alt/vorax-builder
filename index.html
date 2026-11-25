@@ -1490,7 +1490,8 @@ async function refreshBotPower(id,action,button){
  if(button){button.disabled=true;button.classList.add("is-loading")}
  try{
   const result=await api("/bots/"+encodeURIComponent(id)+"/power",{method:"POST",body:JSON.stringify({action})});
-  toast(action==="stop"?"Parada solicitada.":result.discordOnline?"CAOS conectado ao Discord.":result.state==="running"?"Container ativo; aguardando confirmação do Discord.":"Comando enviado à hospedagem.");
+  const currentBot=state.bots.find(item=>item.id===id);
+  toast(action==="stop"?"Parada solicitada.":result.discordOnline?"Bot conectado ao Discord.":result.state==="running"&&currentBot?.projectType==="custom"?"Processo iniciado. Confira os logs para confirmar a conexão do seu código com o Discord.":result.state==="running"?"Container ativo; aguardando confirmação do Discord.":"Comando enviado à hospedagem.");
   await loadBots();
   if(state.view==="overview")loadDashboardPanels();
  }catch(err){toast(err.message)}
@@ -1558,6 +1559,7 @@ async function loadFiles(botId,path){
  const current=path===undefined?($("#filePath")?.value||"/"):(path||"/");
  const status=$("#fileStatus"),list=$("#fileEntries");
  const selectedBot=state.bots.find(bot=>bot.id===id);
+ if(selectedBot?.projectType!=="custom")return;
  if(!selectedBot?.hostingDeploymentId){
   if(status)status.textContent="O servidor ainda não foi criado. Escolha um ZIP ou envie uma pasta completa para preparar a hospedagem automaticamente.";
   if(list)list.innerHTML='<div class="dashboard-empty">Os arquivos do projeto aparecerão aqui depois da importação.</div>';
