@@ -1083,6 +1083,7 @@ export async function onRequest(context) {
           discordBotId, discordBotName,
           hostingDeploymentId: bot.hosting_deployment_id || null,
           scheduleEnabled: !!bot.schedule_enabled,
+          scheduleActiveNow: scheduleAllowed,
           botOnlineNow: discordOnline,
           discordOnline,
           discordStatus: discordStatus ? {
@@ -1234,6 +1235,7 @@ export async function onRequest(context) {
             discordBotId: botId || null,
             commandsSynced,
             scheduled: !!bot.schedule_enabled,
+            scheduleActiveNow: scheduleAllowed,
             botOnlineNow: discordOnline,
             discordOnline,
             discordStatus: discordStatus ? {
