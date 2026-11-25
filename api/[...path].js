@@ -112,6 +112,303 @@ async function decryptSecret(value, env) {
   const data = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(parts[0]) }, key, unb64(parts[1]));
   return new TextDecoder().decode(data);
 }
+
+async function discordOAuthCredentials(env) {
+  let row = null;
+  try { row = await env.DB.prepare("SELECT oauth_client_id,oauth_client_secret_enc FROM verification_bot_settings WHERE id='main'").first(); } catch {}
+  let storedSecret = null;
+  if (row?.oauth_client_secret_enc) {
+    try { storedSecret = await decryptSecret(row.oauth_client_secret_enc, env); } catch {}
+  }
+  return {
+    clientId: String(row?.oauth_client_id || env.DISCORD_CLIENT_ID || "").trim(),
+    clientSecret: String(storedSecret || env.DISCORD_CLIENT_SECRET || "").trim()
+  };
+}
+function ownerOnly(user) {
+  return user?.role === "owner";
+}
+async function verificationBotSettings(env) {
+  return await env.DB.prepare(
+    "SELECT owner_user_id,bot_token_enc,bot_id,bot_name,oauth_client_id,oauth_client_secret_enc,invite_url,hosting_deployment_id,state,updated_at FROM verification_bot_settings WHERE id='main'"
+  ).first();
+}
+function verificationBotSource() {
+  return String.raw\`import os
+import json
+import asyncio
+from pathlib import Path
+from datetime import datetime, timezone
+
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
+
+TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
+APP_URL = os.getenv("APP_URL", "https://black-zone-estudio.vercel.app").rstrip("/")
+INVITE_URL = os.getenv("SERVER_INVITE", "").strip()
+VERIFY_URL = APP_URL + "/api/verification/start"
+STATUS_FILE = Path("verification-status.json")
+
+def write_status(status, **extra):
+    payload = {"status": status, "updatedAt": datetime.now(timezone.utc).isoformat(), **extra}
+    temp = STATUS_FILE.with_suffix(".tmp")
+    try:
+        temp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        temp.replace(STATUS_FILE)
+    except OSError:
+        pass
+
+class VerifyBot(commands.Bot):
+    async def setup_hook(self):
+        try:
+            synced = await self.tree.sync()
+            print("VERIFICATION: comandos publicados=" + str(len(synced)), flush=True)
+        except Exception as exc:
+            print("VERIFICATION: erro ao sincronizar comandos: " + type(exc).__name__ + ": " + str(exc)[:300], flush=True)
+
+    async def on_ready(self):
+        print("VERIFICATION: conectado como " + str(self.user) + " | servidores=" + str(len(self.guilds)), flush=True)
+        write_status("online", botId=str(self.user.id), botName=str(self.user), guilds=len(self.guilds))
+        if not heartbeat.is_running():
+            heartbeat.start()
+
+    async def on_resumed(self):
+        write_status("online", botId=str(self.user.id), botName=str(self.user), guilds=len(self.guilds))
+
+intents = discord.Intents.none()
+bot = VerifyBot(command_prefix="!", intents=intents)
+
+@tasks.loop(seconds=30)
+async def heartbeat():
+    if bot.user:
+        write_status("online", botId=str(bot.user.id), botName=str(bot.user), guilds=len(bot.guilds))
+
+@bot.tree.command(name="verificar", description="Receba o link oficial para verificar sua conta Discord")
+async def verificar(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Verificação de conta",
+        description="Clique no botão abaixo para confirmar sua conta pela página oficial do Discord. Nunca informe sua senha ou token.",
+        color=discord.Color.blurple()
+    )
+    embed.set_footer(text="BLACK ZONE • Verificação segura")
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label="Verificar minha conta", style=discord.ButtonStyle.link, url=VERIFY_URL))
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+@bot.tree.command(name="painel_verificacao", description="Publica o painel de verificação neste canal")
+@app_commands.default_permissions(administrator=True)
+@app_commands.checks.has_permissions(administrator=True)
+async def painel_verificacao(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Seja bem-vindo(a)! ✦",
+        description="Para continuar, verifique sua conta Discord no botão abaixo. A autorização acontece diretamente no Discord e, ao concluir, você recebe o convite do servidor.",
+        color=discord.Color.blurple()
+    )
+    embed.set_footer(text="BLACK ZONE • Central de verificação")
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label="Verificar conta", style=discord.ButtonStyle.link, url=VERIFY_URL))
+    await interaction.response.send_message(embed=embed, view=view)
+
+@bot.tree.command(name="link_servidor", description="Mostra o convite do servidor BLACK ZONE")
+async def link_servidor(interaction: discord.Interaction):
+    if not INVITE_URL:
+        await interaction.response.send_message("O convite ainda não foi configurado no painel administrativo.", ephemeral=True)
+        return
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label="Entrar no servidor", style=discord.ButtonStyle.link, url=INVITE_URL))
+    await interaction.response.send_message("Aqui está o convite do servidor:", view=view, ephemeral=True)
+
+@bot.event
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    print("VERIFICATION: erro de comando: " + type(error).__name__ + ": " + str(error)[:300], flush=True)
+    if not interaction.response.is_done():
+        await interaction.response.send_message("Não consegui concluir esse comando. Tente novamente.", ephemeral=True)
+
+if not TOKEN:
+    write_status("token_missing")
+    raise SystemExit("DISCORD_TOKEN não configurado.")
+
+write_status("starting")
+bot.run(TOKEN, log_handler=None)\`;
+}
+async function ensureVerificationBotDeployment(userId, env) {
+  const settings = await verificationBotSettings(env);
+  if (!settings?.bot_token_enc) throw new Error("Salve primeiro o Bot Token do bot de verificação.");
+  const token = await decryptSecret(settings.bot_token_enc, env);
+  if (!token) throw new Error("Não consegui abrir o token protegido. Salve novamente o Bot Token.");
+  const identity = await validateDiscordBotToken(token);
+  if (!identity.valid) throw new Error("O Discord recusou o token do bot de verificação. Atualize a credencial.");
+  if (settings.oauth_client_id && String(settings.oauth_client_id) !== identity.botId) {
+    throw new Error("O Client ID OAuth2 precisa ser o ID da mesma aplicação do bot.");
+  }
+  const connected = await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(userId).first();
+  if (!connected) throw new Error("Conecte sua conta Bot-Hosting nas Configurações do Estúdio antes de iniciar o bot central.");
+  let deploymentId = settings.hosting_deployment_id || null;
+  const isNew = !deploymentId;
+  if (isNew) {
+    const created = await hostRequest(userId, env, "/deployments", "POST", {
+      name: "black-zone-verificacao",
+      source: "blank",
+      runtime: "python",
+      runtimeVersion: "3.11"
+    });
+    const deployment = created.deployment || created;
+    deploymentId = String(deployment.id || "");
+    if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID da implantação do bot de verificação.");
+    await env.DB.prepare("UPDATE verification_bot_settings SET hosting_deployment_id=?,bot_id=?,bot_name=?,state='starting',updated_at=? WHERE id='main'")
+      .bind(deploymentId, identity.botId, identity.botName || null, Date.now()).run();
+  }
+  const version = "bz-verification-bot-v1-2026-11";
+  let installed = "";
+  if (!isNew) {
+    try {
+      const r = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/content?path=%2Fverification-version.txt");
+      installed = String(r.content || "").trim();
+    } catch {}
+  }
+  if (isNew || installed !== version) {
+    const result = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/writeMany", "POST", {
+      files: [
+        { path: "/verification_bot.py", content: verificationBotSource(), mode: "overwrite" },
+        { path: "/requirements.txt", content: "discord.py==2.7.1\n", mode: "overwrite" },
+        { path: "/verification-version.txt", content: version, mode: "overwrite" }
+      ]
+    });
+    if (Array.isArray(result.failed) && result.failed.length) {
+      throw new Error("Falha ao enviar arquivos do bot central: " + result.failed.map(x => x.path + " — " + x.error).join("; "));
+    }
+  }
+  await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
+  await setHostEnv(userId, env, deploymentId, "APP_URL", "https://black-zone-estudio.vercel.app", false);
+  await setHostEnv(userId, env, deploymentId, "SERVER_INVITE", settings.invite_url || "", false);
+  await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
+    runtime: "python", runtimeVersion: "3.11", entryFile: "verification_bot.py", startCommand: null
+  });
+  await env.DB.prepare("UPDATE verification_bot_settings SET bot_id=?,bot_name=?,state='starting',updated_at=? WHERE id='main'")
+    .bind(identity.botId, identity.botName || null, Date.now()).run();
+  return { deploymentId, botId: identity.botId, botName: identity.botName || null };
+}
+async function readVerificationBotStatus(userId, env, settings) {
+  if (!settings?.hosting_deployment_id) return { state: "not_deployed", online: false, deploymentId: null };
+  let runtime = null;
+  try {
+    runtime = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(settings.hosting_deployment_id) + "/diagnose?waitSeconds=0");
+  } catch (error) {
+    return { state: "error", online: false, deploymentId: settings.hosting_deployment_id, error: error.message };
+  }
+  let heartbeat = null;
+  try {
+    const raw = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(settings.hosting_deployment_id) + "/files/content?path=%2Fverification-status.json");
+    heartbeat = JSON.parse(String(raw.content || "{}"));
+  } catch {}
+  const age = heartbeat?.updatedAt ? Date.now() - Date.parse(heartbeat.updatedAt) : Infinity;
+  const online = String(runtime.state || runtime.deployment?.state || "").toLowerCase() === "running" &&
+    heartbeat?.status === "online" && age >= 0 && age < 120000;
+  return {
+    state: online ? "online" : String(runtime.state || runtime.deployment?.state || "starting").toLowerCase(),
+    online, deploymentId: settings.hosting_deployment_id,
+    heartbeatAt: heartbeat?.updatedAt || null,
+    guilds: Number(heartbeat?.guilds || 0),
+    runtimeState: runtime.state || runtime.deployment?.state || null
+  };
+}
+async function saveVerificationBotSettings(user, input, env) {
+  const old = await verificationBotSettings(env);
+  const clientId = String(input.clientId || old?.oauth_client_id || env.DISCORD_CLIENT_ID || "").trim();
+  let clientSecret = String(input.clientSecret || "").trim();
+  if (!clientSecret && old?.oauth_client_secret_enc) {
+    try { clientSecret = await decryptSecret(old.oauth_client_secret_enc, env) || ""; } catch {}
+  }
+  if (!clientSecret) clientSecret = String(env.DISCORD_CLIENT_SECRET || "").trim();
+  const inviteUrl = String(input.inviteUrl || old?.invite_url || "").trim();
+  let token = String(input.botToken || "").trim();
+  if (!token && old?.bot_token_enc) {
+    try { token = await decryptSecret(old.bot_token_enc, env) || ""; } catch {}
+  }
+  if (!/^\d{17,20}$/.test(clientId)) return { ok: false, status: 400, error: "Informe o Application ID / Client ID numérico do Discord Developer Portal." };
+  if (clientSecret.length < 20) return { ok: false, status: 400, error: "Informe o Client Secret OAuth2 da mesma aplicação do bot." };
+  if (!inviteUrl) return { ok: false, status: 400, error: "Informe o convite do seu servidor Discord." };
+  let invite;
+  try { invite = new URL(inviteUrl); } catch { return { ok: false, status: 400, error: "O convite do servidor não é uma URL válida." }; }
+  if (invite.protocol !== "https:" || !["discord.gg","www.discord.gg","discord.com","www.discord.com"].includes(invite.hostname) ||
+      !(invite.hostname.includes("discord.gg") || invite.pathname.startsWith("/invite/"))) {
+    return { ok: false, status: 400, error: "Use um convite HTTPS do Discord, como https://discord.gg/..." };
+  }
+  token = normalizeDiscordBotToken(token);
+  if (token.length < 30 || token.length > 512 || /\s/.test(token)) return { ok: false, status: 400, error: "Informe um Bot Token válido, sem espaços." };
+  const identity = await validateDiscordBotToken(token);
+  if (!identity.valid) return { ok: false, status: identity.unavailable ? 503 : 400, error: identity.unavailable ? "Não consegui validar com o Discord agora. Tente novamente." : "O Discord recusou o Bot Token informado." };
+  if (identity.botId !== clientId) return { ok: false, status: 400, error: "O Application ID precisa pertencer exatamente ao mesmo bot do token informado." };
+  const [tokenEnc, secretEnc] = await Promise.all([encryptSecret(token, env), encryptSecret(clientSecret, env)]);
+  await env.DB.prepare(
+    "INSERT INTO verification_bot_settings (id,owner_user_id,bot_token_enc,bot_id,bot_name,oauth_client_id,oauth_client_secret_enc,invite_url,state,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,bot_token_enc=EXCLUDED.bot_token_enc,bot_id=EXCLUDED.bot_id,bot_name=EXCLUDED.bot_name,oauth_client_id=EXCLUDED.oauth_client_id,oauth_client_secret_enc=EXCLUDED.oauth_client_secret_enc,invite_url=EXCLUDED.invite_url,state=CASE WHEN verification_bot_settings.hosting_deployment_id IS NULL THEN 'configured' ELSE verification_bot_settings.state END,updated_at=EXCLUDED.updated_at"
+  ).bind(user.id, tokenEnc, identity.botId, identity.botName || null, clientId, secretEnc, inviteUrl, old?.state || "configured", Date.now()).run();
+  return { ok: true, configured: true, botId: identity.botId, botName: identity.botName || null, inviteUrl, hasToken: true, message: "Bot Token, Client ID e Client Secret validados e salvos criptografados." };
+}
+async function verificationStart(request, env) {
+  const settings = await verificationBotSettings(env);
+  const oauth = await discordOAuthCredentials(env);
+  if (!settings?.invite_url || !oauth.clientId || !oauth.clientSecret) {
+    return new Response(null, { status: 302, headers: { location: new URL("/?verification=not_configured", request.url).href } });
+  }
+  const state = randomToken(24);
+  await env.DB.prepare("INSERT INTO verification_states (state,invite_url,expires_at) VALUES (?,?,?)")
+    .bind(state, settings.invite_url, Date.now() + 600000).run();
+  const redirectUri = new URL("/api/verification/callback", request.url).href;
+  const authorize = new URL("https://discord.com/oauth2/authorize");
+  authorize.searchParams.set("client_id", oauth.clientId);
+  authorize.searchParams.set("redirect_uri", redirectUri);
+  authorize.searchParams.set("response_type", "code");
+  authorize.searchParams.set("scope", "identify");
+  authorize.searchParams.set("state", state);
+  authorize.searchParams.set("prompt", "consent");
+  return new Response(null, { status: 302, headers: { location: authorize.href, "set-cookie": setCookie("bz_verify_state", state, 600) } });
+}
+async function verificationCallback(request, env) {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  const cookieState = cookieMap(request).bz_verify_state;
+  if (!code || !state || !cookieState || !same(state, cookieState)) return reply({ error: "A confirmação de verificação expirou. Comece novamente pelo botão Verificar." }, 400, { "set-cookie": clearCookie("bz_verify_state") });
+  const saved = await env.DB.prepare("SELECT invite_url FROM verification_states WHERE state=? AND expires_at>?").bind(state, Date.now()).first();
+  await env.DB.prepare("DELETE FROM verification_states WHERE state=?").bind(state).run();
+  if (!saved) return reply({ error: "O pedido de verificação expirou. Comece novamente." }, 400, { "set-cookie": clearCookie("bz_verify_state") });
+  const oauth = await discordOAuthCredentials(env);
+  if (!oauth.clientId || !oauth.clientSecret) return reply({ error: "A configuração OAuth2 do Discord ainda não está pronta." }, 503);
+  const redirectUri = new URL("/api/verification/callback", request.url).href;
+  const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
+    body: new URLSearchParams({ client_id: oauth.clientId, client_secret: oauth.clientSecret, grant_type: "authorization_code", code, redirect_uri: redirectUri }),
+    signal: AbortSignal.timeout(12000)
+  });
+  const tokenData = await tokenRes.json().catch(() => ({}));
+  if (!tokenRes.ok || !tokenData.access_token) return reply({ error: "O Discord não concluiu a autorização. Volte ao servidor e tente novamente." }, 401);
+  const profileRes = await fetch("https://discord.com/api/v10/users/@me", {
+    headers: { authorization: "Bearer " + tokenData.access_token, accept: "application/json" },
+    signal: AbortSignal.timeout(12000)
+  });
+  const profile = await profileRes.json().catch(() => ({}));
+  if (!profileRes.ok || !profile.id || !profile.username) return reply({ error: "Não foi possível confirmar o perfil Discord autorizado." }, 502);
+  const username = String(profile.global_name || profile.username).slice(0, 100);
+  await env.DB.prepare(
+    "INSERT INTO discord_verifications (discord_id,discord_username,avatar_hash,verified_at) VALUES (?,?,?,?) ON CONFLICT (discord_id) DO UPDATE SET discord_username=EXCLUDED.discord_username,avatar_hash=EXCLUDED.avatar_hash,verified_at=EXCLUDED.verified_at"
+  ).bind(String(profile.id), username, profile.avatar ? String(profile.avatar) : null, Date.now()).run();
+  try {
+    const basic = btoa(String(oauth.clientId) + ":" + String(oauth.clientSecret));
+    await fetch("https://discord.com/api/oauth2/token/revoke", {
+      method: "POST", headers: { authorization: "Basic " + basic, "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: tokenData.access_token, token_type_hint: "access_token" }),
+      signal: AbortSignal.timeout(8000)
+    });
+  } catch {}
+  const destination = new URL(saved.invite_url);
+  destination.searchParams.set("bz_verified", "1");
+  const headers = new Headers({ location: destination.href });
+  headers.append("set-cookie", clearCookie("bz_verify_state"));
+  return new Response(null, { status: 302, headers });
+}
+
 async function prepareDiscordBotToken(rawValue, env) {
   const token = normalizeDiscordBotToken(rawValue);
   if (token.length < 30 || token.length > 512 || /\s/.test(token)) {
@@ -607,17 +904,19 @@ async function readDiscordRuntimeStatus(userId, env, deploymentId) {
 
 
 async function startDiscord(request, env) {
-  if (!env.DISCORD_CLIENT_ID || !env.DISCORD_CLIENT_SECRET) return reply({ error: "Configure DISCORD_CLIENT_ID e DISCORD_CLIENT_SECRET nas variáveis seguras do Vercel." }, 503);
+  const oauth = await discordOAuthCredentials(env);
+  if (!oauth.clientId || !oauth.clientSecret) return reply({ error: "Configure o OAuth2 do Discord no painel administrativo do Estúdio." }, 503);
   const state = randomToken(24);
   await env.DB.prepare("INSERT INTO discord_states (state,expires_at) VALUES (?,?)").bind(state, Date.now() + 600000).run();
   const url = new URL("https://discord.com/oauth2/authorize");
-  url.searchParams.set("client_id", env.DISCORD_CLIENT_ID); url.searchParams.set("redirect_uri", new URL("/api/auth/discord/callback", request.url).href);
+  url.searchParams.set("client_id", oauth.clientId); url.searchParams.set("redirect_uri", new URL("/api/auth/discord/callback", request.url).href);
   url.searchParams.set("response_type", "code"); url.searchParams.set("scope", "identify email"); url.searchParams.set("state", state);
   return new Response(null, { status: 302, headers: { location: url.href, "set-cookie": setCookie("bz_oauth_state", state, 600) } });
 }
 
 async function startDiscordAccountLink(request, user, env) {
-  if (!env.DISCORD_CLIENT_ID || !env.DISCORD_CLIENT_SECRET) {
+  const oauth = await discordOAuthCredentials(env);
+  if (!oauth.clientId || !oauth.clientSecret) {
     return { error: "O login OAuth do Discord ainda não foi configurado pelo proprietário do Estúdio.", status: 503 };
   }
   const state = randomToken(24);
@@ -630,7 +929,7 @@ async function startDiscordAccountLink(request, user, env) {
   ).bind(state, user.id, codeVerifier, Date.now() + 10 * 60 * 1000).run();
   const redirectUri = new URL("/api/discord/link/callback", request.url).href;
   const authorizationUrl = new URL("https://discord.com/oauth2/authorize");
-  authorizationUrl.searchParams.set("client_id", env.DISCORD_CLIENT_ID);
+  authorizationUrl.searchParams.set("client_id", oauth.clientId);
   authorizationUrl.searchParams.set("redirect_uri", redirectUri);
   authorizationUrl.searchParams.set("response_type", "code");
   authorizationUrl.searchParams.set("scope", "identify");
@@ -678,13 +977,15 @@ async function discordAccountLinkCallback(request, env) {
     });
   }
 
+  const oauth = await discordOAuthCredentials(env);
+  if (!oauth.clientId || !oauth.clientSecret) return reply({ error: "O OAuth2 do Discord ainda não está configurado." }, 503);
   const redirectUri = new URL("/api/discord/link/callback", request.url).href;
   const tokenResponse = await fetch("https://discord.com/api/oauth2/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
     body: new URLSearchParams({
-      client_id: env.DISCORD_CLIENT_ID,
-      client_secret: env.DISCORD_CLIENT_SECRET,
+      client_id: oauth.clientId,
+      client_secret: oauth.clientSecret,
       grant_type: "authorization_code",
       code,
       redirect_uri: redirectUri,
@@ -711,7 +1012,7 @@ async function discordAccountLinkCallback(request, env) {
   }
 
   try {
-    const basic = btoa(String(env.DISCORD_CLIENT_ID) + ":" + String(env.DISCORD_CLIENT_SECRET));
+    const basic = btoa(String(oauth.clientId) + ":" + String(oauth.clientSecret));
     await fetch("https://discord.com/api/oauth2/token/revoke", {
       method: "POST",
       headers: {
@@ -762,6 +1063,8 @@ async function claimOwner(userId, env) {
 }
 
 async function discordCallback(request, env) {
+  const oauth = await discordOAuthCredentials(env);
+  if (!oauth.clientId || !oauth.clientSecret) return reply({ error: "Configure o OAuth2 do Discord no painel administrativo." }, 503);
   const url = new URL(request.url); const code = url.searchParams.get("code"); const state = url.searchParams.get("state");
   const cookieState = cookieMap(request).bz_oauth_state;
   if (!code || !state || !cookieState || !same(state, cookieState)) return reply({ error: "Validação OAuth inválida. Tente novamente." }, 400);
@@ -771,7 +1074,7 @@ async function discordCallback(request, env) {
   const redirectUri = new URL("/api/auth/discord/callback", request.url).href;
   const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, client_secret: env.DISCORD_CLIENT_SECRET, grant_type: "authorization_code", code, redirect_uri: redirectUri })
+    body: new URLSearchParams({ client_id: oauth.clientId, client_secret: oauth.clientSecret, grant_type: "authorization_code", code, redirect_uri: redirectUri })
   });
   const tokenData = await tokenRes.json();
   if (!tokenRes.ok || !tokenData.access_token) return reply({ error: "O Discord não autorizou o acesso." }, 401);
@@ -806,6 +1109,7 @@ export async function onRequest(context) {
         .bind("black-zone-estudio").first();
       databaseQuery = probe?.check_value === "black-zone-estudio";
     }
+    const oauth = await discordOAuthCredentials(env);
     return reply({
       ok: true,
       service: "black-zone-estudio",
@@ -815,7 +1119,7 @@ export async function onRequest(context) {
         gate: !!env.APP_GATE_PHRASE,
         session: !!env.APP_SESSION_SECRET,
         encryption: !!env.APP_ENCRYPTION_KEY,
-        discordOAuth: !!(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET)
+        discordOAuth: !!(oauth.clientId && oauth.clientSecret)
       }
     });
   }
@@ -823,6 +1127,8 @@ export async function onRequest(context) {
     if (path === "/hosting/callback" && request.method === "GET") return await hostingCallback(request, env);
   if (!env.DB) return reply({ error: "Banco de dados indisponível. Conecte o Neon ao projeto Vercel para habilitar cadastro e login." }, 503);
   try {
+    if (path === "/verification/start" && request.method === "GET") return await verificationStart(request, env);
+    if (path === "/verification/callback" && request.method === "GET") return await verificationCallback(request, env);
     if (path === "/gate" && request.method === "POST") {
       const b = await body(request);
       if (env.APP_GATE_PHRASE && !same(String(b.phrase || ""), env.APP_GATE_PHRASE)) return reply({ error: "Chave de entrada incorreta." }, 401);
@@ -875,6 +1181,62 @@ export async function onRequest(context) {
       return reply({ ok: true }, 200, { "set-cookie": clearCookie("bz_session") });
     }
     const auth = await requireUser(request, env); if (auth.error) return auth.error; const user = auth.user;
+
+
+    if (path === "/admin/verification-bot/status" && request.method === "GET") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const settings = await verificationBotSettings(env);
+      let runtime = { state: "not_deployed", online: false, deploymentId: null };
+      if (settings?.hosting_deployment_id) runtime = await readVerificationBotStatus(user.id, env, settings);
+      const oauth = await discordOAuthCredentials(env);
+      return reply({
+        configured: !!settings?.bot_token_enc && !!oauth.clientId && !!oauth.clientSecret && !!settings?.invite_url,
+        hasToken: !!settings?.bot_token_enc,
+        botId: settings?.bot_id || null,
+        botName: settings?.bot_name || null,
+        inviteUrl: settings?.invite_url || "",
+        deploymentId: settings?.hosting_deployment_id || null,
+        updatedAt: settings?.updated_at || null,
+        oauthConfigured: !!(oauth.clientId && oauth.clientSecret),
+        hostingConnected: !!(await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first()),
+        runtime
+      });
+    }
+    if (path === "/admin/verification-bot/config" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const result = await saveVerificationBotSettings(user, await body(request), env);
+      if (!result.ok) return reply({ error: result.error }, result.status);
+      return reply(result);
+    }
+    if (path === "/admin/verification-bot/power" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const b = await body(request);
+      const action = String(b.action || "").toLowerCase();
+      if (!["start","stop","restart"].includes(action)) return reply({ error: "Ação inválida. Use iniciar, reiniciar ou parar." }, 400);
+      const settings = await verificationBotSettings(env);
+      if (!settings?.bot_token_enc) return reply({ error: "Configure o Bot Token na seção de verificação primeiro." }, 409);
+      try {
+        let deploymentId = settings.hosting_deployment_id;
+        if (action === "stop") {
+          if (!deploymentId) return reply({ ok: true, state: "offline", message: "O bot ainda não possui implantação." });
+          await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "stop", waitSeconds: 0 });
+          await env.DB.prepare("UPDATE verification_bot_settings SET state='offline',updated_at=? WHERE id='main'").bind(Date.now()).run();
+          return reply({ ok: true, state: "offline" });
+        }
+        const prepared = await ensureVerificationBotDeployment(user.id, env);
+        deploymentId = prepared.deploymentId;
+        let applied = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", { restart: true, waitSeconds: 0 });
+        const state = String(applied.state || "").toLowerCase();
+        if (["offline","stopped","unknown",""].includes(state)) {
+          const started = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "start", waitSeconds: 0 });
+          applied = { ...applied, ...started };
+        }
+        await env.DB.prepare("UPDATE verification_bot_settings SET state='starting',updated_at=? WHERE id='main'").bind(Date.now()).run();
+        return reply({ ok: true, action, state: String(applied.state || "starting").toLowerCase(), deploymentId, botId: prepared.botId, botName: prepared.botName, message: "Inicialização solicitada. Confira o status enquanto o Discord conecta." });
+      } catch (error) {
+        return reply({ error: error.message || "Não foi possível iniciar o bot de verificação." }, 502);
+      }
+    }
 
     if (path === "/hosting/connect" && request.method === "GET") {
       try {
@@ -1623,6 +1985,10 @@ async function ensureSchema(db) {
         `CREATE TABLE IF NOT EXISTS discord_states (state TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)`,
         `CREATE TABLE IF NOT EXISTS discord_link_states (state TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, code_verifier TEXT, expires_at BIGINT NOT NULL)`,
         "CREATE INDEX IF NOT EXISTS idx_discord_states_expiry ON discord_states(expires_at)",
+        "CREATE TABLE IF NOT EXISTS verification_bot_settings (id TEXT PRIMARY KEY,owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,bot_token_enc TEXT,bot_id TEXT,bot_name TEXT,oauth_client_id TEXT,oauth_client_secret_enc TEXT,invite_url TEXT,hosting_deployment_id TEXT,state TEXT NOT NULL DEFAULT 'draft',updated_at BIGINT NOT NULL DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS verification_states (state TEXT PRIMARY KEY,invite_url TEXT NOT NULL,expires_at BIGINT NOT NULL)",
+        "CREATE INDEX IF NOT EXISTS idx_verification_states_expiry ON verification_states(expires_at)",
+        "CREATE TABLE IF NOT EXISTS discord_verifications (discord_id TEXT PRIMARY KEY,discord_username TEXT NOT NULL,avatar_hash TEXT,verified_at BIGINT NOT NULL)",
         `CREATE TABLE IF NOT EXISTS hosting_keys (
           user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
           encrypted_key TEXT NOT NULL, updated_at BIGINT NOT NULL
