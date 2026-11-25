@@ -729,20 +729,23 @@ function botCard(b){
  const online=b.discordOnline===true;
  const processActive=b.state==="running";
  const presence=String(b.discordStatus?.status||"");
+ const customRunning=b.projectType==="custom"&&processActive&&!online;
  const statusText=online?"ONLINE":(
   presence==="token_error"?"TOKEN INVÁLIDO":
   presence==="intents_error"?"INTENTS PENDENTES":
   presence==="reconnecting"?"RECONECTANDO":
   presence==="starting"||b.state==="starting"?"INICIANDO":
   b.scheduleEnabled&&b.scheduleActiveNow===false?"FORA DO HORÁRIO":
+  customRunning?"PROCESSO ATIVO":
   processActive?"AGUARDANDO DISCORD":
   b.hostingDeploymentId?"OFFLINE":"RASCUNHO"
  );
+ const statusClass=online?"pill-online":(customRunning?"pill-running":"pill-offline");
  const allocation=b.runtimeInfo?.resources||{};
  const safeId=escapeHtml(b.id);
  return '<article class="dashboard-bot-card" data-search-bot="'+escapeHtml((b.name||"")+" "+(b.runtime||""))+'">'+
   '<div class="dashboard-bot-avatar">◈</div>'+
-  '<div class="dashboard-bot-main"><div class="dashboard-bot-title"><strong>'+escapeHtml(b.name||"Projeto sem nome")+'</strong><span class="status-pill '+(online?"pill-online":"pill-offline")+'"><i></i>'+statusText+'</span></div>'+
+  '<div class="dashboard-bot-main"><div class="dashboard-bot-title"><strong>'+escapeHtml(b.name||"Projeto sem nome")+'</strong><span class="status-pill '+statusClass+'"><i></i>'+statusText+'</span></div>'+
   '<div class="dashboard-bot-meta">'+(b.projectType==="custom"?"MEU BOT · CÓDIGO IMPORTADO":"BOT PADRÃO DO ESTÚDIO")+' · '+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' · '+(b.hostingDeploymentId?"Implantado":"Ainda não publicado")+' · '+(b.hasDiscordToken?"Token salvo e protegido":"Token pendente")+'</div>'+
   '<div class="dashboard-bot-stats"><span><b>CPU ALOCADA</b><small>'+(allocation.cpuPercent!=null?escapeHtml(String(allocation.cpuPercent))+"%":"—")+'</small></span><span><b>RAM ALOCADA</b><small>'+(allocation.ramMB!=null?escapeHtml(String(allocation.ramMB))+" MB":"—")+'</small></span><span><b>ARMAZENAMENTO</b><small>'+(allocation.storageMB!=null?escapeHtml(String(allocation.storageMB))+" MB":"—")+'</small></span></div></div>'+
   '<div class="dashboard-bot-actions">'+
@@ -1340,7 +1343,10 @@ async function openBot(id){
  const serverRunning=b.state==="running";const isRunning=b.discordOnline===true;
  const discordStatus=b.discordStatus||{};
  const commandErrors=Array.isArray(discordStatus.commandSyncErrors)?discordStatus.commandSyncErrors:[];
- const commandSummary=discordStatus.commandsTotal!=null?("Comandos publicados: "+Number(discordStatus.commandsRegistered||0)+"/"+Number(discordStatus.commandsTotal||0)+" em "+Number(discordStatus.commandsSyncedGuilds||0)+" servidor(es)."):"Aguardando a primeira publicação dos comandos.";
+ const statusLabel=isRunning?"ONLINE":(serverRunning?(b.projectType==="custom"?"PROCESSO ATIVO":"AGUARDANDO DISCORD"):(b.hostingDeploymentId?"OFFLINE":"RASCUNHO"));
+ const commandSummary=b.projectType==="custom"
+  ?"Os comandos e recursos deste bot são definidos pelo código que você importou."
+  :(discordStatus.commandsTotal!=null?("Comandos publicados: "+Number(discordStatus.commandsRegistered||0)+"/"+Number(discordStatus.commandsTotal||0)+" em "+Number(discordStatus.commandsSyncedGuilds||0)+" servidor(es)."):"Aguardando a primeira publicação dos comandos.");
  const schedule=b.scheduleEnabled;
  const scheduleText=schedule?(b.scheduleStart+" até "+b.scheduleEnd+" • America/Bahia"):"Sem horário limitado (conforme a disponibilidade da hospedagem)";
  const connectPanel=connected
@@ -1348,13 +1354,13 @@ async function openBot(id){
    : '<div class="project-note"><strong>Conecte sua hospedagem para ativar os controles.</strong><br>Você será levado ao Bot-Hosting para entrar e aprovar o acesso. Não precisa copiar chave de API.</div>';
  openModal(
  '<div class="modal-head"><h3>'+escapeHtml(b.name||"Projeto")+'</h3><button class="close" id="closeModal">×</button></div>'+
- '<p class="muted small">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token do Discord protegido":"Token do Discord pendente")+'</p>'+
+ '<p class="muted small">'+(b.projectType==="custom"?"MEU PRÓPRIO BOT":"BOT PADRÃO DO ESTÚDIO")+' • '+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token protegido no painel":(b.projectType==="custom"?"Pode estar no código do projeto":"Token do Discord pendente"))+'</p>'+
  '<div class="grid stats" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:15px 0">'+
  '<div class="card"><div class="stat-label">STATUS DO SERVIDOR</div><div class="stat-value" style="font-size:17px">'+statusLabel+'</div></div>'+
  '<div class="card"><div class="stat-label">MÓDULOS ATIVOS</div><div class="stat-value">'+enabled+'</div></div></div>'+
  connectPanel+
  (discordStatus.status==='error'?'<div class="project-note changes-pending"><strong>Falha na inicialização do CAOS.</strong><br>'+escapeHtml(discordStatus.error||"Consulte os logs para ver a causa.")+'</div>':'')+
- (b.discordStatus?.status==='token_error'?'<div class="project-note changes-pending"><strong>O Discord recusou o token durante a inicialização.</strong><br>Abra a configuração, substitua o token e salve novamente.</div>':b.discordStatus?.status==='intents_error'?'<div class="project-note changes-pending"><strong>Intents privilegiados não habilitados.</strong><br>Ative Server Members Intent e Message Content Intent no Developer Portal.</div>':(serverRunning&&!isRunning?'<div class="project-note"><strong>O processo da hospedagem está ativo, mas o login no Discord ainda não foi confirmado.</strong><br>Consulte o terminal para ver se o token foi aceito ou se faltam intents.</div>':''))+
+ (b.discordStatus?.status==='token_error'?'<div class="project-note changes-pending"><strong>O Discord recusou o token durante a inicialização.</strong><br>Abra a configuração, substitua o token e salve novamente.</div>':b.discordStatus?.status==='intents_error'?'<div class="project-note changes-pending"><strong>Intents privilegiados não habilitados.</strong><br>Ative Server Members Intent e Message Content Intent no Developer Portal.</div>':(serverRunning&&!isRunning?'<div class="project-note"><strong>'+(b.projectType==="custom"?"O processo do seu bot está ativo na hospedagem.":"O processo da hospedagem está ativo, mas o login no Discord ainda não foi confirmado.")+'</strong><br>'+(b.projectType==="custom"?"O seu código próprio não envia um sinal de presença para o Estúdio. Confira os logs para confirmar a conexão com o Discord.":"Consulte o terminal para ver se o token foi aceito ou se faltam intents.")+'</div>':''))+
  '<div class="hero-actions" style="margin-top:14px;flex-wrap:wrap">'+
  (connected?'<button class="btn" id="botStart" '+(isRunning?"disabled":"")+'>'+(serverRunning&&!isRunning?"↻ Tentar iniciar novamente":"▶ Iniciar") +'</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!serverRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar Bot-Hosting</button>')+
  '<button class="btn secondary" id="botModules">Configurar token e módulos</button></div>'+
