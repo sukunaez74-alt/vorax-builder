@@ -808,7 +808,6 @@ async function openBot(id){
  try{const hostStatus=await api("/hosting/status");state.hosting=!!hostStatus.connected;}catch{state.hosting=false;}
  const connected=!!state.hosting;
  const botId=b.discordBotId||null;
- const invite=botId?"https://discord.com/oauth2/authorize?client_id="+encodeURIComponent(botId)+"&permissions=2435968080&scope=bot%20applications.commands":"";
  const serverRunning=b.state==="running";const isRunning=serverRunning && b.botOnlineNow!==false;
  const schedule=b.scheduleEnabled;
  const scheduleText=schedule?(b.scheduleStart+" até "+b.scheduleEnd+" • America/Bahia"):"Sem horário limitado (conforme a disponibilidade da hospedagem)";
@@ -828,12 +827,10 @@ async function openBot(id){
  '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Horário de funcionamento</h3><span class="status off">'+(schedule?"Agendado":"Sem agenda")+'</span></div>'+
  '<label class="module" style="display:flex;align-items:center;gap:12px"><input id="scheduleEnabled" type="checkbox" class="toggle" '+(schedule?"checked":"")+'><span><strong>Ativar horário diário</strong><small>O supervisor liga e desliga o processo do bot automaticamente</small></span></label>'+
  '<div class="grid two-col" style="margin-top:12px"><div class="field"><label>FICAR ONLINE A PARTIR DE</label><input id="scheduleStart" type="time" value="'+escapeHtml(b.scheduleStart||"00:00")+'"></div><div class="field"><label>FICAR OFFLINE A PARTIR DE</label><input id="scheduleEnd" type="time" value="'+escapeHtml(b.scheduleEnd||"23:59")+'"></div></div>'+
- '<div class="field"><label>ID DO SERVIDOR OU LINK DE CONVITE (OPCIONAL)</label><input id="scheduleGuildId" placeholder="Cole o ID numérico ou discord.gg/..." value="'+escapeHtml(b.guildId||"")+'"></div>'+
  '<div class="project-note"><strong>Fuso horário: America/Bahia.</strong><br>Sem agenda, o supervisor mantém o bot online enquanto a hospedagem estiver ativa. Com agenda, o processo do Discord só roda dentro da janela diária.</div>'+
- '<button class="btn wide" id="saveBotSchedule">Salvar horário e servidor</button></section>'+
+ '<button class="btn wide" id="saveBotSchedule">Salvar horário</button></section>'+
  '<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
- (invite?'<a class="btn wide" href="'+escapeHtml(invite)+'" target="_blank" rel="noopener">Adicionar bot ao servidor Discord ↗</a>':'<p class="muted small">O convite aparece depois que o servidor valida o token do Discord na primeira inicialização.</p>')+
- '<p class="muted small" style="margin-top:12px">O CAOS sincroniza os comandos de aplicativo ao iniciar. Com o ID do servidor preenchido acima, o registro é direcionado para esse servidor e costuma aparecer mais rápido; sem ele, os comandos são globais e podem levar um tempo para propagar.</p><div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative os intents Server Members Intent e Message Content Intent para este bot. Depois adicione o bot ao servidor pelo botão acima.</div></section>'+
+ '<p class="muted small" style="margin-top:12px">O CAOS registra os comandos de aplicativo globalmente ao iniciar. O Discord pode levar alguns minutos para disponibilizá-los na lista de comandos.</p><div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative os intents Server Members Intent e Message Content Intent para este bot. O bot deve estar adicionado ao servidor em que será utilizado.</div></section>'+
  '<div class="hero-actions" style="margin-top:14px"><button class="btn secondary" id="botClose">Fechar</button></div>'
  );
  const connect=$("#connectHosting");
@@ -866,12 +863,12 @@ async function openBot(id){
  };
  if($("#saveBotSchedule"))$("#saveBotSchedule").onclick=async()=>{
    const enabled=$("#scheduleEnabled").checked;
-   const start=$("#scheduleStart").value,end=$("#scheduleEnd").value,guildId=$("#scheduleGuildId").value.trim();
+   const start=$("#scheduleStart").value,end=$("#scheduleEnd").value;
    const btn=$("#saveBotSchedule");btn.disabled=true;btn.textContent="Salvando...";
    try{
-     const saved=await api("/bots/"+encodeURIComponent(id)+"/schedule",{method:"POST",body:JSON.stringify({enabled,start,end,guildId})});
-     await loadBots();toast(saved.inviteResolved?"Convite reconhecido! ID do servidor e horário salvos.":"Horário e servidor salvos.");await openBot(id);
-   }catch(e){toast(e.message);btn.disabled=false;btn.textContent="Salvar horário e servidor";}
+     await api("/bots/"+encodeURIComponent(id)+"/schedule",{method:"POST",body:JSON.stringify({enabled,start,end})});
+     await loadBots();toast("Horário salvo com sucesso.");await openBot(id);
+   }catch(e){toast(e.message);btn.disabled=false;btn.textContent="Salvar horário";}
  };
 }
 async function loadBots(){try{const r=await api("/bots");state.bots=Array.isArray(r.deployments)?r.deployments:[];render()}catch(err){toast(err.message)}}
