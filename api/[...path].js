@@ -928,7 +928,7 @@ async function ensureBotDeployment(bot, userId, env) {
   if (customProject) {
     const runtime = customProject.runtime === "nodejs" ? "nodejs" : "python";
     const runtimeVersion = runtime === "nodejs" ? "22" : "3.11";
-    const entryFile = String(customProject.entryFile || "").replace(/^\\/+/, "");
+    const entryFile = String(customProject.entryFile || "").replace(/^\/+/, "");
     if (!entryFile || entryFile.split("/").some(part => part === "..")) throw new Error("O pacote importado não tem um arquivo principal válido. Reenvie a pasta ou o ZIP.");
     await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
     await setHostEnv(userId, env, deploymentId, "BOT_TOKEN", token, true);
@@ -1021,7 +1021,7 @@ function safeVolumePath(value) {
 }
 async function scanImportedProject(userId, env, deploymentId) {
   const ignored = new Set([".git","node_modules",".venv","venv","__pycache__",".next","vendor"]);
-  const imageExt = /\\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp)$/i;
+  const imageExt = /\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp)$/i;
   const queue = [{ path: "/", depth: 0 }];
   const seen = new Set();
   const files = [];
@@ -1058,7 +1058,7 @@ async function scanImportedProject(userId, env, deploymentId) {
       return scanImportedProject(userId, env, deploymentId);
     }
   }
-  const relative = files.map(p => p.replace(/^\\//, ""));
+  const relative = files.map(p => p.replace(/^\//, ""));
   const pyPriority = ["main.py","bot.py","run.py","app.py","index.py","start.py"];
   const jsPriority = ["index.js","bot.js","main.js","app.js","src/index.js","src/bot.js","index.mjs","bot.mjs"];
   const score = (p, pref) => {
@@ -1067,8 +1067,8 @@ async function scanImportedProject(userId, env, deploymentId) {
     const tail = pref.indexOf(p.toLowerCase().split("/").pop());
     return tail < 0 ? 999 : 30 + tail;
   };
-  const py = relative.filter(p => /\\.py$/i.test(p)).sort((a,b)=>score(a,pyPriority)-score(b,pyPriority));
-  const js = relative.filter(p => /\\.(?:js|mjs|cjs)$/i.test(p)).sort((a,b)=>score(a,jsPriority)-score(b,jsPriority));
+  const py = relative.filter(p => /\.py$/i.test(p)).sort((a,b)=>score(a,pyPriority)-score(b,pyPriority));
+  const js = relative.filter(p => /\.(?:js|mjs|cjs)$/i.test(p)).sort((a,b)=>score(a,jsPriority)-score(b,jsPriority));
   let pkg = null;
   const packagePath = relative.find(p => p.toLowerCase() === "package.json");
   if (packagePath) {
@@ -1078,7 +1078,7 @@ async function scanImportedProject(userId, env, deploymentId) {
     } catch {}
   }
   let runtime = "python", entryFile = py[0] || "", startCommand = null;
-  const declaredMain = typeof pkg?.main === "string" ? pkg.main.replace(/^\\.\\//, "") : "";
+  const declaredMain = typeof pkg?.main === "string" ? pkg.main.replace(/^\.\//, "") : "";
   if (js.length && (!py.length || pkg)) {
     runtime = "nodejs";
     entryFile = (declaredMain && relative.includes(declaredMain) ? declaredMain : "") || js[0];
