@@ -51,6 +51,19 @@ async function verifyPassword(password, stored) {
   const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 210000, hash: "SHA-256" }, key, 256);
   return same(b64(bits), digest);
 }
+function normalizeDiscordBotToken(value) {
+  let token = String(value ?? "").trim();
+  if (token.length >= 2 &&
+      ((token.startsWith('"') && token.endsWith('"')) ||
+       (token.startsWith("'") && token.endsWith("'")))) {
+    token = token.slice(1, -1).trim();
+  }
+  // Discord examples sometimes show "Bot " before the actual token.
+  // The API request below adds the Bot scheme itself, so remove it if pasted.
+  token = token.replace(/^Bot[ \t]+/i, "").trim();
+  return token;
+}
+
 async function validateDiscordBotToken(token) {
   let response;
   try {
@@ -530,7 +543,7 @@ export async function onRequest(context) {
       ).bind(id, user.id).first();
       if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta. Atualize a lista de bots." }, 404);
 
-      const discordToken = String(b.discordToken || "").trim();
+      const discordToken = normalizeDiscordBotToken(b.discordToken);
       let identity = null;
       let tokenUpdated = false;
       if (discordToken) {
@@ -601,7 +614,7 @@ export async function onRequest(context) {
     if (path === "/bot-token" && request.method === "POST") {
       const b = await body(request);
       const id = String(b.botId || "").trim();
-      const discordToken = String(b.discordToken || "").trim();
+      const discordToken = normalizeDiscordBotToken(b.discordToken);
       if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) return reply({ error: "Projeto inválido. Atualize a lista de bots." }, 400);
       if (discordToken.length < 30 || discordToken.length > 256 || /\s/.test(discordToken)) {
         return reply({ error: "Cole o Bot Token completo do Discord, sem espaços." }, 400);
@@ -649,6 +662,60 @@ export async function onRequest(context) {
         discordBotId: confirmed.discord_bot_id || identity.botId,
         discordBotName: confirmed.discord_bot_name || identity.botName || null,
         message: "Bot Token validado pelo Discord, criptografado e confirmado no banco."
+      });
+    }
+
+    if (path === "/bot-token/status" && request.method === "GET") {
+      const id = String(url.searchParams.get("botId") || "").trim();
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(id)) {
+        return reply({ error: "Projeto inválido. Atualize a lista de bots." }, 400);
+      }
+      const ownedBot = await env.DB.prepare(
+        "SELECT id,discord_token_enc,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
+      ).bind(id, user.id).first();
+      if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
+      if (!ownedBot.discord_token_enc) {
+        return reply({ ok: true, hasDiscordToken: false, valid: false, status: "missing" });
+      }
+
+      let savedToken = null;
+      try {
+        savedToken = await decryptSecret(ownedBot.discord_token_enc, env);
+      } catch {
+        savedToken = null;
+      }
+      if (!savedToken) {
+        return reply({
+          ok: true, hasDiscordToken: true, valid: false, status: "decrypt_failed",
+          error: "Existe um registro de token, mas não foi possível abrir com a chave de criptografia atual. Cole novamente o Bot Token."
+        }, 409);
+      }
+
+      const identity = await validateDiscordBotToken(savedToken);
+      if (identity.unavailable) {
+        return reply({
+          ok: false, hasDiscordToken: true, valid: false, status: "discord_unavailable",
+          error: identity.reason === "rate_limited"
+            ? "O Discord limitou a verificação. Aguarde um minuto e tente novamente."
+            : "Não consegui consultar o Discord agora. O token continua protegido no banco, mas a validação ficou pendente."
+        }, 503);
+      }
+      if (!identity.valid) {
+        return reply({
+          ok: true, hasDiscordToken: true, valid: false, status: "discord_rejected",
+          error: "O Discord não reconheceu o token atualmente salvo. Gere um novo Bot Token no Developer Portal e salve novamente."
+        }, 200);
+      }
+
+      if (identity.botId !== ownedBot.discord_bot_id || identity.botName !== ownedBot.discord_bot_name) {
+        await env.DB.prepare(
+          "UPDATE bots SET discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?"
+        ).bind(identity.botId, identity.botName || null, Date.now(), id, user.id).run();
+      }
+      return reply({
+        ok: true, hasDiscordToken: true, valid: true, status: "verified",
+        discordBotId: identity.botId, discordBotName: identity.botName || null,
+        message: "O token salvo foi aberto com segurança e aceito pelo Discord."
       });
     }
 
