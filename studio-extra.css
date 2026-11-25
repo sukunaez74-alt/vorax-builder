@@ -58,3 +58,18 @@
 .token-saved-indicator i{width:7px;height:7px;border-radius:50%;background:#55e59a;box-shadow:0 0 10px #55e59a99}
 .token-empty-indicator{color:#ffc978;font:900 8px 'Manrope',sans-serif;letter-spacing:.12em}
 .token-saved-card.token-not-saved{border-color:#7b542b;background:linear-gradient(110deg,#291c0c,#171b25)}
+
+
+/* Token verification feedback: visible, persistent in the open modal, and never exposes the secret */
+.token-feedback{display:none;margin:9px 0 12px;padding:10px 12px;border:1px solid #3a3458;border-radius:9px;background:#111026;color:#c4b7dc;font:700 9px/1.7 'Manrope',sans-serif;overflow-wrap:anywhere}
+.token-feedback:not(:empty){display:block}
+.token-feedback.success{border-color:#32785c;background:#0c241d;color:#9ce8c4}
+.token-feedback.pending{border-color:#5a4388;background:#1a1230;color:#d6bbff}
+.token-feedback.warning{border-color:#795a2d;background:#2a2112;color:#ffd28b}
+.token-feedback.error{border-color:#8a3850;background:#311320;color:#ffb3c3}
+.token-saved-card.token-checking{border-color:#67469a;background:linear-gradient(110deg,#1d1232,#101b27)}
+.token-saved-card.token-not-saved{border-color:#82562c;background:linear-gradient(110deg,#2b1d0d,#171b25)}
+#saveTokenOnly{margin:0 0 10px;min-width:145px}
+#saveTokenOnly:disabled{opacity:.6;cursor:default}
+#discordToken{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.02em}
+#settingsHostingState{margin:12px 0}
