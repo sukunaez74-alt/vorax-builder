@@ -2233,7 +2233,7 @@ export async function onRequest(context) {
         hasDiscordToken: !!row.has_discord_token,
         discordBotId: row.discord_bot_id || null,
         discordBotName: row.discord_bot_name || null,
-        hostingDeploymentId: row.hosting_provider === "discloud" ? (row.provider_app_id || null) : (row.hosting_deployment_id || null),
+        hostingDeploymentId: row.provider_app_id || row.hosting_deployment_id || null,
         hostingProvider: row.hosting_provider || "bot-hosting",
         providerAppId: row.provider_app_id || null,
         scheduleEnabled: !!row.schedule_enabled,
@@ -2373,6 +2373,16 @@ export async function onRequest(context) {
           } catch (error) {
             runtimeInfo = { error: error.message || "Falha ao consultar Discloud." };
           }
+        } else if (bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "squarecloud", env);
+            if (!token) throw new Error("Conta Square Cloud desconectada.");
+            const status = await squareCloudRequest(token, "/apps/" + encodeURIComponent(squareAppId(bot.provider_app_id)) + "/status");
+            runtimeInfo = status;
+            state = String(status.status || (status.running ? "running" : "stopped")).toLowerCase();
+          } catch (error) {
+            runtimeInfo = { error: error.message || "Falha ao consultar Square Cloud." };
+          }
         } else if (bot.hosting_deployment_id) {
           try {
             runtimeInfo = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/diagnose?waitSeconds=0");
@@ -2393,7 +2403,7 @@ export async function onRequest(context) {
           projectType: bot.project_type === "custom" || bot.custom_project ? "custom" : "standard",
           hasDiscordToken: hasToken,
           discordBotId, discordBotName,
-          hostingDeploymentId: bot.hosting_provider === "discloud" ? (bot.provider_app_id || null) : (bot.hosting_deployment_id || null),
+          hostingDeploymentId: bot.provider_app_id || bot.hosting_deployment_id || null,
           hostingProvider: bot.hosting_provider || "bot-hosting",
           providerAppId: bot.provider_app_id || null,
           scheduleEnabled: !!bot.schedule_enabled,
@@ -2467,6 +2477,34 @@ export async function onRequest(context) {
             });
           } catch (error) {
             return reply({ ok: false, code: "provider_action_failed", error: error.message || "Falha ao controlar a aplicação na Discloud." }, 502);
+          }
+        }
+        if (bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "squarecloud", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "A conexão Square Cloud não está disponível. Reconecte em Configurações." }, 409);
+            const appId = encodeURIComponent(squareAppId(bot.provider_app_id));
+            let actionResult = null;
+            try {
+              actionResult = await squareCloudRequest(token, "/apps/" + appId + "/" + signal, "POST");
+            } catch (error) {
+              const code = String(error?.code || "");
+              if (!((signal === "start" && code === "CONTAINER_ALREADY_STARTED") ||
+                    (signal === "stop" && code === "CONTAINER_ALREADY_STOPPED"))) throw error;
+            }
+            const status = await squareCloudRequest(token, "/apps/" + appId + "/status");
+            const state = signal === "stop" ? "stopped" : String(status.status || (status.running ? "running" : "starting")).toLowerCase();
+            await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
+              .bind(state, Date.now(), id, user.id).run();
+            return reply({
+              ok: true, action: signal, state, provider: "squarecloud",
+              providerAppId: bot.provider_app_id, discordOnline: false,
+              resources: { cpu: status.cpu ?? null, ram: status.ram ?? null, storage: status.storage ?? null, uptime: status.uptime ?? null },
+              hint: signal === "stop" ? "Processo parado na Square Cloud." : "Comando enviado à Square Cloud. Confira os logs para confirmar a conexão do Discord.",
+              providerMessage: actionResult?.message || null
+            });
+          } catch (error) {
+            return reply({ ok: false, code: "provider_action_failed", error: error.message || "Falha ao controlar a aplicação na Square Cloud." }, 502);
           }
         }
         const connected = await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first();
@@ -2634,6 +2672,27 @@ export async function onRequest(context) {
           return reply({ error: error.message || "Não consegui consultar a Discloud." }, 502);
         }
       }
+      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "squarecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Square Cloud nas Configurações." }, 409);
+          const appId = encodeURIComponent(squareAppId(bot.provider_app_id));
+          if (action === "logs") {
+            const result = await squareCloudRequest(token, "/apps/" + appId + "/logs");
+            const raw = String(result.logs || "");
+            const lines = raw.split(/\r?\n/).filter(Boolean).slice(-200);
+            return reply({ provider: "squarecloud", lines, logs: lines, raw });
+          }
+          const status = await squareCloudRequest(token, "/apps/" + appId + "/status");
+          if (action === "diagnose") return reply({ provider: "squarecloud", ...status });
+          return reply({
+            provider: "squarecloud",
+            resources: { cpu: status.cpu ?? null, ram: status.ram ?? null, status: status.status ?? null, storage: status.storage ?? null, network: status.network ?? null, uptime: status.uptime ?? null }
+          });
+        } catch (error) {
+          return reply({ error: error.message || "Não consegui consultar a Square Cloud." }, 502);
+        }
+      }
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Este bot ainda não foi iniciado em uma hospedagem." }, 409);
         try {
@@ -2646,6 +2705,23 @@ export async function onRequest(context) {
         }
       }
 
+      if (action === "files" && !subPath && request.method === "GET" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "squarecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Square Cloud nas Configurações." }, 409);
+          const root = safeVolumePath(url.searchParams.get("path") || "/");
+          const result = await squareCloudRequest(token, "/apps/" + encodeURIComponent(squareAppId(bot.provider_app_id)) + "/files?path=" + encodeURIComponent(root));
+          const entries = (Array.isArray(result) ? result : []).map(item => ({
+            name: String(item.name || ""),
+            type: String(item.type || "").toLowerCase() === "directory" ? "directory" : "file",
+            sizeBytes: Number(item.size || 0),
+            modifiedAt: item.lastModified ? Number(item.lastModified) : null
+          })).filter(item => item.name);
+          return reply({ provider: "squarecloud", path: root, entries });
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao listar arquivos na Square Cloud." }, 502);
+        }
+      }
       if (action === "files" && !subPath && request.method === "GET") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Inicie o bot antes de abrir os arquivos." }, 409);
         try {
@@ -2654,6 +2730,18 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao listar arquivos." }, 502); }
       }
 
+      if (action === "files" && subPath === "download-url" && request.method === "GET" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "squarecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Square Cloud nas Configurações." }, 409);
+          const filePath = safeVolumePath(url.searchParams.get("path"));
+          const result = await squareCloudRequest(token, "/apps/" + encodeURIComponent(squareAppId(bot.provider_app_id)) + "/files/content?path=" + encodeURIComponent(filePath) + "&encoding=base64");
+          if (!result?.data) return reply({ error: "O provedor não retornou o conteúdo do arquivo." }, 502);
+          return reply({ provider: "squarecloud", base64: result.data, filename: filePath.split("/").pop() || "download.bin" });
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao baixar arquivo da Square Cloud." }, 502);
+        }
+      }
       if (action === "files" && subPath === "download-url" && request.method === "GET") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Hospedagem não preparada." }, 409);
         try {
@@ -2662,6 +2750,33 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao preparar download." }, 502); }
       }
 
+      if (action === "files" && subPath === "compress" && request.method === "POST" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+        try {
+          const b = await body(request);
+          const items = Array.isArray(b.files) ? b.files : [];
+          if (!items.length || items.length > 60) return reply({ error: "Selecione de 1 a 60 arquivos para exportar de uma vez." }, 400);
+          const token = await providerToken(user.id, "squarecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Square Cloud nas Configurações." }, 409);
+          const zip = new JSZip();
+          let totalBytes = 0;
+          for (const item of items) {
+            const filePath = safeVolumePath(item);
+            const content = await squareCloudRequest(token, "/apps/" + encodeURIComponent(squareAppId(bot.provider_app_id)) + "/files/content?path=" + encodeURIComponent(filePath) + "&encoding=base64");
+            if (!content?.data) continue;
+            const binary = atob(content.data);
+            totalBytes += binary.length;
+            if (totalBytes > 8 * 1024 * 1024) return reply({ error: "O ZIP selecionado passa de 8 MB. Exporte menos arquivos por vez." }, 413);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const relative = filePath.replace(/^\/+/, "");
+            zip.file(relative, bytes);
+          }
+          const archiveBase64 = await zip.generateAsync({ type: "base64", compression: "DEFLATE", compressionOptions: { level: 6 } });
+          return reply({ provider: "squarecloud", archiveBase64, filename: "black-zone-export.zip", filesCount: items.length });
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao compactar os arquivos na Square Cloud." }, 502);
+        }
+      }
       if (action === "files" && subPath === "compress" && request.method === "POST") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Hospedagem não preparada." }, 409);
         const b = await body(request);
@@ -2674,6 +2789,21 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao criar o arquivo ZIP." }, 502); }
       }
 
+      if (action === "files" && subPath === "content" && request.method === "GET" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+        try {
+          const filePath = safeVolumePath(url.searchParams.get("path") || "/main.py");
+          if (/\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f|mp3|wav|ogg|m4a|flac|mp4|webm|mov|woff2?|ttf|otf|zip|pdf|db|sqlite)$/i.test(filePath)) {
+            return reply({ error: "Este arquivo é binário e não pode ser aberto no editor de texto. Use o botão Baixar." }, 415);
+          }
+          const token = await providerToken(user.id, "squarecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Square Cloud nas Configurações." }, 409);
+          const result = await squareCloudRequest(token, "/apps/" + encodeURIComponent(squareAppId(bot.provider_app_id)) + "/files/content?path=" + encodeURIComponent(filePath) + "&encoding=base64");
+          const content = decodeBase64Text(result?.data || "");
+          return reply({ provider: "squarecloud", path: filePath, content, totalLines: content.split("\n").length });
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao ler arquivo da Square Cloud." }, 502);
+        }
+      }
       if (action === "files" && subPath === "content" && request.method === "GET") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Inicie o bot antes de ler arquivos." }, 409);
         try {
@@ -2683,6 +2813,19 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao ler arquivo." }, 502); }
       }
 
+      if (action === "files" && subPath === "content" && request.method === "POST" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+        const b = await body(request);
+        const filePath = safeVolumePath(b.path);
+        const content = String(b.content ?? "");
+        if (content.length > 450000) return reply({ error: "O arquivo é grande demais para o editor de texto. Use o envio de arquivos." }, 413);
+        try {
+          const token = await providerToken(user.id, "squarecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Square Cloud nas Configurações." }, 409);
+          return reply(await squareCloudRequest(token, "/apps/" + encodeURIComponent(squareAppId(bot.provider_app_id)) + "/files", "PUT", { path: filePath, content }));
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao salvar arquivo na Square Cloud." }, 502);
+        }
+      }
       if (action === "files" && subPath === "content" && request.method === "POST") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Inicie o bot antes de editar arquivos." }, 409);
         const b = await body(request);
@@ -2694,6 +2837,18 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao salvar arquivo." }, 502); }
       }
 
+      if (action === "files" && subPath === "delete" && request.method === "POST" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+        const b = await body(request);
+        const filePath = safeVolumePath(b.path);
+        if (filePath === "/") return reply({ error: "A pasta raiz não pode ser removida." }, 400);
+        try {
+          const token = await providerToken(user.id, "squarecloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Square Cloud nas Configurações." }, 409);
+          return reply(await squareCloudRequest(token, "/apps/" + encodeURIComponent(squareAppId(bot.provider_app_id)) + "/files", "DELETE", { path: filePath }));
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao excluir arquivo na Square Cloud." }, 502);
+        }
+      }
       if (action === "files" && subPath === "delete" && request.method === "POST") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Inicie o bot antes de remover arquivos." }, 409);
         const b = await body(request);
@@ -2901,6 +3056,9 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao analisar o pacote importado." }, 502); }
       }
 
+      if (action === "shell" && request.method === "POST" && bot.hosting_provider === "squarecloud" && bot.provider_app_id) {
+        return reply({ code: "shell_not_supported", error: "A Square Cloud não expõe terminal de comandos na API pública. O gerenciador de arquivos, logs e controles do processo estão disponíveis no Estúdio." }, 409);
+      }
       if (action === "shell" && request.method === "POST") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Prepare a hospedagem antes de abrir o terminal." }, 409);
         const b = await body(request);
