@@ -786,7 +786,30 @@ function logsView(){
  return pageHead("Backups e restauração","Crie um ZIP para baixar ao seu computador ou restaure um ponto automático do Bot-Hosting.")+
  '<section class="dashboard-panel"><div class="backup-toolbar"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="backup-toolbar-actions"><button class="btn" id="backupManualCreate">↓ Criar e baixar ZIP</button><button class="btn secondary" id="backupRefresh">↻ Atualizar pontos</button></div></div><div id="backupStatus" class="project-note">O ZIP manual é uma cópia dos arquivos atuais. Os pontos de restauração automáticos são fornecidos pelo Bot-Hosting.</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Consultando pontos de restauração…</div></div></section>';
 }
-function settingsView(){return pageHead("Configurações","Gerencie sua conta e veja a situação do ambiente.")+'<div class="grid settings-grid"><section class="card"><div class="section-head"><h3>Seu espaço de criação</h3><span class="status">Sem chave de API</span></div><p class="muted small">Você pode criar projetos, escolher a linguagem e salvar os módulos sem vincular Bot-Hosting ou informar uma chave externa.</p><div class="project-note"><strong>Sobre a execução dos bots</strong><br>O painel e o banco já funcionam. Para iniciar bots Discord e mantê-los ativos 24 horas, ainda será necessário ligar um executor de processos. Isso é diferente de uma chave de API para entrar no painel.</div></section><section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">Sessões protegidas por cookie HttpOnly. As senhas são armazenadas com hash seguro no servidor.</p></section><section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API e a conexão real com o PostgreSQL.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>'}
+async function loadSettingsHostingState(){
+ const node=$("#settingsHostingState");if(!node)return;
+ node.innerHTML="<strong>Consultando autorização…</strong><br>Verificando a conexão com o Bot-Hosting.";
+ try{
+  const result=await api("/hosting/status");
+  if(result.connected){
+   node.innerHTML='<strong>Hospedagem conectada.</strong><br>Esta conta autorizou o executor. Você já pode preparar o container de um bot.';
+   node.classList.remove("changes-pending");
+  }else{
+   node.innerHTML="<strong>Autorização pendente.</strong><br>Conecte sua conta Bot-Hosting para criar e controlar os containers.";
+   node.classList.add("changes-pending");
+  }
+ }catch(error){
+  node.innerHTML="<strong>Não consegui conferir a autorização.</strong><br>"+escapeHtml(error.message);
+  node.classList.add("changes-pending");
+ }
+}
+function settingsView(){
+ return pageHead("Configurações","Gerencie sua conta, hospedagem e diagnóstico do ambiente.")+
+ '<div class="grid settings-grid">'+
+ '<section class="card"><div class="section-head"><h3>Executor de bots</h3><span class="status">OAuth · sem chave manual</span></div><p class="muted small">Conecte sua conta Bot-Hosting uma vez. O Estúdio usa autorização OAuth e guarda os tokens de acesso criptografados; você não precisa copiar uma chave de API.</p><div id="settingsHostingState" class="project-note"><strong>Consultando autorização…</strong><br>Verificando se esta conta já autorizou o executor.</div><button class="btn" id="settingsHostingConnect">Conectar / reconectar Bot-Hosting</button><p class="muted small" style="margin-top:10px">Depois da autorização, abra um bot e clique em Iniciar. O Estúdio prepara o container Python do CAOS, instala as dependências e valida a conexão real do bot com o Discord. A disponibilidade contínua depende dos limites e da renovação do plano de hospedagem.</p></section>'+
+ '<section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">As sessões usam cookies HttpOnly. Os Bot Tokens são criptografados no servidor e nunca são devolvidos ao navegador em texto aberto.</p></section>'+
+ '<section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API, o PostgreSQL e a configuração do ambiente.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>';
+}
 function bindView(){
  const add=()=>createBotModal();
  ["addBot","heroCreate"].forEach(id=>{const e=$("#"+id);if(e)e.onclick=add});
@@ -802,6 +825,9 @@ function bindView(){
  const openResources=$("#openResourceModules");if(openResources)openResources.onclick=()=>caosModal(activeBotForResources()?.id);
  const hc=$("#healthCheck");if(hc)hc.onclick=healthCheck;
  const host=$("#hostingConnectPage");if(host)host.onclick=connectHosting;
+ const settingsHost=$("#settingsHostingConnect");if(settingsHost)settingsHost.onclick=connectHosting;
+ if(state.view==="settings")loadSettingsHostingState();
+
  document.querySelectorAll("[data-bot-power]").forEach(button=>{button.onclick=()=>refreshBotPower(button.dataset.botId,button.dataset.botPower,button)});
  const refreshLogs=$("#refreshLogs");if(refreshLogs)refreshLogs.onclick=loadLogs;
  const fileRefresh=$("#fileRefresh");if(fileRefresh)fileRefresh.onclick=()=>loadFiles();
@@ -839,6 +865,12 @@ function caosModal(targetId){
  let activeId=initialBot.id;
  let dirty=false;
  let baseline="";
+ const statusNode=()=>$("#tokenSaveMessage");
+ const feedback=(kind,message)=>{
+  const node=statusNode();if(!node)return;
+  node.textContent=message||"";
+  node.className="token-feedback"+(kind?" "+kind:"");
+ };
  const readState=()=>JSON.stringify({
   id:$("#caosTarget")?.value||"",
   token:$("#discordToken")?.value.trim()||"",
@@ -852,10 +884,50 @@ function caosModal(targetId){
   if(save){save.disabled=!dirty;save.textContent=dirty?"Salvar alterações":(current?.hasDiscordToken?"Salvo ✓":"Aguardando token");}
   const tokenSave=$("#saveTokenOnly");
   const hasNewToken=(($("#discordToken")?.value||"").trim().length>0);
-  if(tokenSave){tokenSave.disabled=!hasNewToken;tokenSave.textContent=hasNewToken?"Salvar novo token":(current?.hasDiscordToken?"Token salvo ✓":"Salvar token");}
+  if(tokenSave){tokenSave.disabled=!hasNewToken;tokenSave.textContent=hasNewToken?"Salvar token":"Token salvo ✓";}
   if(stateNote){
-   stateNote.textContent=dirty?"Há alterações não salvas. Clique em Salvar alterações ou em Cancelar.":(current?.hasDiscordToken?"Tudo salvo. O token fica protegido e não é exibido em texto aberto.":"Token pendente. Cole o Bot Token e clique em Salvar token.");
+   stateNote.textContent=dirty?"Há alterações não salvas. Clique em Salvar alterações ou em Cancelar.":(current?.hasDiscordToken?"Token guardado e módulos sincronizados.":"Token pendente. Cole o Bot Token e clique em Salvar token.");
    stateNote.classList.toggle("changes-pending",dirty||!current?.hasDiscordToken);
+  }
+ };
+ const showTokenState=(kind,message)=>{
+  const tokenStatus=$("#tokenStatus");if(!tokenStatus)return;
+  if(kind==="verified"){
+   tokenStatus.innerHTML='<div class="token-saved-card"><span class="token-saved-indicator"><i></i> TOKEN VALIDADO NO DISCORD</span><strong>TOKEN ATUAL · PROTEGIDO</strong><code>••••••••••••••••••••••</code><small>O banco confirmou a gravação, a criptografia abriu corretamente e o Discord aceitou esta credencial. Digite um token novo somente para substituir.</small></div>';
+  }else if(kind==="stored"){
+   tokenStatus.innerHTML='<div class="token-saved-card token-checking"><span class="token-saved-indicator"><i></i> TOKEN GUARDADO · VERIFICANDO</span><strong>TOKEN ATUAL</strong><code>••••••••••••••••••••••</code><small>'+escapeHtml(message||"Verificando a credencial com o Discord…")+'</small></div>';
+  }else if(kind==="invalid"){
+   tokenStatus.innerHTML='<div class="token-saved-card token-not-saved"><span class="token-empty-indicator">TOKEN PRECISA DE ATENÇÃO</span><strong>Existe uma credencial guardada, mas o Discord não a confirmou.</strong><small>'+escapeHtml(message||"Cole um Bot Token novo e salve novamente.")+'</small></div>';
+  }else if(kind==="missing"){
+   tokenStatus.innerHTML='<span class="token-empty-indicator">TOKEN AINDA NÃO SALVO</span><br><strong>Informe o Bot Token.</strong><br>Depois de validar, ele ficará protegido e aparecerá aqui como salvo.';
+  }else if(kind==="checking"){
+   tokenStatus.innerHTML='<div class="token-saved-card token-checking"><span class="token-saved-indicator"><i></i> VERIFICANDO TOKEN</span><small>'+escapeHtml(message||"Consultando o banco e o Discord…")+'</small></div>';
+  }
+ };
+ const verifySavedToken=async(id)=>{
+  const selected=state.bots.find(b=>b.id===id);
+  if(!selected?.hasDiscordToken){showTokenState("missing");return {valid:false,status:"missing"};}
+  showTokenState("stored","Conferindo a cópia criptografada no banco e validando o token com o Discord.");
+  try{
+   const status=await api("/bot-token/status?botId="+encodeURIComponent(id));
+   if(select.value!==id)return status;
+   if(status.valid===true&&status.status==="verified"){
+    selected.hasDiscordToken=true;
+    selected.discordBotId=status.discordBotId||selected.discordBotId||null;
+    selected.discordBotName=status.discordBotName||selected.discordBotName||null;
+    showTokenState("verified");
+    feedback("success","Token confirmado: guardado, descriptografado e aceito pelo Discord.");
+   }else{
+    showTokenState("invalid",status.error||"O token salvo não foi validado.");
+    feedback("error",status.error||"O token salvo precisa ser substituído.");
+   }
+   return status;
+  }catch(error){
+   if(select.value===id){
+    showTokenState("invalid",error.message);
+    feedback("warning","A verificação ficou pendente: "+error.message);
+   }
+   return {valid:false,error:error.message};
   }
  };
  const applySavedModules=()=>{
@@ -871,18 +943,18 @@ function caosModal(targetId){
   input.required=!hasToken;
   input.value="";
   input.placeholder=hasToken?"Cole um NOVO token apenas para substituir o atual":"Cole o token do seu bot Discord";
-  $("#tokenStatus").innerHTML=hasToken
-   ?'<div class="token-saved-card"><span class="token-saved-indicator"><i></i> TOKEN SALVO E PROTEGIDO</span><strong>TOKEN ATUAL</strong><code>••••••••••••••••••••••</code><small>Gravado no banco e criptografado. Digite um novo token somente para substituir o atual.</small></div>'
-   :'<span class="token-empty-indicator">TOKEN AINDA NÃO SALVO</span><br><strong>Informe o Bot Token.</strong><br>Depois de validar, ele ficará protegido e aparecerá aqui como salvo.';
+  showTokenState(hasToken?"stored":"missing",hasToken?"Verificando a credencial guardada…":null);
   baseline=readState();
   updateDirty();
+  if(hasToken)verifySavedToken(activeId);
  };
  openModal(
   '<div class="modal-head"><h3>Configurar bot e módulos</h3><button class="close" id="closeModal" aria-label="Fechar">×</button></div>'+
-  '<p class="muted small">Use o Bot Token em Developer Portal → Application → Bot. Não cole Client Secret, Client ID ou Public Key. O servidor valida o token com o Discord antes de salvar.</p>'+
+  '<p class="muted small">Cole o Bot Token da seção Bot no Discord Developer Portal. Pode colar com ou sem o prefixo <code>Bot </code>. Não use Client ID, Client Secret ou Public Key.</p>'+
   '<div class="field"><label>PROJETO</label><select id="caosTarget">'+options+'</select></div>'+
-  '<div class="field"><label>TOKEN DO BOT DISCORD</label><input id="discordToken" type="password" autocomplete="new-password" placeholder="'+(initialBot.hasDiscordToken?"Token já salvo — deixe vazio para manter":"Cole o token do seu bot Discord")+'" minlength="30" maxlength="256" '+(initialBot.hasDiscordToken?"":"required")+'></div>'+
+  '<div class="field"><label>TOKEN DO BOT DISCORD</label><input id="discordToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="'+(initialBot.hasDiscordToken?"Token já salvo — deixe vazio para manter":"Cole o Bot Token do seu bot Discord")+'" minlength="30" maxlength="512" '+(initialBot.hasDiscordToken?"":"required")+'></div>'+
   '<div id="tokenStatus" class="project-note" style="margin:12px 0"></div>'+
+  '<div id="tokenSaveMessage" class="token-feedback" role="status" aria-live="polite"></div>'+
   '<button class="btn secondary" id="saveTokenOnly" type="button" disabled>Salvar token</button>'+
   modulesMarkup()+
   '<div id="changesState" class="changes-state">Tudo salvo.</div>'+
@@ -896,94 +968,97 @@ function caosModal(targetId){
    select.value=activeId;return;
   }
   activeId=select.value;
+  feedback("","");
   applySavedModules();
  };
- token.addEventListener("input",updateDirty);
+ token.addEventListener("input",()=>{feedback("","");updateDirty()});
  $("#saveTokenOnly").onclick=async()=>{
   const id=select.value;
   const discordToken=token.value.trim();
-  if(!discordToken){toast("Cole o novo Bot Token antes de salvar.");token.focus();return}
+  if(!discordToken){feedback("error","Cole o Bot Token antes de salvar.");toast("Cole o novo Bot Token antes de salvar.");token.focus();return}
   const button=$("#saveTokenOnly");
-  button.disabled=true;button.textContent="Validando token…";
+  button.disabled=true;button.textContent="Validando e salvando…";
+  feedback("pending","Conferindo o token com o Discord e gravando no banco. Não feche esta janela.");
   try{
    const saved=await api("/bot-token",{method:"POST",body:JSON.stringify({botId:id,discordToken})});
    if(!saved.ok||!saved.tokenStored||!saved.hasDiscordToken){
-    throw new Error("O servidor não confirmou que o token foi salvo.");
+    throw new Error(saved.error||"O servidor não confirmou a gravação do token.");
    }
-   const persisted=await api("/bots/"+encodeURIComponent(id));
-   if(!persisted.hasDiscordToken||persisted.discordBotId!==saved.discordBotId){
-    throw new Error("A segunda consulta não confirmou a mesma credencial. O token não será marcado como salvo.");
+   const verified=await api("/bot-token/status?botId="+encodeURIComponent(id));
+   if(!verified.valid||verified.status!=="verified"||verified.discordBotId!==saved.discordBotId){
+    throw new Error(verified.error||"O banco gravou, mas a confirmação independente do Discord não passou.");
    }
    const bot=state.bots.find(item=>item.id===id);
    if(bot){
     bot.hasDiscordToken=true;
-    bot.discordBotId=persisted.discordBotId||saved.discordBotId||null;
-    bot.discordBotName=persisted.discordBotName||saved.discordBotName||null;
+    bot.discordBotId=verified.discordBotId||saved.discordBotId||null;
+    bot.discordBotName=verified.discordBotName||saved.discordBotName||null;
    }
    token.value="";
    token.required=false;
    token.placeholder="Cole um NOVO token apenas para substituir o atual";
    const tokenLabel=token.parentElement?.querySelector("label");
    if(tokenLabel)tokenLabel.textContent="TOKEN ATUAL PROTEGIDO · NOVO TOKEN OPCIONAL";
-   $("#tokenStatus").innerHTML='<div class="token-saved-card"><span class="token-saved-indicator"><i></i> TOKEN SALVO E PROTEGIDO</span><strong>TOKEN ATUAL</strong><code>••••••••••••••••••••••</code><small>Validado pelo Discord, gravado e confirmado no banco. O token ficará guardado se você fechar esta janela.</small></div>';
-   baseline=readState();
-   updateDirty();
+   showTokenState("verified");
+   feedback("success","Salvo e confirmado. O token continua guardado mesmo depois de fechar esta janela.");
+   updateDirty(); // Keep any module edits dirty: saving only the token must not mark modules as saved.
    button.textContent="Token salvo ✓";
-   toast("Token validado no Discord e gravado no banco com segurança.");
+   toast("Token validado no Discord e guardado com segurança.");
    await loadBots();
   }catch(error){
-   toast(error.message);
-   button.disabled=false;button.textContent="Tentar salvar token novamente";
+   feedback("error",error.message||"Não consegui salvar o token.");
+   toast(error.message||"Não consegui salvar o token.");
+   button.disabled=false;button.textContent="Tentar salvar novamente";
   }
  };
-
  document.querySelectorAll(".module-toggle").forEach(e=>e.addEventListener("change",updateDirty));
  applySavedModules();
  $("#cancelModules").onclick=()=>{
   if(!dirty||window.confirm("Cancelar e descartar as alterações?"))closeModal(true);
  };
  $("#saveModules").onclick=async()=>{
-  const modules={};
-  document.querySelectorAll(".module-toggle").forEach(e=>modules[e.dataset.module]=e.checked);
+  const modules={};document.querySelectorAll(".module-toggle").forEach(e=>modules[e.dataset.module]=e.checked);
   const id=select.value;
   const discordToken=token.value.trim();
   const selected=state.bots.find(b=>b.id===id);
   if(!discordToken&&!selected?.hasDiscordToken){
-   toast("Informe o token do bot Discord antes de salvar.");
-   token.focus();return;
+   feedback("error","Informe o Bot Token do Discord antes de salvar.");
+   toast("Informe o token do bot Discord antes de salvar.");token.focus();return;
   }
-  const save=$("#saveModules");
-  save.disabled=true;save.textContent="Validando e salvando...";
+  const save=$("#saveModules");save.disabled=true;save.textContent="Validando e salvando…";
+  feedback("pending","Salvando as opções e confirmando a credencial guardada.");
   try{
    const response=await api("/bot-config",{method:"POST",body:JSON.stringify({botId:id,modules,discordToken})});
-   const bot=state.bots.find(b=>b.id===id);
    if(!response.ok||!response.tokenStored||!response.hasDiscordToken){
-    throw new Error("O servidor não confirmou que o token ficou salvo. Mantenha esta janela aberta e tente novamente.");
+    throw new Error(response.error||"O servidor não confirmou que o token ficou salvo.");
    }
-   const persisted=await api("/bots/"+encodeURIComponent(id));
-   if(!persisted.hasDiscordToken){
-    throw new Error("A gravação foi solicitada, mas a consulta seguinte não encontrou o token. O painel não vai marcar como salvo.");
+   const verified=await api("/bot-token/status?botId="+encodeURIComponent(id));
+   if(!verified.valid||verified.status!=="verified"){
+    throw new Error(verified.error||"As opções foram enviadas, mas o Discord não confirmou o token salvo.");
    }
+   const bot=state.bots.find(b=>b.id===id);
    if(bot){
-    bot.modules=persisted.modules||response.modules||modules;
+    bot.modules=response.modules||modules;
     bot.hasDiscordToken=true;
-    bot.discordBotId=persisted.discordBotId||response.discordBotId||bot.discordBotId||null;
-    bot.discordBotName=persisted.discordBotName||bot.discordBotName||null;
+    bot.discordBotId=verified.discordBotId||response.discordBotId||bot.discordBotId||null;
+    bot.discordBotName=verified.discordBotName||response.discordBotName||bot.discordBotName||null;
    }
    token.value="";
    token.required=false;
    token.placeholder="Cole um NOVO token apenas para substituir o atual";
    const tokenLabel=token.parentElement?.querySelector("label");
    if(tokenLabel)tokenLabel.textContent="TOKEN ATUAL PROTEGIDO · NOVO TOKEN OPCIONAL";
-   $("#tokenStatus").innerHTML='<div class="token-saved-card"><span class="token-saved-indicator"><i></i> TOKEN SALVO E PROTEGIDO</span><strong>TOKEN ATUAL</strong><code>••••••••••••••••••••••</code><small>Gravado e confirmado no banco. O token continuará guardado se você fechar esta janela.</small></div>';
+   showTokenState("verified");
    baseline=readState();
    updateDirty();
    window.__modalCloseGuard=()=>!dirty||window.confirm("Você tem alterações não salvas. Deseja descartá-las?");
-   toast(response.tokenUpdated?"Token validado, gravado e confirmado no banco.":"Alterações gravadas. O token anterior foi mantido.");
+   feedback("success","Alterações salvas. O token está guardado, criptografado e validado pelo Discord.");
+   toast(response.tokenUpdated?"Token validado e alterações salvas.":"Alterações salvas; token anterior mantido.");
    await loadBots();
-  }catch(e){
-   toast(e.message);
-   save.disabled=false;save.textContent="Salvar alterações";
+  }catch(error){
+   feedback("error",error.message||"Não consegui salvar as alterações.");
+   toast(error.message||"Não consegui salvar as alterações.");
+   save.disabled=false;save.textContent="Tentar salvar novamente";
    updateDirty();
   }
  };
