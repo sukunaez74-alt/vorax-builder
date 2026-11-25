@@ -584,9 +584,13 @@ async function startDiscordAccountLink(request, user, env) {
     return { error: "O login OAuth do Discord ainda não foi configurado pelo proprietário do Estúdio.", status: 503 };
   }
   const state = randomToken(24);
+  const codeVerifier = randomToken(48);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(codeVerifier));
+  const codeChallenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   await env.DB.prepare(
-    "INSERT INTO discord_link_states (state,user_id,expires_at) VALUES (?,?,?)"
-  ).bind(state, user.id, Date.now() + 10 * 60 * 1000).run();
+    "INSERT INTO discord_link_states (state,user_id,code_verifier,expires_at) VALUES (?,?,?,?)"
+  ).bind(state, user.id, codeVerifier, Date.now() + 10 * 60 * 1000).run();
   const redirectUri = new URL("/api/discord/link/callback", request.url).href;
   const authorizationUrl = new URL("https://discord.com/oauth2/authorize");
   authorizationUrl.searchParams.set("client_id", env.DISCORD_CLIENT_ID);
@@ -594,6 +598,8 @@ async function startDiscordAccountLink(request, user, env) {
   authorizationUrl.searchParams.set("response_type", "code");
   authorizationUrl.searchParams.set("scope", "identify");
   authorizationUrl.searchParams.set("state", state);
+  authorizationUrl.searchParams.set("code_challenge", codeChallenge);
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
   authorizationUrl.searchParams.set("prompt", "consent");
   return {
     authorizationUrl: authorizationUrl.href,
@@ -625,7 +631,7 @@ async function discordAccountLinkCallback(request, env) {
     });
   }
   const saved = await env.DB.prepare(
-    "SELECT user_id FROM discord_link_states WHERE state=? AND expires_at>?"
+    "SELECT user_id,code_verifier FROM discord_link_states WHERE state=? AND expires_at>?"
   ).bind(state, Date.now()).first();
   await env.DB.prepare("DELETE FROM discord_link_states WHERE state=?").bind(state).run();
   const signedInUser = await currentUser(request, env);
@@ -644,7 +650,8 @@ async function discordAccountLinkCallback(request, env) {
       client_secret: env.DISCORD_CLIENT_SECRET,
       grant_type: "authorization_code",
       code,
-      redirect_uri: redirectUri
+      redirect_uri: redirectUri,
+      code_verifier: saved?.code_verifier || ""
     }),
     signal: AbortSignal.timeout(12000)
   });
@@ -664,6 +671,25 @@ async function discordAccountLinkCallback(request, env) {
     return reply({ error: "Não consegui confirmar o perfil do Discord autorizado." }, 502, {
       "set-cookie": clearCookie("bz_discord_link_state")
     });
+  }
+
+  try {
+    const basic = btoa(String(env.DISCORD_CLIENT_ID) + ":" + String(env.DISCORD_CLIENT_SECRET));
+    await fetch("https://discord.com/api/oauth2/token/revoke", {
+      method: "POST",
+      headers: {
+        authorization: "Basic " + basic,
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json"
+      },
+      body: new URLSearchParams({
+        token: tokenData.access_token,
+        token_type_hint: "access_token"
+      }),
+      signal: AbortSignal.timeout(8000)
+    });
+  } catch (error) {
+    console.warn("Discord link access-token revocation was not confirmed:", error?.name || "Error");
   }
 
   const conflict = await env.DB.prepare(
@@ -1502,7 +1528,7 @@ async function ensureSchema(db) {
         "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at)",
         `CREATE TABLE IF NOT EXISTS discord_states (state TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS discord_link_states (state TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at BIGINT NOT NULL)`,
+        `CREATE TABLE IF NOT EXISTS discord_link_states (state TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, code_verifier TEXT, expires_at BIGINT NOT NULL)`,
         "CREATE INDEX IF NOT EXISTS idx_discord_states_expiry ON discord_states(expires_at)",
         `CREATE TABLE IF NOT EXISTS hosting_keys (
           user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -1526,6 +1552,7 @@ async function ensureSchema(db) {
         "CREATE TABLE IF NOT EXISTS hosting_connections (user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,access_token_enc TEXT NOT NULL,refresh_token_enc TEXT NOT NULL,expires_at BIGINT NOT NULL,scope TEXT,updated_at BIGINT NOT NULL)"
       ];
       for (const statement of statements) await db.raw(statement);
+      await db.raw("ALTER TABLE discord_link_states ADD COLUMN IF NOT EXISTS code_verifier TEXT");
       await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_username TEXT");
       await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_linked_at BIGINT");
       await db.raw("CREATE INDEX IF NOT EXISTS idx_discord_link_states_expiry ON discord_link_states(expires_at)");
