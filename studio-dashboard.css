@@ -48,7 +48,7 @@
  radial-gradient(1px 1px at 58% 90%,#fff 98%,transparent);
  background-size:230px 170px
 }
-.cosmic-hero:after{content:"";position:absolute;z-index:-1;right:0;top:0;bottom:0;width:48%;opacity:.19;background-image:var(--anime-art-image);background-size:cover;background-position:55% 24%;filter:sepia(.8) hue-rotate(230deg) saturate(2.2);mask-image:linear-gradient(90deg,transparent,#000 42%)}
+.cosmic-hero:after{content:"";position:absolute;z-index:-1;right:0;top:0;bottom:0;width:48%;opacity:.19;background-image:radial-gradient(ellipse at 73% 46%,#6d2bc855,transparent 55%),radial-gradient(ellipse at 55% 80%,#31135d66,transparent 65%);background-size:cover;background-position:center;mask-image:linear-gradient(90deg,transparent,#000 42%)}
 .cosmic-hero-copy{position:relative;z-index:2;max-width:620px}
 .cosmic-kicker{display:flex;align-items:center;gap:8px;color:#c18bff;font:800 8px 'Manrope',sans-serif;letter-spacing:.19em}
 .cosmic-kicker i{width:6px;height:6px;border-radius:50%;background:#bd73ff;box-shadow:0 0 12px #bc64ff}
