@@ -697,12 +697,33 @@ export async function onRequest(context) {
         const enabled = !!b.enabled;
         const startClock = String(b.start || "00:00");
         const endClock = String(b.end || "23:59");
-        const guildId = String(b.guildId || "").trim();
+        const serverInput = String(b.guildId || "").trim();
+        let guildId = serverInput;
+        let inviteResolved = false;
         if (!validClock(startClock) || !validClock(endClock) || (enabled && startClock === endClock)) {
           return reply({ error: "Informe horários válidos e diferentes, no formato HH:MM." }, 400);
         }
-        if (guildId && !/^\d{17,20}$/.test(guildId)) {
-          return reply({ error: "O ID do servidor Discord deve conter 17 a 20 números." }, 400);
+        if (serverInput) {
+          const invite = serverInput.match(/^(?:https?:\/\/)?(?:www\.)?(?:discord\.gg\/|discord(?:app)?\.com\/invite\/)([A-Za-z0-9-]{2,100})(?:[/?#].*)?$/i);
+          if (invite) {
+            try {
+              const inviteResponse = await fetch("https://discord.com/api/v10/invites/" + encodeURIComponent(invite[1]) + "?with_counts=true", {
+                headers: { accept: "application/json" },
+                signal: AbortSignal.timeout(10000)
+              });
+              const inviteData = await inviteResponse.json().catch(() => ({}));
+              if (!inviteResponse.ok || !inviteData.guild?.id) {
+                return reply({ error: "Não consegui localizar o servidor por esse convite. Confira se o link está válido e se não expirou." }, 400);
+              }
+              guildId = String(inviteData.guild.id);
+              inviteResolved = true;
+            } catch {
+              return reply({ error: "Não consegui consultar o convite do Discord agora. Tente novamente ou cole o ID numérico do servidor." }, 503);
+            }
+          }
+          if (!/^\d{17,20}$/.test(guildId)) {
+            return reply({ error: "Cole um ID numérico do servidor ou um convite válido do Discord, como discord.gg/abc123." }, 400);
+          }
         }
         await env.DB.prepare(
           "UPDATE bots SET schedule_enabled=?,schedule_start=?,schedule_end=?,schedule_timezone='America/Bahia',guild_id=?,updated_at=? WHERE id=? AND user_id=?"
@@ -718,7 +739,7 @@ export async function onRequest(context) {
             await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "restart", waitSeconds: 35 });
           }
         }
-        return reply({ ok: true, scheduleEnabled: enabled, start: startClock, end: endClock, timezone: "America/Bahia", guildId });
+        return reply({ ok: true, scheduleEnabled: enabled, start: startClock, end: endClock, timezone: "America/Bahia", guildId, inviteResolved });
       }
 
       if (action === "power" && request.method === "POST") {
