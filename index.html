@@ -1793,19 +1793,20 @@ function fileToBase64(file){
  });
 }
 async function uploadZipToDiscloud(id,file,runtime,packageName,status){
- if(file.size>3*1024*1024)throw new Error("A hospedagem principal está sem vaga e este ZIP passa de 3 MB. Para a rota alternativa, compacte o projeto sem node_modules, venv e caches. O arquivo original não foi enviado nem alterado.");
- if(status)status.textContent="Preparando envio seguro para a hospedagem reserva Discloud…";
+ if(file.size>3*1024*1024)throw new Error("Este ZIP passa de 3 MB na rota alternativa. Remova node_modules, venv e caches para reduzir o tamanho. O arquivo original não foi enviado nem alterado.");
+ if(status)status.textContent="Preparando envio seguro para o próximo provedor disponível…";
  const archiveBase64=await fileToBase64(file);
- if(status)status.textContent="Enviando ZIP para a Discloud e configurando o ambiente…";
+ if(status)status.textContent="Enviando ZIP para o provedor reserva e configurando o ambiente…";
  const result=await api("/bots/"+encodeURIComponent(id)+"/auto-upload",{
   method:"POST",
   body:JSON.stringify({filename:packageName+".zip",archiveBase64,runtime,packageName})
  });
- if(!result.ok||!result.providerAppId)throw new Error("A Discloud não confirmou a criação da aplicação.");
- if(status)status.textContent="Projeto enviado à Discloud · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
+ if(!result.ok||!result.providerAppId)throw new Error("O provedor alternativo não confirmou a criação da aplicação.");
+ const providerName=result.provider==="squarecloud"?"Square Cloud":"Discloud";
+ if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
  state.activeBot=id;
- toast("ZIP enviado pela hospedagem reserva Discloud. Confira os logs para confirmar a conexão do Discord.");
+ toast("ZIP enviado à "+providerName+". Confira os logs para confirmar a conexão do Discord.");
  return result;
 }
 async function uploadBotFile(){
@@ -1837,7 +1838,7 @@ async function uploadBotFile(){
   if(currentBot?.customProject&&
     !window.confirm("Este projeto já tem um pacote importado. Os arquivos com o mesmo nome poderão ser substituídos. Continuar?"))return;
   if(button)button.textContent="Enviando ZIP…";
-  if(currentBot?.hostingProvider==="discloud"&&currentBot?.providerAppId){
+  if((currentBot?.hostingProvider==="discloud"||currentBot?.hostingProvider==="squarecloud")&&currentBot?.providerAppId){
    await uploadZipToDiscloud(id,file,runtime,packageName,status);
    completed=true;
   }else{
