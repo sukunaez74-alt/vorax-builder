@@ -857,8 +857,10 @@ function verificationAdminView(){
  const status=live?"ONLINE":runtime.state==="not_deployed"?"NÃO IMPLANTADO":String(runtime.state||"PENDENTE").toUpperCase();
  const hostingReady=!!r.hostingCanCreate;
  const oauthReady=!!r.oauthConfigured;
+ const hostingApiOk=r.hostingDiagnostic?.ok===true;
  const blockers=[];
  if(!hostingReady)blockers.push("Autorize a criação de servidores no Bot-Hosting.");
+ if(r.hostingConnected&&!hostingApiOk)blockers.push("A conexão com o Bot-Hosting não respondeu: "+String(r.hostingDiagnostic?.message||"sem diagnóstico"));
  if(!oauthReady)blockers.push("Configure o Client Secret OAuth2 do Discord.");
  if(!r.configured)blockers.push("Salve o Bot Token e o convite do servidor.");
  const connection=!r.hostingConnected
@@ -874,10 +876,11 @@ function verificationAdminView(){
  (runtime.heartbeatAt?'<br>Último sinal: '+escapeHtml(new Date(runtime.heartbeatAt).toLocaleString("pt-BR")):"")+
  (runtime.error?'<br><b>Erro:</b> '+escapeHtml(runtime.error):"")+
  (runtime.hint?'<br><b>Diagnóstico:</b> '+escapeHtml(runtime.hint):"")+
+ (r.hostingDiagnostic?'<br><b>Teste da hospedagem:</b> '+escapeHtml(r.hostingDiagnostic.message||"Sem diagnóstico"):"")+
  (Array.isArray(runtime.logs)&&runtime.logs.length?'<pre class="terminal">'+runtime.logs.map(line=>escapeHtml(line)).join("\\n")+'</pre>':"")+'</div>'+
  '<div class="hero-actions" style="margin-top:14px">'+
  (!hostingReady?'<button class="btn" id="verificationConnectHosting">'+(r.hostingConnected?"Autorizar criação de servidores ↗":"Conectar Bot-Hosting ↗")+'</button>':"")+
- '<button class="btn" id="verificationStart" '+(!r.configured||!hostingReady||!oauthReady?"disabled":"")+'>▶ Iniciar / atualizar</button>'+
+ '<button class="btn" id="verificationStart" '+(!r.configured||!hostingReady||!oauthReady||!hostingApiOk?"disabled":"")+'>▶ Iniciar / atualizar</button>'+
  '<button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"") +'>■ Parar</button>'+
  '<button class="btn secondary" id="verificationRefresh">↻ Atualizar status</button></div>'+
  (!oauthReady?'<p class="muted small" style="margin-top:12px">Antes de iniciar, termine a configuração do login Discord na seção abaixo.</p>':"")+
@@ -943,7 +946,7 @@ function bindView(){
   verifyStart.disabled=true;verifyStart.textContent="Preparando hospedagem…";
   try{const r=await api("/admin/verification-bot/power",{method:"POST",body:JSON.stringify({action:"start"})});toast(r.message||"Inicialização solicitada.");await loadVerificationBotAdmin()}
   catch(error){toast(error.message)}
-  finally{if($("#verificationStart")){const s=state.verificationAdmin||{};$("#verificationStart").disabled=!(s.configured&&s.hostingCanCreate&&s.oauthConfigured);$("#verificationStart").textContent="▶ Iniciar / atualizar"}}
+  finally{if($("#verificationStart")){const s=state.verificationAdmin||{};$("#verificationStart").disabled=!(s.configured&&s.hostingCanCreate&&s.oauthConfigured&&s.hostingDiagnostic?.ok===true);$("#verificationStart").textContent="▶ Iniciar / atualizar"}}
  };
  const verifyStop=$("#verificationStop");if(verifyStop)verifyStop.onclick=async()=>{
   if(!window.confirm("Deseja parar o bot central de verificação?"))return;verifyStop.disabled=true;
