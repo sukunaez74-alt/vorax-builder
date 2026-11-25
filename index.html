@@ -1893,21 +1893,35 @@ async function prepareFallbackArchive(file,status){
  }
  if(!kept)throw new Error("Não encontrei arquivos de projeto depois de remover dependências e caches. O ZIP original não foi alterado.");
  const blob=await cleaned.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}});
- if(blob.size>3*1024*1024)throw new Error("Mesmo após remover "+removed+" itens desnecessários, o pacote limpo ainda passa de 3 MB ("+(blob.size/1024/1024).toFixed(2)+" MB). Reduza arquivos de mídia ou dados grandes. O ZIP original não foi alterado.");
+ if(blob.size>5*1024*1024)throw new Error("Mesmo após remover "+removed+" itens desnecessários, o pacote limpo passa de 5 MB ("+(blob.size/1024/1024).toFixed(2)+" MB). Reduza apenas arquivos grandes que não sejam necessários ao bot. O ZIP original não foi alterado.");
  return {blob,removed,kept};
 }
 async function uploadZipToDiscloud(id,file,runtime,packageName,status){
  if(status)status.textContent="Preparando uma cópia limpa do ZIP. O arquivo original no seu computador não será alterado…";
  const prepared=await prepareFallbackArchive(file,status);
- const archiveBase64=await fileToBase64(prepared.blob);
- if(status)status.textContent="Pacote otimizado: "+prepared.kept+" arquivos mantidos, "+prepared.removed+" itens removidos. Enviando…";
- if(status)status.textContent="Enviando ZIP para o provedor reserva e configurando o ambiente…";
+ const chunkSize=256*1024;
+ const totalChunks=Math.ceil(prepared.blob.size/chunkSize);
+ if(totalChunks<1||totalChunks>20)throw new Error("O ZIP limpo precisa ter até 5 MB para o envio alternativo. O arquivo original não foi alterado.");
+ const randomBytes=new Uint8Array(18);
+ crypto.getRandomValues(randomBytes);
+ const uploadId=Array.from(randomBytes,value=>value.toString(16).padStart(2,"0")).join("");
+ if(status)status.textContent="ZIP limpo: "+(prepared.blob.size/1024/1024).toFixed(2)+" MB · "+prepared.kept+" arquivos mantidos · "+prepared.removed+" itens removidos. Enviando em partes seguras…";
+ for(let index=0;index<totalChunks;index++){
+  const part=prepared.blob.slice(index*chunkSize,Math.min(prepared.blob.size,(index+1)*chunkSize));
+  const chunkBase64=await fileToBase64(part);
+  await api("/bots/"+encodeURIComponent(id)+"/upload-chunk",{
+   method:"POST",
+   body:JSON.stringify({uploadId,index,totalChunks,chunkBase64})
+  });
+  if(status)status.textContent="Enviando ZIP em partes: "+Math.round((index+1)/totalChunks*100)+"% ("+(index+1)+"/"+totalChunks+") · "+(prepared.blob.size/1024/1024).toFixed(2)+" MB";
+ }
+ if(status)status.textContent="Todas as partes chegaram. Montando o ZIP e enviando ao provedor alternativo…";
  const result=await api("/bots/"+encodeURIComponent(id)+"/auto-upload",{
   method:"POST",
-  body:JSON.stringify({filename:packageName+".zip",archiveBase64,runtime,packageName})
+  body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error("O provedor alternativo não confirmou a criação da aplicação.");
- const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="squarecloud"?"Square Cloud":"Discloud");
+ const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":"Discloud"));
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
  state.activeBot=id;
