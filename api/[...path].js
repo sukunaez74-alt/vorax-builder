@@ -292,7 +292,12 @@ async function ensureVerificationBotDeployment(userId, env) {
       ]
     });
     if (Array.isArray(result.failed) && result.failed.length) {
-      throw new Error("Falha ao enviar arquivos do bot central: " + result.failed.map(x => x.path + " — " + x.error).join("; "));
+      const failures = result.failed.map(item => {
+        const filePath = item?.path || item?.file || "arquivo";
+        const reason = externalErrorText(item?.reason ?? item?.error ?? item?.message ?? item);
+        return filePath + " — " + (reason || "falha sem detalhes");
+      }).join("; ");
+      throw new Error("Falha ao enviar arquivos do bot central: " + failures);
     }
   }
   await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
@@ -675,6 +680,27 @@ async function hostingAccessToken(userId, env, forceRefresh = false) {
   ).bind(accessEnc, refreshEnc, Date.now() + Number(data.expires_in || 604800) * 1000, String(data.scope || connection.scope || ""), Date.now(), userId).run();
   return String(data.access_token);
 }
+function externalErrorText(value, depth = 0) {
+  if (value === null || value === undefined) return "";
+  if (depth > 5) return "Detalhes adicionais indisponíveis.";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const items = value.map(item => externalErrorText(item, depth + 1)).filter(Boolean);
+    return items.join("; ");
+  }
+  if (typeof value === "object") {
+    for (const key of ["message", "error_description", "description", "detail", "reason", "title", "hint", "error"]) {
+      if (value[key] !== undefined && value[key] !== value) {
+        const message = externalErrorText(value[key], depth + 1);
+        if (message) return message;
+      }
+    }
+    try { return JSON.stringify(value).slice(0, 1400); }
+    catch { return "A hospedagem retornou um erro em formato desconhecido."; }
+  }
+  return String(value);
+}
 async function hostRequest(userId, env, path, method = "GET", data = null) {
   let token = await hostingAccessToken(userId, env);
   const send = async (bearer) => fetch(HOST + path, {
@@ -690,10 +716,12 @@ async function hostRequest(userId, env, path, method = "GET", data = null) {
   }
   const raw = await response.text();
   let parsed;
-  try { parsed = raw ? JSON.parse(raw) : {}; } catch { parsed = { error: raw.slice(0, 600) }; }
-  if (!response.ok) {
-    const reason = parsed.error || parsed.message || parsed.detail || ("Bot-Hosting retornou HTTP " + response.status);
-    throw new Error(reason + (parsed.hint ? " — " + parsed.hint : ""));
+  try { parsed = raw ? JSON.parse(raw) : {}; } catch { parsed = { error: raw.slice(0, 1400) }; }
+  if (!response.ok || parsed?.ok === false) {
+    const source = parsed?.error ?? parsed?.message ?? parsed?.detail ?? parsed;
+    const reason = externalErrorText(source) || ("HTTP " + response.status);
+    const hint = externalErrorText(parsed?.hint);
+    throw new Error("Bot-Hosting · " + method + " " + path + " · HTTP " + response.status + ": " + reason + (hint ? " — " + hint : ""));
   }
   return parsed;
 }
@@ -888,7 +916,12 @@ async function ensureBotDeployment(bot, userId, env) {
       ]
     });
     if (Array.isArray(writeResult.failed) && writeResult.failed.length) {
-      throw new Error("Não consegui enviar todos os arquivos do CAOS: " + writeResult.failed.map(x => x.path + " — " + x.error).join("; "));
+      const failures = writeResult.failed.map(item => {
+        const filePath = item?.path || item?.file || "arquivo";
+        const reason = externalErrorText(item?.reason ?? item?.error ?? item?.message ?? item);
+        return filePath + " — " + (reason || "falha sem detalhes");
+      }).join("; ");
+      throw new Error("Não consegui enviar todos os arquivos do CAOS: " + failures);
     }
   }
 
