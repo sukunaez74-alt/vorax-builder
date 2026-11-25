@@ -1059,6 +1059,150 @@ async function discloudRequest(token, path, method = "GET", form = null) {
   }
   return data;
 }
+async function squareCloudRequest(token, path, method = "GET", payload = null, form = null) {
+  const headers = { Authorization: token, accept: "application/json" };
+  if (payload && !form) headers["content-type"] = "application/json";
+  const response = await fetch("https://api.squarecloud.app/v2" + path, {
+    method, headers,
+    body: form || (payload ? JSON.stringify(payload) : undefined),
+    signal: AbortSignal.timeout(60000)
+  });
+  const raw = await response.text();
+  let data = {};
+  try { data = raw ? JSON.parse(raw) : {}; } catch { data = { message: raw.slice(0, 1200) }; }
+  if (!response.ok || data?.status === "error") {
+    const code = String(data?.code || "");
+    const reason = externalErrorText(data?.message || data?.error || code || data) || ("HTTP " + response.status);
+    const error = new Error("Square Cloud · " + method + " " + path + " · " + (code ? code + ": " : "") + reason);
+    error.code = code;
+    error.status = response.status;
+    throw error;
+  }
+  return data?.response ?? data;
+}
+function squareAppId(value) {
+  const id = String(value || "").trim();
+  if (!/^[a-f0-9]{32}(?:-[a-f0-9-]+)?$/i.test(id)) throw new Error("ID de aplicação Square Cloud inválido.");
+  return id;
+}
+function decodeBase64Text(value) {
+  const binary = atob(String(value || ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+}
+async function prepareSquareCloudProject(archiveBytes, bot, requestedRuntime, env) {
+  const input = await JSZip.loadAsync(archiveBytes, { checkCRC32: false, createFolders: false });
+  const entries = Object.values(input.files).filter(file => !file.dir);
+  if (!entries.length) throw new Error("O ZIP não contém arquivos de projeto.");
+  if (entries.length > 6000) throw new Error("O ZIP contém arquivos demais para a importação automática (limite: 6.000).");
+  const names = entries.map(file => String(file.name || "").replace(/\\/g, "/"));
+  for (const name of names) {
+    if (!name || name.startsWith("/") || name.split("/").some(part => part === "..")) {
+      throw new Error("O ZIP contém um caminho de arquivo inválido. Compacte novamente a pasta do bot.");
+    }
+  }
+  const rootFiles = names.filter(name => !name.includes("/") && !name.startsWith("__MACOSX"));
+  const roots = [...new Set(names.filter(name => name.includes("/")).map(name => name.split("/")[0]))];
+  const wrapper = rootFiles.length === 0 && roots.length === 1 ? roots[0] + "/" : "";
+  const ignored = new Set([".git","node_modules",".venv","venv","__pycache__",".pytest_cache",".mypy_cache",".next","__macosx"]);
+  const output = new JSZip();
+  const filePaths = [];
+  let totalUnpacked = 0;
+  let directoryCount = 0;
+  let dotenv = "";
+  for (let i = 0; i < entries.length; i++) {
+    let relative = wrapper && names[i].startsWith(wrapper) ? names[i].slice(wrapper.length) : names[i];
+    relative = cleanProjectEntry(relative);
+    if (!relative || relative.endsWith("/")) continue;
+    const parts = relative.split("/");
+    if (parts.some(part => ignored.has(part.toLowerCase())) || parts[parts.length - 1] === ".DS_Store" || parts[parts.length - 1].startsWith("._")) continue;
+    const expectedSize = Number(entries[i]._data?.uncompressedSize || entries[i]._data?.compressedSize || 0);
+    totalUnpacked += expectedSize;
+    if (totalUnpacked > 50 * 1024 * 1024) throw new Error("O conteúdo descompactado passa de 50 MB. Remova caches e dependências já instaladas e envie novamente.");
+    const bytes = await entries[i].async("uint8array");
+    if (relative.toLowerCase() === ".env") {
+      dotenv = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+      continue;
+    }
+    output.file(relative, bytes);
+    filePaths.push(relative);
+    directoryCount += Math.max(0, parts.length - 1);
+  }
+  if (!filePaths.length) throw new Error("Não encontrei arquivos válidos no ZIP depois de remover caches e dependências locais.");
+  let packageJson = {};
+  const packagePath = filePaths.find(path => path.toLowerCase() === "package.json");
+  if (packagePath) {
+    try { packageJson = JSON.parse(await output.file(packagePath).async("string")); }
+    catch { throw new Error("O package.json do projeto não é um JSON válido."); }
+  }
+  const hasJs = filePaths.some(path => /\.(?:js|mjs|cjs|ts|mts|cts)$/i.test(path));
+  const hasPython = filePaths.some(path => /\.py$/i.test(path)) || filePaths.some(path => /(?:^|\/)(?:requirements\.txt|pyproject\.toml|pipfile|setup\.py)$/i.test(path));
+  let runtime = String(requestedRuntime || bot.runtime || "").toLowerCase();
+  if (!["python","nodejs"].includes(runtime)) runtime = packagePath && hasJs ? "nodejs" : (hasPython && !hasJs ? "python" : (hasJs ? "nodejs" : "python"));
+  if (runtime === "nodejs" && !hasJs) runtime = "python";
+  if (runtime === "python" && !hasPython && hasJs) runtime = "nodejs";
+  const pathSet = new Set(filePaths);
+  let entryFile = "";
+  let startCommand = "";
+  if (runtime === "nodejs") {
+    const candidates = [
+      cleanProjectEntry(packageJson?.main),
+      "index.js","bot.js","main.js","app.js","start.js","src/index.js","src/bot.js","src/main.js","bot/index.js"
+    ].filter(Boolean);
+    entryFile = candidates.find(path => pathSet.has(path)) || filePaths.find(path => /\.(?:js|mjs|cjs)$/i.test(path)) || "";
+    if (String(packageJson?.scripts?.start || "").trim()) startCommand = "npm run start";
+    else if (entryFile) startCommand = "node " + shellQuote(entryFile);
+  } else {
+    const candidates = ["main.py","bot.py","run.py","app.py","index.py","start.py","src/main.py","src/bot.py","bot/main.py"];
+    entryFile = candidates.find(path => pathSet.has(path)) || filePaths.find(path => /\.py$/i.test(path)) || "";
+    if (entryFile) startCommand = "python " + shellQuote(entryFile);
+  }
+  if (!entryFile) throw new Error("Não consegui identificar o arquivo principal. Inclua main.py, bot.py, index.js ou bot.js no ZIP.");
+  const envs = {};
+  for (const line of dotenv.split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*)\s*$/);
+    if (!match) continue;
+    let value = match[2].trim();
+    if (value.length >= 2 && ((value[0] === '"' && value[value.length-1] === '"') || (value[0] === "'" && value[value.length-1] === "'"))) value = value.slice(1,-1);
+    envs[match[1]] = value;
+  }
+  const token = bot.discord_token_enc ? await decryptSecret(bot.discord_token_enc, env) : null;
+  if (token) {
+    envs.DISCORD_TOKEN = token;
+    envs.BOT_TOKEN = token;
+    envs.TOKEN = token;
+  }
+  envs.APP_URL = "https://black-zone-estudio.vercel.app";
+  envs.BOT_NAME = bot.name || "Discord Bot";
+  const displayName = String(bot.name || "Discord Bot").replace(/[^\w .-]/g, "").trim().slice(0, 32) || "Discord Bot";
+  const config = [
+    "MAIN=" + entryFile,
+    "MEMORY=512",
+    "VERSION=recommended",
+    "DISPLAY_NAME=" + displayName,
+    "RUNTIME=" + (runtime === "nodejs" ? "nodejs" : "python"),
+    startCommand ? "START=" + startCommand : "",
+    "AUTORESTART=true"
+  ].filter(Boolean).join("\n") + "\n";
+  output.file("squarecloud.app", config);
+  const bytes = await output.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  const imageCount = filePaths.filter(path => /\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f)$/i.test(path)).length;
+  const resourceCount = filePaths.filter(path => /\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f|mp3|wav|ogg|m4a|flac|mp4|webm|mov|woff2?|ttf|otf)$/i.test(path)).length;
+  const dependencyFile = filePaths.find(path => /(?:^|\/)(?:requirements\.txt|pyproject\.toml|pipfile|package\.json|gemfile|cargo\.toml)$/i.test(path)) || null;
+  return {
+    bytes, runtime, entryFile, startCommand, envs, fileCount: filePaths.length,
+    directoryCount, imageCount, resourceCount, dependencyFile, tokenIncluded: !!token,
+    customProject: {
+      packageName: String(bot.name || "meu-bot").slice(0, 64), rootPath: "/",
+      runtime, entryFile, startCommand, dependencyFile,
+      fileCount: filePaths.length, directoryCount, imageCount, resourceCount,
+      commandFileCount: filePaths.filter(path => /(?:^|\/)(?:commands|cogs|extensions|plugins|handlers|events|slash_commands|text_commands)\//i.test(path)).length,
+      detectedFolders: [...new Set(filePaths.map(path => path.split("/")[0]))].filter(folder => filePaths.some(path => path.startsWith(folder + "/"))).slice(0, 20),
+      importedAt: Date.now()
+    }
+  };
+}
 function decodeBase64Bytes(value) {
   const encoded = String(value || "");
   if (!encoded || encoded.length > 8 * 1024 * 1024) throw new Error("O ZIP enviado está vazio ou excede o limite de 5 MB do painel.");
@@ -1850,10 +1994,42 @@ export async function onRequest(context) {
         return reply({ error: error.message || "Não consegui validar a conta Discloud." }, 502);
       }
     }
+    if (path === "/hosting/square/connect" && request.method === "POST") {
+      const b = await body(request);
+      const token = String(b.apiToken || "").trim();
+      if (token.length < 32 || token.length > 1024) return reply({ error: "Informe uma API Key Square Cloud válida." }, 400);
+      try {
+        const data = await squareCloudRequest(token, "/users/me");
+        const userData = data.user || {};
+        const plan = userData.plan || {};
+        const memory = plan.memory || {};
+        const encrypted = await encryptSecret(token, env);
+        await env.DB.prepare(
+          "INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,'squarecloud',?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at"
+        ).bind(user.id, encrypted, String(userData.name || ""), String(plan.name || ""), Date.now()).run();
+        return reply({
+          ok: true, connected: true, provider: "squarecloud",
+          accountLabel: userData.name || null, plan: plan.name || null,
+          applicationsCount: Array.isArray(data.applications) ? data.applications.length : null,
+          memoryAvailableMb: Number(memory.available || 0),
+          memoryLimitMb: Number(memory.limit || 0),
+          message: "Conta Square Cloud validada. A chave foi criptografada e salva no servidor do Estúdio."
+        });
+      } catch (error) {
+        return reply({ error: error.message || "Não consegui validar a API Key Square Cloud." }, 401);
+      }
+    }
+    if (path === "/hosting/square/disconnect" && request.method === "POST") {
+      const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='squarecloud' AND provider_app_id IS NOT NULL LIMIT 1").bind(user.id).first();
+      if (linked) return reply({ error: "Há bots usando a Square Cloud. Mova ou exclua esses projetos antes de desconectar a conta." }, 409);
+      await env.DB.prepare("DELETE FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).run();
+      return reply({ ok: true, connected: false });
+    }
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
-      const [discloudRow, hostingRow] = await Promise.all([
+      const [discloudRow, squareRow, hostingRow] = await Promise.all([
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(user.id).first()
       ]);
       let discloud = { connected: false, provider: "discloud" };
@@ -1874,11 +2050,35 @@ export async function onRequest(context) {
           discloud = { connected: true, valid: false, provider: "discloud", error: error.message || "Falha de validação." };
         }
       }
-      const scopes = String(hostingRow?.scope || "").split(/\\s+/).filter(Boolean);
+      let square = { connected: false, provider: "squarecloud" };
+      if (squareRow) {
+        try {
+          const token = await providerToken(user.id, "squarecloud", env);
+          const data = token ? await squareCloudRequest(token, "/users/me") : null;
+          if (data?.user) {
+            const memory = data.user.plan?.memory || {};
+            const available = Number(memory.available || 0);
+            const apps = Array.isArray(data.applications) ? data.applications : [];
+            square = {
+              connected: true, valid: true, provider: "squarecloud",
+              accountLabel: data.user.name || squareRow.account_label || null,
+              plan: data.user.plan?.name || squareRow.plan || null,
+              applicationsCount: apps.length,
+              memoryAvailableMb: available,
+              memoryLimitMb: Number(memory.limit || 0),
+              canCreate: available >= 256
+            };
+          } else square = { connected: true, valid: false, provider: "squarecloud", error: "A Square Cloud não confirmou a chave salva." };
+        } catch (error) {
+          square = { connected: true, valid: false, provider: "squarecloud", error: error.message || "Falha de validação." };
+        }
+      }
+      const scopes = String(hostingRow?.scope || "").split(/\s+/).filter(Boolean);
       return reply({
         providers: [
           { id: "bot-hosting", name: "Bot-Hosting", connected: !!hostingRow, canCreate: !!hostingRow && scopes.includes("deployments:write") && scopes.includes("credits:spend"), role: "principal" },
-          { id: "discloud", name: "Discloud", connected: !!discloud.connected, canCreate: !!discloud.valid, role: "reserva", ...discloud }
+          { id: "squarecloud", name: "Square Cloud", role: "reserva-paga", ...square, canCreate: !!square.valid && !!square.canCreate },
+          { id: "discloud", name: "Discloud", connected: !!discloud.connected, canCreate: !!discloud.valid, role: "reserva-gratuita", ...discloud }
         ]
       });
     }
