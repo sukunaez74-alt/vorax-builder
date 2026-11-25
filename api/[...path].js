@@ -1198,6 +1198,7 @@ export async function onRequest(context) {
         deploymentId: settings?.hosting_deployment_id || null,
         updatedAt: settings?.updated_at || null,
         oauthConfigured: !!(oauth.clientId && oauth.clientSecret),
+        clientId: settings?.oauth_client_id || oauth.clientId || "",
         hostingConnected: !!(await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first()),
         runtime
       });
