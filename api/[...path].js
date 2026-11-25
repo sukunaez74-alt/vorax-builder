@@ -240,6 +240,9 @@ async function ensureVerificationBotDeployment(userId, env) {
   if (!token) throw new Error("Não consegui abrir o token protegido. Salve novamente o Bot Token.");
   const identity = await validateDiscordBotToken(token);
   if (!identity.valid) throw new Error("O Discord recusou o token do bot de verificação. Atualize a credencial.");
+  const duplicate = await env.DB.prepare("SELECT id,name FROM bots WHERE user_id=? AND discord_bot_id=? LIMIT 1")
+    .bind(userId, identity.botId).first();
+  if (duplicate) throw new Error("Este bot Discord já está configurado no projeto \"" + String(duplicate.name || duplicate.id) + "\". O bot central precisa ter uma aplicação e um token exclusivos.");
   if (settings.oauth_client_id && String(settings.oauth_client_id) !== identity.botId) {
     throw new Error("O Client ID OAuth2 precisa ser o ID da mesma aplicação do bot.");
   }
@@ -790,6 +793,13 @@ async function ensureBotDeployment(bot, userId, env) {
   if (!token) throw new Error("Não consegui abrir o token protegido deste projeto. Salve novamente o token do Discord.");
   const identity = await validateDiscordBotToken(token);
   if (!identity.valid) throw new Error("O Discord não aceitou o token salvo. Abra Configurar token e módulos e atualize a credencial.");
+  const duplicate = await env.DB.prepare("SELECT id,name FROM bots WHERE user_id=? AND discord_bot_id=? AND id<>? LIMIT 1")
+    .bind(userId, identity.botId, bot.id).first();
+  if (duplicate) throw new Error("Este mesmo bot Discord já está cadastrado no projeto \"" + String(duplicate.name || duplicate.id) + "\". Cada projeto precisa de um Bot Token próprio para evitar sessões duplicadas no Discord.");
+  const central = await verificationBotSettings(env);
+  if (central?.bot_id && String(central.bot_id) === identity.botId) {
+    throw new Error("Este Bot Token também está reservado para o bot central do ADM. Use um bot Discord diferente neste projeto.");
+  }
 
   const modules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
   let deploymentId = bot.hosting_deployment_id || null;
