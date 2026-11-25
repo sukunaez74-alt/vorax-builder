@@ -1035,85 +1035,159 @@ function safeVolumePath(value) {
   return normalized === "" ? "/" : normalized;
 }
 async function scanImportedProject(userId, env, deploymentId) {
-  const ignored = new Set([".git","node_modules",".venv","venv","__pycache__",".next","vendor"]);
-  const imageExt = /\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp)$/i;
+  const ignored = new Set([".git","node_modules",".venv","venv","__pycache__",".pytest_cache",".mypy_cache",".next","__MACOSX"]);
+  const imageExt = /\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f)$/i;
+  const resourceExt = /\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f|mp3|wav|ogg|m4a|flac|mp4|webm|mov|woff2?|ttf|otf)$/i;
+  const commandFolders = new Set(["commands","cogs","extensions","plugins","handlers","events","slash_commands","text_commands"]);
+  const resourceFolders = new Set(["assets","images","image","img","media","fonts","locales","translations","data","resources"]);
   const queue = [{ path: "/", depth: 0 }];
   const seen = new Set();
   const files = [];
   let rootEntries = [];
   let directoryCount = 0;
-  while (queue.length && files.length < 3500) {
+  while (queue.length && files.length < 12000) {
     const item = queue.shift();
-    if (seen.has(item.path) || item.depth > 8) continue;
+    if (seen.has(item.path) || item.depth > 12) continue;
     seen.add(item.path);
     const listing = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files?path=" + encodeURIComponent(item.path));
     const entries = Array.isArray(listing.entries) ? listing.entries : [];
     if (item.path === "/") rootEntries = entries;
     for (const e of entries) {
       const name = String(e?.name || "");
-      if (!name || name === "." || name === "..") continue;
+      if (!name || name === "." || name === ".." || name === ".DS_Store") continue;
       const full = safeVolumePath((item.path === "/" ? "" : item.path) + "/" + name);
-      if (e.type === "directory" || e.type === "folder") {
-        if (ignored.has(name)) continue;
+      const type = String(e?.type || "").toLowerCase();
+      if (type === "directory" || type === "folder" || type === "dir") {
+        if (ignored.has(name.toLowerCase())) continue;
         directoryCount++;
-        if (item.depth < 8) queue.push({ path: full, depth: item.depth + 1 });
-      } else if (e.type === "file") files.push(full);
+        if (item.depth < 12) queue.push({ path: full, depth: item.depth + 1 });
+      } else if (type === "file" || (!type && /\.[^/]+$/.test(name))) {
+        files.push(full);
+      }
     }
   }
-  if (queue.length) throw new Error("O pacote contém pastas demais para uma análise segura. Remova node_modules, .git e ambientes virtuais e envie novamente.");
-  const rootFiles = rootEntries.filter(e => e?.type === "file");
-  const rootDirs = rootEntries.filter(e => (e?.type === "directory" || e?.type === "folder") && !ignored.has(String(e.name || "")));
+  if (queue.length) {
+    throw new Error("O projeto tem mais de 12.000 arquivos ou pastas profundas demais para a análise automática. Remova caches e dependências já instaladas (node_modules, .venv e __pycache__) e envie novamente.");
+  }
+
+  const rootFiles = rootEntries.filter(e => String(e?.type || "").toLowerCase() === "file");
+  const rootDirs = rootEntries.filter(e => {
+    const type = String(e?.type || "").toLowerCase();
+    return (type === "directory" || type === "folder" || type === "dir") && !ignored.has(String(e.name || "").toLowerCase());
+  });
   if (!rootFiles.length && rootDirs.length === 1) {
     const wrapper = String(rootDirs[0].name || "");
     const inner = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files?path=" + encodeURIComponent("/" + wrapper));
-    const children = (Array.isArray(inner.entries) ? inner.entries : []).filter(e => e?.name && e.name !== "." && e.name !== "..").map(e => wrapper + "/" + String(e.name));
+    const children = (Array.isArray(inner.entries) ? inner.entries : [])
+      .filter(e => e?.name && e.name !== "." && e.name !== ".." && e.name !== ".DS_Store")
+      .map(e => wrapper + "/" + String(e.name));
     if (children.length) {
-      await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/move", "POST", { files: children, to: "/" });
-      await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/delete", "POST", { root: "/", files: [wrapper] });
+      const moved = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/move", "POST", { files: children, to: "/" });
+      if (Array.isArray(moved.failed) && moved.failed.length) {
+        throw new Error("Encontrei a pasta principal do ZIP, mas não consegui organizar todos os arquivos: " +
+          moved.failed.slice(0, 5).map(x => String(x.from || x.path || "arquivo") + " — " + String(x.reason || "falha")).join("; "));
+      }
+      const removed = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/delete", "POST", { root: "/", files: [wrapper] });
+      if (Array.isArray(removed.failed) && removed.failed.length) {
+        throw new Error("Os arquivos foram movidos, mas a pasta externa do ZIP não pôde ser limpa. Atualize a lista e tente analisar novamente.");
+      }
       return scanImportedProject(userId, env, deploymentId);
     }
   }
+
   const relative = files.map(p => p.replace(/^\//, ""));
-  const pyPriority = ["main.py","bot.py","run.py","app.py","index.py","start.py"];
-  const jsPriority = ["index.js","bot.js","main.js","app.js","src/index.js","src/bot.js","index.mjs","bot.mjs"];
-  const score = (p, pref) => {
-    const exact = pref.indexOf(p.toLowerCase());
+  const lower = relative.map(p => p.toLowerCase());
+  const has = path => lower.includes(path.toLowerCase());
+  const fileAt = path => relative[lower.indexOf(path.toLowerCase())] || null;
+  const pyPriority = [
+    "main.py","bot.py","run.py","app.py","index.py","start.py",
+    "src/main.py","src/bot.py","bot/main.py","src/index.py","src/app.py",
+    "discord_bot.py","launcher.py"
+  ];
+  const jsPriority = [
+    "index.js","bot.js","main.js","app.js","index.mjs","bot.mjs","index.cjs","bot.cjs",
+    "src/index.js","src/bot.js","src/main.js","bot/index.js","dist/index.js","dist/bot.js"
+  ];
+  const score = (path, preferred) => {
+    const p = path.toLowerCase();
+    const exact = preferred.indexOf(p);
     if (exact >= 0) return exact;
-    const tail = pref.indexOf(p.toLowerCase().split("/").pop());
-    return tail < 0 ? 999 : 30 + tail;
+    const base = p.split("/").pop();
+    const tail = preferred.findIndex(x => x.split("/").pop() === base);
+    if (tail >= 0) return 40 + tail;
+    if (/\/(?:cogs|commands|extensions|plugins|events)\//.test("/" + p)) return 500;
+    if (/^(?:setup|config|settings|__init__)\.py$/i.test(base)) return 900;
+    return 700;
   };
   const py = relative.filter(p => /\.py$/i.test(p)).sort((a,b)=>score(a,pyPriority)-score(b,pyPriority));
   const js = relative.filter(p => /\.(?:js|mjs|cjs)$/i.test(p)).sort((a,b)=>score(a,jsPriority)-score(b,jsPriority));
+
+  const packagePath = relative.find(p => p.toLowerCase() === "package.json") ||
+    relative.find(p => p.toLowerCase().endsWith("/package.json"));
   let pkg = null;
-  const packagePath = relative.find(p => p.toLowerCase() === "package.json");
   if (packagePath) {
     try {
       const r = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/content?path=" + encodeURIComponent("/" + packagePath));
       pkg = JSON.parse(String(r.content || "{}"));
     } catch {}
   }
-  let runtime = "python", entryFile = py[0] || "", startCommand = null;
-  const declaredMain = typeof pkg?.main === "string" ? pkg.main.replace(/^\.\//, "") : "";
-  if (js.length && (!py.length || pkg)) {
-    runtime = "nodejs";
-    entryFile = (declaredMain && relative.includes(declaredMain) ? declaredMain : "") || js[0];
+  const hasPythonManifest = relative.some(p => /^(?:requirements\.txt|pyproject\.toml|Pipfile|setup\.py)$/i.test(p.split("/").pop()));
+  const hasNodeManifest = !!packagePath;
+  const pythonSignal = py.length > 0 || hasPythonManifest;
+  const nodeSignal = js.length > 0 || hasNodeManifest;
+  let runtime = "python";
+  if (hasNodeManifest && nodeSignal && (pkg?.scripts?.start || pkg?.main || !pythonSignal)) runtime = "nodejs";
+  else if (!pythonSignal && nodeSignal) runtime = "nodejs";
+  else if (pythonSignal) runtime = "python";
+
+  let entryFile = "";
+  let startCommand = null;
+  if (runtime === "nodejs") {
+    const declaredMain = typeof pkg?.main === "string" ? pkg.main.replace(/^\.\//, "").replace(/^\/+/, "") : "";
+    if (declaredMain && relative.includes(declaredMain)) entryFile = declaredMain;
+    if (!entryFile && typeof pkg?.scripts?.start === "string") {
+      const script = pkg.scripts.start;
+      const commandMatch = script.match(/(?:^|[;&|]\s*)(?:node|tsx|ts-node|nodemon)\s+(?:\.\/)?([A-Za-z0-9_./-]+\.(?:js|mjs|cjs|ts|mts|cts))/i);
+      if (commandMatch && relative.includes(commandMatch[1])) entryFile = commandMatch[1];
+    }
+    if (!entryFile) entryFile = js.find(p => score(p, jsPriority) < 40) || js[0] || "";
     if (pkg?.scripts?.start) startCommand = "npm install && npm start";
+  } else {
+    entryFile = py.find(p => score(p, pyPriority) < 40) || py[0] || "";
   }
+
+  const commandFiles = relative.filter(p => {
+    const parts = p.toLowerCase().split("/");
+    return parts.some(part => commandFolders.has(part)) ||
+      /(?:^|\/)(?:commands?|handlers?)\.(?:py|js|mjs|cjs|ts)$/i.test(p);
+  });
+  const detectedFolders = [...new Set(relative.flatMap(p => p.toLowerCase().split("/").slice(0, -1))
+    .filter(name => commandFolders.has(name) || resourceFolders.has(name)))].sort();
+  const imageCount = files.filter(p => imageExt.test(p)).length;
+  const resourceCount = files.filter(p => resourceExt.test(p)).length;
+  const dependencyFile = runtime === "nodejs"
+    ? (packagePath ? packagePath : null)
+    : (relative.find(p => p.toLowerCase() === "requirements.txt") ||
+       relative.find(p => p.toLowerCase() === "pyproject.toml") ||
+       relative.find(p => p.toLowerCase() === "pipfile") ||
+       relative.find(p => p.toLowerCase() === "setup.py") || null);
+
   if (!entryFile) {
     return {
-      ok: false, needsEntryFile: true, fileCount: files.length,
-      imageCount: files.filter(p => imageExt.test(p)).length,
-      candidates: [...py.slice(0,12).map(path => ({path,runtime:"python"})), ...js.slice(0,12).map(path => ({path,runtime:"nodejs"}))],
-      error: "Os arquivos foram enviados, mas não encontrei automaticamente o arquivo principal. Procure main.py, bot.py, index.js ou bot.js."
+      ok: false, needsEntryFile: true, runtime, fileCount: files.length,
+      directoryCount, imageCount, resourceCount, commandFileCount: commandFiles.length,
+      detectedFolders,
+      candidates: [...py.slice(0,16).map(path => ({path,runtime:"python"})), ...js.slice(0,16).map(path => ({path,runtime:"nodejs"}))],
+      manifests: relative.filter(p => /(?:requirements\.txt|pyproject\.toml|Pipfile|setup\.py|package\.json)$/i.test(p)),
+      error: "Recebi os arquivos e encontrei a estrutura, mas não consegui identificar com segurança o arquivo que inicia o bot. Confira os candidatos e selecione/renomeie o arquivo principal para main.py, bot.py, index.js ou bot.js."
     };
   }
   return {
-    ok: true, runtime, entryFile, startCommand,
-    dependencyFile: runtime === "nodejs" ? (relative.includes("package.json") ? "package.json" : null) : (relative.includes("requirements.txt") ? "requirements.txt" : null),
-    fileCount: files.length, directoryCount, imageCount: files.filter(p => imageExt.test(p)).length
+    ok: true, runtime, entryFile, startCommand, dependencyFile,
+    fileCount: files.length, directoryCount, imageCount, resourceCount,
+    commandFileCount: commandFiles.length, detectedFolders
   };
 }
-
 function recentDiscordStatus(status, afterTimestamp = 0) {
   if (!status || status.status !== "online" || !status.updatedAt) return false;
   const updatedAt = Date.parse(status.updatedAt);
@@ -2127,17 +2201,22 @@ export async function onRequest(context) {
           const analysis = await scanImportedProject(user.id, env, bot.hosting_deployment_id);
           if (!analysis.ok) return reply(analysis, 422);
           if (analysis.runtime !== String(bot.runtime || "python").toLowerCase()) {
-            return reply({
-              error: "O pacote parece ser " + (analysis.runtime === "nodejs" ? "Node.js" : "Python") +
-                ", mas este projeto está configurado para " + (bot.runtime === "nodejs" ? "Node.js" : "Python") +
-                ". Escolha a linguagem correta e envie novamente."
-            }, 422);
+            // Python <-> Node.js usa o mesmo tipo de ambiente de execução no provedor.
+            // A troca não deve apagar o pacote que acabou de ser enviado.
+            await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/startup", "PATCH", {
+              runtime: analysis.runtime,
+              runtimeVersion: analysis.runtime === "nodejs" ? "22" : "3.11",
+              entryFile: analysis.entryFile,
+              startCommand: analysis.startCommand || null
+            });
           }
           const customProject = {
             packageName, rootPath: "/", runtime: analysis.runtime, entryFile: analysis.entryFile,
             startCommand: analysis.startCommand || null, dependencyFile: analysis.dependencyFile || null,
             fileCount: analysis.fileCount, directoryCount: analysis.directoryCount,
-            imageCount: analysis.imageCount, importedAt: Date.now()
+            imageCount: analysis.imageCount, resourceCount: analysis.resourceCount || 0,
+            commandFileCount: analysis.commandFileCount || 0,
+            detectedFolders: analysis.detectedFolders || [], importedAt: Date.now()
           };
           try {
             const marker = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/content?path=%2Fcaos-version.txt");
