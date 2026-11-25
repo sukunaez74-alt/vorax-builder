@@ -1012,30 +1012,57 @@ export async function onRequest(context) {
       const b = await body(request);
       const name = String(b.name || "Novo bot").trim().slice(0, 48);
       const runtime = "python";
-      if (b.runtime && b.runtime !== "python") return reply({ error: "O executor automático do ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio está preparado para o CAOS em Python 3.11. Outros runtimes ainda não estão disponíveis para início automático." }, 400);
+      if (b.runtime && b.runtime !== "python") {
+        return reply({ error: "O executor automático atual está preparado para o CAOS em Python 3.11." }, 400);
+      }
       if (name.length < 2) return reply({ error: "Digite um nome com pelo menos 2 caracteres." }, 400);
-      const prepared = await prepareDiscordBotToken(b.discordToken, env);
-      if (!prepared.ok) return reply({ error: prepared.error }, prepared.status);
-      const verifiedToken = prepared.identity;
-      const encryptedToken = prepared.encryptedToken;
+
+      // Create the project first; Discord credentials have their own save flow.
+      const rawToken = String(b.discordToken || "").trim();
+      let prepared = null;
+      if (rawToken) {
+        prepared = await prepareDiscordBotToken(rawToken, env);
+        if (!prepared.ok) return reply({ error: prepared.error }, prepared.status);
+      }
+
       const id = randomToken(12);
       const now = Date.now();
       await env.DB.prepare(
         "INSERT INTO bots (id,user_id,name,runtime,state,modules,discord_token_enc,discord_bot_id,discord_bot_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
-      ).bind(id, user.id, name, runtime, "draft", JSON.stringify({}), encryptedToken, verifiedToken.botId, verifiedToken.botName || null, now, now).run();
-      const persisted = await env.DB.prepare("SELECT discord_token_enc FROM bots WHERE id=? AND user_id=?").bind(id, user.id).first();
-      const tokenRoundTrip = await decryptSecret(persisted?.discord_token_enc, env);
-      if (!tokenRoundTrip || !same(tokenRoundTrip, prepared.token)) {
-        await env.DB.prepare("DELETE FROM bots WHERE id=? AND user_id=?").bind(id, user.id).run();
-        return reply({ error: "O projeto foi criado, mas o banco não confirmou o token. Tente criar novamente." }, 500);
+      ).bind(
+        id, user.id, name, runtime, "draft", JSON.stringify({}),
+        prepared?.encryptedToken || null,
+        prepared?.identity.botId || null,
+        prepared?.identity.botName || null,
+        now, now
+      ).run();
+
+      const persisted = await env.DB.prepare(
+        "SELECT discord_token_enc,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
+      ).bind(id, user.id).first();
+      if (!persisted) {
+        return reply({ error: "O projeto não apareceu no banco depois da criação. Atualize a lista e tente novamente." }, 500);
       }
+      if (prepared) {
+        const tokenRoundTrip = await decryptSecret(persisted.discord_token_enc, env);
+        if (!tokenRoundTrip || !same(tokenRoundTrip, prepared.token)) {
+          await env.DB.prepare("DELETE FROM bots WHERE id=? AND user_id=?").bind(id, user.id).run();
+          return reply({ error: "O projeto foi criado, mas o banco não confirmou a gravação do token. Tente novamente." }, 500);
+        }
+      }
+
       return reply({
         id, name, runtime, state: "draft", modules: {},
-        hasDiscordToken: true,
+        hasDiscordToken: !!prepared,
+        discordBotId: persisted.discord_bot_id || null,
+        discordBotName: persisted.discord_bot_name || null,
         executionAvailable: false,
-        message: "Projeto criado. O token Discord foi armazenado criptografado no servidor."
+        message: prepared
+          ? "Projeto criado e token Discord armazenado com segurança."
+          : "Projeto criado. Agora salve e valide o Bot Token para poder iniciar."
       }, 201);
     }
+
     const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|config|resources|files|shell|schedule|diagnose|backups)(?:\/([A-Za-z0-9._-]{1,120})(?:\/(restore))?)?)?$/);
     if (match) {
       const id = match[1];
