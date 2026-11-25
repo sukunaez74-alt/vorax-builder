@@ -229,11 +229,12 @@ export async function onRequest(context) {
     const auth = await requireUser(request, env); if (auth.error) return auth.error; const user = auth.user;
     if (path === "/bots" && request.method === "GET") {
       const rows = await env.DB.prepare(
-        "SELECT id,name,runtime,state,modules,created_at,updated_at FROM bots WHERE user_id=? ORDER BY created_at DESC"
+        "SELECT id,name,runtime,state,modules,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token FROM bots WHERE user_id=? ORDER BY created_at DESC"
       ).bind(user.id).all();
       return reply({ deployments: rows.map(row => ({
         ...row,
         modules: typeof row.modules === "string" ? JSON.parse(row.modules) : row.modules,
+        hasDiscordToken: !!row.has_discord_token,
         executionAvailable: false
       })) });
     }
@@ -242,15 +243,21 @@ export async function onRequest(context) {
       const name = String(b.name || "Novo bot").trim().slice(0, 48);
       const runtime = b.runtime === "nodejs" ? "nodejs" : "python";
       if (name.length < 2) return reply({ error: "Digite um nome com pelo menos 2 caracteres." }, 400);
+      const discordToken = String(b.discordToken || "").trim();
+      if (discordToken.length < 30 || discordToken.length > 256 || /\\s/.test(discordToken)) {
+        return reply({ error: "Informe um token de bot Discord válido, sem espaços, com pelo menos 30 caracteres." }, 400);
+      }
+      const encryptedToken = await encryptSecret(discordToken, env);
       const id = randomToken(12);
       const now = Date.now();
       await env.DB.prepare(
-        "INSERT INTO bots (id,user_id,name,runtime,state,modules,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)"
-      ).bind(id, user.id, name, runtime, "draft", JSON.stringify({}), now, now).run();
+        "INSERT INTO bots (id,user_id,name,runtime,state,modules,discord_token_enc,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)"
+      ).bind(id, user.id, name, runtime, "draft", JSON.stringify({}), encryptedToken, now, now).run();
       return reply({
         id, name, runtime, state: "draft", modules: {},
+        hasDiscordToken: true,
         executionAvailable: false,
-        message: "Projeto criado e salvo no Estúdio. A execução contínua será ativada quando o executor de bots estiver disponível."
+        message: "Projeto criado. O token Discord foi armazenado criptografado no servidor."
       }, 201);
     }
     const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|config|resources|files|shell))?$/);
@@ -264,14 +271,33 @@ export async function onRequest(context) {
 
       if (!action && request.method === "GET") {
         const bot = await env.DB.prepare(
-          "SELECT id,name,runtime,state,modules,created_at,updated_at FROM bots WHERE id=? AND user_id=?"
+          "SELECT id,name,runtime,state,modules,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token FROM bots WHERE id=? AND user_id=?"
         ).bind(id, user.id).first();
         if (bot && typeof bot.modules === "string") bot.modules = JSON.parse(bot.modules);
+        if (bot) bot.hasDiscordToken = !!bot.has_discord_token;
+        if (bot) delete bot.has_discord_token;
         return reply({ ...bot, executionAvailable: false });
       }
 
       if (action === "config" && request.method === "POST") {
         const b = await body(request);
+        const discordToken = String(b.discordToken || "").trim();
+        if (discordToken) {
+          if (discordToken.length < 30 || discordToken.length > 256 || /\\s/.test(discordToken)) {
+            return reply({ error: "O token Discord precisa ter pelo menos 30 caracteres e não pode conter espaços." }, 400);
+          }
+          const encryptedToken = await encryptSecret(discordToken, env);
+          await env.DB.prepare(
+            "UPDATE bots SET discord_token_enc=?, updated_at=? WHERE id=? AND user_id=?"
+          ).bind(encryptedToken, Date.now(), id, user.id).run();
+        } else {
+          const saved = await env.DB.prepare(
+            "SELECT discord_token_enc FROM bots WHERE id=? AND user_id=?"
+          ).bind(id, user.id).first();
+          if (!saved?.discord_token_enc) {
+            return reply({ error: "Informe o token do bot Discord para salvar a configuração deste projeto." }, 400);
+          }
+        }
         const allowed = ["music","tickets","attendance","team","goals","warnings","recruitment","logs"];
         const modules = {};
         for (const key of allowed) modules[key] = !!(b.modules && b.modules[key]);
@@ -281,9 +307,11 @@ export async function onRequest(context) {
         return reply({
           ok: true,
           modules,
+          hasDiscordToken: true,
+          tokenUpdated: !!discordToken,
           state: "draft",
           executionAvailable: false,
-          note: "Preferências salvas. A execução do bot será habilitada quando o executor estiver conectado."
+          note: "Token armazenado criptografado e preferências salvas. A conexão com o Discord e a execução ainda dependem do executor de bots."
         });
       }
 
@@ -365,11 +393,14 @@ async function ensureSchema(db) {
           state TEXT NOT NULL DEFAULT 'draft',
           modules JSONB NOT NULL DEFAULT '{}'::jsonb,
           created_at BIGINT NOT NULL,
+          discord_token_enc TEXT,
+          created_at BIGINT NOT NULL,
           updated_at BIGINT NOT NULL
         )`,
         "CREATE INDEX IF NOT EXISTS idx_bots_user_created ON bots(user_id, created_at DESC)"
       ];
       for (const statement of statements) await db.raw(statement);
+      await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_token_enc TEXT");
       await db.raw("INSERT INTO app_state (id, owner_user_id) VALUES ('main', NULL) ON CONFLICT (id) DO NOTHING");
     })().catch(error => { schemaPromise = null; throw error; });
   }
