@@ -273,6 +273,76 @@ function runnerTemplate() {
   return "import os, signal, subprocess, sys, time\\nfrom datetime import datetime\\nfrom zoneinfo import ZoneInfo\\n\\nTZ = os.getenv('TZ', 'America/Bahia')\\nENABLED = os.getenv('CAOS_SCHEDULE_ENABLED', '0') == '1'\\nSTART = os.getenv('CAOS_SCHEDULE_START', '00:00')\\nEND = os.getenv('CAOS_SCHEDULE_END', '23:59')\\nchild = None\\nstop_requested = False\\n\\ndef in_window():\\n    if not ENABLED: return True\\n    now = datetime.now(ZoneInfo(TZ)).strftime('%H:%M')\\n    if START < END: return START <= now < END\\n    return now >= START or now < END\\n\\ndef stop_child():\\n    global child\\n    if child and child.poll() is None:\\n        print('AGENDAMENTO: encerrando o bot fora da janela configurada.', flush=True)\\n        child.terminate()\\n        try: child.wait(timeout=20)\\n        except subprocess.TimeoutExpired: child.kill(); child.wait(timeout=5)\\n    child = None\\n\\ndef shutdown(_sig, _frame):\\n    global stop_requested\\n    stop_requested = True\\n\\nsignal.signal(signal.SIGTERM, shutdown)\\nsignal.signal(signal.SIGINT, shutdown)\\nprint('BLACK ZONE supervisor iniciado; fuso=' + TZ + '; agenda=' + (START + '-' + END if ENABLED else 'sempre online'), flush=True)\\ntry:\\n    while not stop_requested:\\n        desired = in_window()\\n        if desired and (child is None or child.poll() is not None):\\n            if child is not None: print('CAOS encerrou com código ' + str(child.returncode) + '; tentando novamente.', flush=True)\\n            print('AGENDAMENTO: iniciando o CAOS.', flush=True)\\n            child = subprocess.Popen([sys.executable, '-u', 'main.py'])\\n        elif not desired and child is not None:\\n            stop_child()\\n        time.sleep(10)\\nfinally:\\n    stop_child()\\n    print('BLACK ZONE supervisor encerrado.', flush=True)\\n";
 }
 
+
+async function setHostEnv(userId, env, deploymentId, key, value, secret = false) {
+  return hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/env", "POST", {
+    key, value: String(value ?? ""), secret
+  });
+}
+async function ensureBotDeployment(bot, userId, env) {
+  if (bot.runtime !== "python") {
+    throw new Error("A integração automática atual prepara o modelo CAOS em Python. Para Node.js, envie um ZIP com o código do seu bot.");
+  }
+  if (!CAOS_MAIN_PY || CAOS_MAIN_PY.length < 10000) {
+    throw new Error("O pacote CAOS não foi incluído nesta publicação do servidor. Atualize o painel e tente novamente.");
+  }
+  if (!bot.discord_token_enc) throw new Error("Salve primeiro o Bot Token Discord deste projeto.");
+  const token = await decryptSecret(bot.discord_token_enc, env);
+  if (!token) throw new Error("Não consegui abrir o token protegido deste projeto. Salve novamente o token do Discord.");
+  const identity = await validateDiscordBotToken(token);
+  if (!identity.valid) throw new Error("O Discord não aceitou o token salvo. Abra Configurar token e módulos e atualize a credencial.");
+  const modules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
+  let deploymentId = bot.hosting_deployment_id || null;
+  if (!deploymentId) {
+    const safeName = ("black-zone-" + String(bot.name || "caos").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + String(bot.id).slice(0, 5)).replace(/-+/g, "-");
+    const created = await hostRequest(userId, env, "/deployments", "POST", {
+      name: safeName,
+      source: "blank",
+      runtime: "python",
+      runtimeVersion: "3.11"
+    });
+    const deployment = created.deployment || created;
+    deploymentId = String(deployment.id || "");
+    if (!deploymentId) throw new Error("O Bot-Hosting respondeu sem o identificador da implantação.");
+    await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,discord_bot_id=?,discord_bot_name=?,state='draft',updated_at=? WHERE id=? AND user_id=?")
+      .bind(deploymentId, identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
+  }
+  const writeResult = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/writeMany", "POST", {
+    files: [
+      { path: "/main.py", content: CAOS_MAIN_PY, mode: "overwrite" },
+      { path: "/requirements.txt", content: CAOS_REQUIREMENTS, mode: "overwrite" },
+      { path: "/runner.py", content: runnerTemplate(), mode: "overwrite" }
+    ]
+  });
+  if (Array.isArray(writeResult.failed) && writeResult.failed.length) {
+    throw new Error("Não consegui enviar todos os arquivos do CAOS: " + writeResult.failed.map(x => x.path + " — " + x.error).join("; "));
+  }
+  const start = bot.schedule_start || "00:00";
+  const end = bot.schedule_end || "23:59";
+  await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
+  await setHostEnv(userId, env, deploymentId, "CAOS_MODULES", JSON.stringify(modules), false);
+  await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_ENABLED", bot.schedule_enabled ? "1" : "0", false);
+  await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_START", start, false);
+  await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_END", end, false);
+  await setHostEnv(userId, env, deploymentId, "TZ", bot.schedule_timezone || "America/Bahia", false);
+  await setHostEnv(userId, env, deploymentId, "GUILD_ID", bot.guild_id || "", false);
+  await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
+    runtime: "python",
+    runtimeVersion: "3.11",
+    entryFile: "runner.py",
+    startCommand: "python -m pip install -r requirements.txt && exec python -u runner.py"
+  });
+  await env.DB.prepare("UPDATE bots SET discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?")
+    .bind(identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
+  return { deploymentId, botId: identity.botId, botName: identity.botName || null };
+}
+async function getOwnedBot(id, userId, env) {
+  return env.DB.prepare(
+    "SELECT id,name,runtime,state,modules,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE id=? AND user_id=?"
+  ).bind(id, userId).first();
+}
+function validClock(value) { return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value); }
+
 async function startDiscord(request, env) {
   if (!env.DISCORD_CLIENT_ID || !env.DISCORD_CLIENT_SECRET) return reply({ error: "Configure DISCORD_CLIENT_ID e DISCORD_CLIENT_SECRET nas variáveis seguras do Vercel." }, 503);
   const state = randomToken(24);
