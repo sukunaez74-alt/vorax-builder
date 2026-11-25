@@ -3775,21 +3775,24 @@ export async function onRequest(context) {
             const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
             const serverId = aclCloudsIdentifier(currentAppId);
             const uploadResponse = await aclCloudsRequest(aclToken, "/servers/" + encodeURIComponent(serverId) + "/files/upload");
-            const uploadUrl = String(aclCloudsAttributes(uploadResponse.data).url || uploadResponse.data?.url || "");
-            if (!uploadUrl.startsWith("https://")) throw new Error("ACLClouds não retornou URL segura para o ZIP.");
+            const target = new URL(uploadUrl);
+            target.searchParams.set("directory", "/");
             const form = new FormData();
             const archiveFile = archiveName.replace(/\.zip$/i, "-black-zone.zip");
             form.append("files", new Blob([prepared.bytes], { type: "application/zip" }), archiveFile);
-            const uploaded = await fetch(uploadUrl, { method: "POST", body: form, signal: AbortSignal.timeout(60000) });
+            const uploaded = await fetch(target.href, { method: "POST", body: form, signal: AbortSignal.timeout(60000) });
             if (!uploaded.ok) throw new Error("O envio do ZIP à ACLClouds falhou: HTTP " + uploaded.status);
             const deployResult = await aclCloudsRequest(aclToken, "/servers/" + encodeURIComponent(serverId) + "/files/deploy", "POST", {
               directory: "/", clean: false, keep: [], archive: archiveFile
             });
-            await env.DB.prepare("UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='aclclouds',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='installing',updated_at=? WHERE id=? AND user_id=?")
+            const currentResource = aclCloudsAttributes((await aclCloudsRequest(aclToken, "/servers/" + encodeURIComponent(serverId) + "/resources")).data);
+            const signal = String(currentResource.current_state || "").toLowerCase() === "running" ? "restart" : "start";
+            await aclCloudsRequest(aclToken, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
+            await env.DB.prepare("UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='aclclouds',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?")
               .bind(serverId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
             return reply({ ok: true, provider: "aclclouds", providerAppId: serverId, runtime: prepared.runtime,
               customProject: prepared.customProject, deployment: deployResult.data || null,
-              message: "ZIP enviado e implantado na ACLClouds. Confira o comando Startup no painel ACLClouds e configure DISCORD_TOKEN nas variáveis do servidor antes de iniciar." });
+              message: "ZIP enviado, implantado e comando de início/reinício enviado à ACLClouds. Confira o comando Startup e a variável DISCORD_TOKEN no painel." });
           }
 
           if (currentProvider === "cubecloud" && currentAppId) {
@@ -3959,7 +3962,9 @@ export async function onRequest(context) {
           const upload = aclCloudsAttributes(signed.data);
           const uploadUrl = String(upload.url || signed.data?.url || "");
           if (!uploadUrl.startsWith("https://")) return reply({ error: "ACLClouds não retornou URL de upload válida." }, 502);
-          return reply({ url: uploadUrl, field: "files", path: directory, provider: "aclclouds" });
+          const target = new URL(uploadUrl);
+          target.searchParams.set("directory", directory);
+          return reply({ url: target.href, field: "files", path: directory, provider: "aclclouds" });
         } catch (error) { return reply({ error: error.message || "Falha ao preparar upload ACLClouds." }, 502); }
       }
       if (action === "upload-url" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
