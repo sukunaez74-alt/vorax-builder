@@ -1243,23 +1243,23 @@ async function openBot(id){
        latest=await api("/bots/"+encodeURIComponent(id));
        const current=state.bots.find(x=>x.id===id);
        if(current)Object.assign(current,latest);
-       if(latest.discordOnline===true)break;
-       const status=latest.discordStatus?.status;
-       if(["token_error","intents_error","error"].includes(status))break;
        const errors=Array.isArray(latest.discordStatus?.commandSyncErrors)?latest.discordStatus.commandSyncErrors:[];
        if(errors.length)break;
+       const status=latest.discordStatus?.status;
+       if(["token_error","intents_error","error"].includes(status))break;
+       if(latest.discordOnline===true)break;
        if(["offline","stopped"].includes(String(latest.state||"").toLowerCase())&&!latest.runtimeInfo?.installing&&attempt>=3)break;
      }
 
      await loadBots();
-     if(latest?.discordOnline){
+     if(Array.isArray(latest?.discordStatus?.commandSyncErrors)&&latest.discordStatus.commandSyncErrors.length){
+       toast(latest?.discordOnline?"O bot está online, mas falhou a publicação dos comandos. Confira o diagnóstico.":"Falha ao publicar os comandos. Confira o diagnóstico.");
+     }else if(latest?.discordOnline){
        toast("CAOS está online no Discord e os comandos foram publicados.");
      }else if(latest?.discordStatus?.status==="token_error"){
        toast("O Discord recusou o Bot Token. Abra os logs e confira a credencial.");
      }else if(latest?.discordStatus?.status==="intents_error"){
        toast("Ative Server Members Intent e Message Content Intent no Developer Portal.");
-     }else if(Array.isArray(latest?.discordStatus?.commandSyncErrors)&&latest.discordStatus.commandSyncErrors.length){
-       toast("O bot conectou, mas houve erro ao publicar os comandos. Confira o diagnóstico.");
      }else if(latest?.state==="running"){
        toast("O container continua ativo. O Discord ainda não confirmou a conexão; confira os logs.");
      }else{
