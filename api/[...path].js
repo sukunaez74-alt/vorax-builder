@@ -375,8 +375,11 @@ ENABLED = os.getenv("CAOS_SCHEDULE_ENABLED", "0") == "1"
 START = os.getenv("CAOS_SCHEDULE_START", "00:00")
 END = os.getenv("CAOS_SCHEDULE_END", "23:59")
 STATUS = Path("caos-status.json")
+FATAL_STATUSES = {"token_error", "intents_error", "token_missing"}
 child = None
 stop_requested = False
+blocked = False
+next_restart_at = 0.0
 
 def write_status(status, **details):
     payload = {"status": status, "updatedAt": datetime.now(timezone.utc).isoformat(), **details}
@@ -386,6 +389,12 @@ def write_status(status, **details):
         temp.replace(STATUS)
     except OSError as exc:
         print("STATUS: não foi possível gravar estado: " + type(exc).__name__, flush=True)
+
+def read_status():
+    try:
+        return json.loads(STATUS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 def in_window():
     if not ENABLED:
@@ -420,6 +429,10 @@ print("BLACK ZONE supervisor iniciado; fuso=" + TZ + "; agenda=" + (START + "-" 
 
 try:
     while not stop_requested:
+        if blocked:
+            time.sleep(5)
+            continue
+
         desired = in_window()
         if not desired:
             if child is not None:
@@ -430,9 +443,17 @@ try:
             if child is not None and child.poll() is not None:
                 exit_code = child.returncode
                 child = None
-                write_status("restarting", reason="process_exited", exitCode=exit_code)
-                print("SUPERVISOR: CAOS encerrou com código " + str(exit_code) + "; tentando novamente.", flush=True)
-            if child is None:
+                last_status = read_status()
+                last_kind = str(last_status.get("status", ""))
+                if last_kind in FATAL_STATUSES:
+                    blocked = True
+                    print("SUPERVISOR: início pausado por erro definitivo (" + last_kind + "). Corrija a configuração e reinicie o serviço.", flush=True)
+                else:
+                    write_status("restarting", reason="process_exited", exitCode=exit_code)
+                    next_restart_at = time.monotonic() + 15
+                    print("SUPERVISOR: CAOS encerrou com código " + str(exit_code) + "; nova tentativa em 15 segundos.", flush=True)
+
+            if child is None and not blocked and time.monotonic() >= next_restart_at:
                 write_status("starting", supervisor=True)
                 print("SUPERVISOR: iniciando main.py.", flush=True)
                 child = subprocess.Popen([sys.executable, "-u", "main.py"])
@@ -440,7 +461,7 @@ try:
 finally:
     stop_child("supervisor_shutdown")
     print("BLACK ZONE supervisor encerrado.", flush=True)
-`;
+` ;
 }
 
 
