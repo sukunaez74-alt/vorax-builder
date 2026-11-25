@@ -29,7 +29,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700;800&family=Cormorant+Garamond:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
-<title>ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio | Painel de Bots Discord</title>
+<title>ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio | Anime Control Studio para Discord</title>
 <style>
 :root{--bg:#080a1c;--panel:rgba(19,22,49,.78);--panel2:rgba(27,31,66,.72);--line:rgba(171,170,255,.16);--muted:#9298bd;--text:#f4f3ff;--violet:#9d79ff;--cyan:#62dff4;--pink:#ff83d0;--green:#65e6b1;--red:#ff7189;--radius:22px}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;color:var(--text);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;background:radial-gradient(ellipse at 74% 4%,#39327b 0,transparent 34%),radial-gradient(ellipse at 8% 86%,#172e59 0,transparent 36%),linear-gradient(135deg,#080a1c,#11132c 58%,#090b20);overflow-x:hidden}
@@ -530,7 +530,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
   <p class="muted small" style="margin:10px 0 0">Este código protege a entrada privada. Não é chave de API e não exige vincular uma hospedagem externa.</p>
   <div class="public-seo">
    <h2>ʙʟᴀᴄᴋ ᴢᴏɴᴇ Estúdio — painel para bots Discord</h2>
-   <p>Uma central web para organizar projetos de bots, escolher módulos, acompanhar a preparação das aplicações e manter as configurações reunidas em um só lugar.</p>
+   <p>Crie, organize e configure seus projetos Discord em um só lugar. Um estúdio anime com catálogo de recursos, documentação e controle por projeto.</p>
    <div class="pill-row"><span class="pill">Projetos Discord</span><span class="pill">Módulos CAOS</span><span class="pill">Painel em português</span></div>
   </div>
   <div class="auth-links"><span class="muted">Área privada • acesso protegido</span><span class="muted">v1.3 • NIGHT BLOSSOM</span></div>
@@ -643,7 +643,7 @@ function showAuth(){hidePublicScreens();$("#authScreen").classList.remove("hidde
 function showApp(){hidePublicScreens();$("#app").classList.remove("hidden");$("#userLabel").textContent=state.user?.username||state.user?.email||"Conta";$("#avatar").textContent=(state.user?.name||"B").slice(0,1).toUpperCase();navigate("overview");loadSettings();loadBots()}
 async function enterStudio(){try{const me=await api("/me");if(me.user){state.user=me.user;showApp()}else if(me.gate)showAuth();else showGate()}catch{showGate()}}
 document.querySelectorAll("[data-enter-studio]").forEach(b=>b.addEventListener("click",enterStudio));
-const siteMenu=$("#siteMenuBtn");if(siteMenu)siteMenu.onclick=()=>$(".site-nav").classList.toggle("open");
+const siteMenu=$("#siteMenuBtn");if(siteMenu)siteMenu.onclick=()=>$(".site-nav").classList.toggle("open");const closeSide=$("#closeSidebar");if(closeSide)closeSide.onclick=()=>$("#sidebar").classList.remove("open");
 document.querySelectorAll(".site-nav a").forEach(a=>a.addEventListener("click",()=>$(".site-nav").classList.remove("open")));
 async function boot(){try{const me=await api("/me");if(me.gate){if(me.user){state.user=me.user;showApp()}else showAuth()}else showLanding()}catch{showLanding()}}
 $("#gateForm").addEventListener("submit",async e=>{e.preventDefault();try{await api("/gate",{method:"POST",body:JSON.stringify({phrase:$("#gatePhrase").value})});$("#gatePhrase").value="";showAuth()}catch(err){notice($("#gateNotice"),err.message,"error")}});
@@ -652,7 +652,7 @@ $("#registerForm").addEventListener("submit",async e=>{e.preventDefault();const 
 $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#registerPane").classList.remove("hidden");$("#authNotice").classList.add("hidden")};$("#showLogin").onclick=()=>{$("#registerPane").classList.add("hidden");$("#loginPane").classList.remove("hidden");$("#authNotice").classList.add("hidden")};
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
-document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>navigate(b.dataset.view)));
+
 function navigate(view){state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();const labels={overview:"Início",bots:"Meus servidores",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos prontos",files:"Arquivos e pacotes",schedules:"Agendamentos",docs:"Documentação",integrations:"Integrações",logs:"Registros",settings:"Configurações"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
 function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
