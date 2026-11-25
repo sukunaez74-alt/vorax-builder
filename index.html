@@ -801,6 +801,21 @@ function bindView(){
  const host=$("#hostingConnectPage");if(host)host.onclick=connectHosting;
  document.querySelectorAll("[data-bot-power]").forEach(button=>{button.onclick=()=>refreshBotPower(button.dataset.botId,button.dataset.botPower,button)});
  const refreshLogs=$("#refreshLogs");if(refreshLogs)refreshLogs.onclick=loadLogs;
+ const fileRefresh=$("#fileRefresh");if(fileRefresh)fileRefresh.onclick=()=>loadFiles();
+ const fileGo=$("#fileGo");if(fileGo)fileGo.onclick=()=>loadFiles(undefined,$("#filePath").value);
+ const pathInput=$("#filePath");if(pathInput)pathInput.onkeydown=e=>{if(e.key==="Enter")loadFiles(undefined,pathInput.value)};
+ const fileUp=$("#fileUp");if(fileUp)fileUp.onclick=()=>{const parts=($("#filePath").value||"/").split("/").filter(Boolean);parts.pop();loadFiles(undefined,"/"+parts.join("/"))};
+ const filesBot=$("#filesBotSelect");if(filesBot)filesBot.onchange=()=>loadFiles(filesBot.value,"/");
+ const fileUploadButton=$("#fileUploadButton");if(fileUploadButton)fileUploadButton.onclick=()=>$("#fileUploadInput").click();
+ const fileUploadInput=$("#fileUploadInput");if(fileUploadInput)fileUploadInput.onchange=uploadBotFile;
+ const fileSave=$("#fileSaveEditor");if(fileSave)fileSave.onclick=saveBotFile;
+ const fileClose=$("#fileCloseEditor");if(fileClose)fileClose.onclick=()=>$("#fileEditor").classList.add("hidden");
+ if(state.view==="files")loadFiles();
+ const backupRefresh=$("#backupRefresh");if(backupRefresh)backupRefresh.onclick=loadBackups;
+ const backupBot=$("#backupBotSelect");if(backupBot)backupBot.onchange=loadBackups;
+ if(state.view==="backups")loadBackups();
+ const shellRun=$("#shellRun");if(shellRun)shellRun.onclick=runShellCommand;
+ const shellInput=$("#shellCommand");if(shellInput)shellInput.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();runShellCommand()}};
  if(state.view==="logs")loadLogs();
  if(state.view==="overview")loadDashboardPanels();
 }
@@ -1074,6 +1089,113 @@ async function loadLogs(){
  const area=$("#logsArea");if(area)area.innerHTML='<div class="dashboard-empty">Consultando o provedor…</div>';
  try{const r=await api("/bots/"+encodeURIComponent(id)+"/logs");if(area)area.innerHTML=(r.lines||[]).map(l=>'<div class="terminal-line">'+escapeHtml(l)+'</div>').join("")||'<div class="dashboard-empty">Nenhuma saída recente retornada.</div>'}
  catch(e){if(area)area.innerHTML='<div class="dashboard-empty">'+escapeHtml(e.message)+'</div>';else toast(e.message)}
+}
+
+async function loadFiles(botId,path){
+ const id=botId||$("#filesBotSelect")?.value||state.bots.find(b=>b.hostingDeploymentId)?.id;
+ if(!id)return;
+ const current=path===undefined?($("#filePath")?.value||"/"):(path||"/");
+ const status=$("#fileStatus"),list=$("#fileEntries");
+ if(status)status.textContent="Consultando arquivos…";
+ if(list)list.innerHTML='<div class="dashboard-empty">Carregando…</div>';
+ try{
+  const data=await api("/bots/"+encodeURIComponent(id)+"/files?path="+encodeURIComponent(current));
+  const entries=Array.isArray(data.entries)?data.entries:[];
+  const folder=data.path||current;
+  if($("#filePath"))$("#filePath").value=folder;
+  if(status)status.textContent=folder+" · "+entries.length+" itens";
+  if(!list)return;
+  list.innerHTML=entries.length?entries.map(e=>{
+   const pathValue=(folder==="/"?"":folder.replace(/\/$/,""))+"/"+e.name;
+   const isDir=e.type==="directory"||e.type==="folder";
+   return '<div class="file-entry"><span class="file-entry-icon">'+(isDir?"▰":"▤")+'</span><div class="file-entry-main"><b>'+escapeHtml(e.name)+'</b><small>'+(isDir?"Pasta":formatBytes(e.sizeBytes||0))+(e.modifiedAt?" · "+escapeHtml(new Date(e.modifiedAt).toLocaleString("pt-BR")):"")+'</small></div>'+
+    (isDir?'<button class="btn secondary" data-file-open="'+escapeHtml(pathValue)+'">Abrir</button>':'<button class="btn secondary" data-file-edit="'+escapeHtml(pathValue)+'">Editar</button>')+
+    '<button class="btn ghost" data-file-delete="'+escapeHtml(pathValue)+'" '+(["/main.py","/runner.py"].includes(pathValue)?"disabled":"")+'>Excluir</button></div>';
+  }).join(""):'<div class="dashboard-empty">Esta pasta está vazia.</div>';
+  document.querySelectorAll("[data-file-open]").forEach(b=>b.onclick=()=>loadFiles(id,b.dataset.fileOpen));
+  document.querySelectorAll("[data-file-edit]").forEach(b=>b.onclick=()=>openTextFile(id,b.dataset.fileEdit));
+  document.querySelectorAll("[data-file-delete]").forEach(b=>b.onclick=()=>deleteBotFile(id,b.dataset.fileDelete));
+ }catch(e){if(status)status.textContent=e.message;if(list)list.innerHTML='<div class="dashboard-empty">'+escapeHtml(e.message)+'</div>'}
+}
+async function uploadBotFile(){
+ const input=$("#fileUploadInput"),file=input?.files?.[0];
+ if(!file)return;
+ const id=$("#filesBotSelect")?.value,path=$("#filePath")?.value||"/";
+ const button=$("#fileUploadButton"),status=$("#fileStatus");
+ if(!id)return toast("Selecione um bot com hospedagem preparada.");
+ if(button){button.disabled=true;button.textContent="Enviando…"}
+ try{
+  if(status)status.textContent="Preparando envio de "+file.name+"…";
+  const signed=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({path})});
+  if(!signed.url)throw new Error("O provedor não retornou um endereço de upload.");
+  const data=new FormData();data.append(signed.field||"files",file,file.name);
+  const upload=await fetch(signed.url,{method:"POST",body:data});
+  if(!upload.ok)throw new Error("Falha no upload (HTTP "+upload.status+").");
+  if(/\.zip$/i.test(file.name)){
+   await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({path,file:file.name})});
+   toast("ZIP enviado e extraído.");
+  }else toast("Arquivo enviado.");
+  await loadFiles(id,path);
+ }catch(e){toast(e.message);if(status)status.textContent=e.message}
+ finally{if(button){button.disabled=false;button.textContent="⇧ Enviar arquivo / ZIP"}input.value=""}
+}
+async function openTextFile(id,path){
+ try{
+  const data=await api("/bots/"+encodeURIComponent(id)+"/files/content?path="+encodeURIComponent(path)+"&offset=0&limit=400");
+  $("#fileEditorName").textContent=path;$("#fileEditorText").value=data.content||"";
+  $("#fileEditor").dataset.filePath=path;$("#fileEditor").dataset.botId=id;
+  $("#fileEditor").classList.remove("hidden");
+  $("#fileStatus").textContent="Editando "+path+" · "+(data.totalLines||data.lines||"")+" linhas";
+ }catch(e){toast(e.message)}
+}
+async function saveBotFile(){
+ const ed=$("#fileEditor"),id=ed?.dataset.botId,path=ed?.dataset.filePath;
+ if(!id||!path)return;
+ const b=$("#fileSaveEditor");b.disabled=true;b.textContent="Salvando…";
+ try{
+  await api("/bots/"+encodeURIComponent(id)+"/files/content",{method:"POST",body:JSON.stringify({path,content:$("#fileEditorText").value})});
+  toast("Arquivo salvo na hospedagem. Reinicie o bot para aplicar alterações.");
+  await loadFiles(id,$("#filePath").value);
+ }catch(e){toast(e.message)}
+ finally{b.disabled=false;b.textContent="Salvar arquivo"}
+}
+async function deleteBotFile(id,path){
+ if(!window.confirm("Excluir "+path+" da hospedagem?"))return;
+ try{await api("/bots/"+encodeURIComponent(id)+"/files/delete",{method:"POST",body:JSON.stringify({path})});toast("Arquivo removido.");await loadFiles(id,$("#filePath")?.value||"/")}
+ catch(e){toast(e.message)}
+}
+async function runShellCommand(){
+ const id=$("#logsBotSelect")?.value||state.bots.find(b=>b.hostingDeploymentId)?.id;
+ const command=$("#shellCommand")?.value.trim(),output=$("#shellOutput"),button=$("#shellRun");
+ if(!id||!command)return toast("Selecione um bot e digite um comando.");
+ button.disabled=true;button.textContent="Executando…";if(output)output.textContent="$ "+command+"\nExecutando…";
+ try{
+  const r=await api("/bots/"+encodeURIComponent(id)+"/shell",{method:"POST",body:JSON.stringify({command})});
+  const lines=["$ "+command];if(r.stdout)lines.push(String(r.stdout));if(r.stderr)lines.push("STDERR:\n"+String(r.stderr));if(r.exitCode!==undefined)lines.push("Código de saída: "+r.exitCode);if(r.output)lines.push(String(r.output));if(r.note)lines.push(String(r.note));
+  if(output)output.textContent=lines.join("\n\n");
+ }catch(e){if(output)output.textContent="$ "+command+"\n"+e.message}
+ finally{button.disabled=false;button.textContent="Executar ↗"}
+}
+async function loadBackups(){
+ const id=$("#backupBotSelect")?.value||state.bots.find(b=>b.hostingDeploymentId)?.id,status=$("#backupStatus"),list=$("#backupList");
+ if(!id)return;
+ if(status)status.textContent="Consultando o provedor…";if(list)list.innerHTML='<div class="dashboard-empty">Carregando…</div>';
+ try{
+  const r=await api("/bots/"+encodeURIComponent(id)+"/backups");
+  const backups=Array.isArray(r.backups)?r.backups:[];
+  if(status)status.textContent=r.operation?.state==="running"?"Há uma operação em andamento.":backups.length+" ponto(s) de restauração disponível(is).";
+  if(!list)return;
+  if(!backups.length){list.innerHTML='<div class="dashboard-empty">Nenhum ponto de restauração foi disponibilizado pelo provedor ainda.</div>';return}
+  list.innerHTML=backups.map(x=>'<article class="backup-entry"><div class="backup-symbol">▣</div><div class="backup-main"><b>'+escapeHtml(String(x.kind||"Backup").toUpperCase())+'</b><span>'+escapeHtml(x.time?new Date(x.time).toLocaleString("pt-BR"):"Data não informada")+'</span><small>'+escapeHtml(String(x.files??"—"))+' arquivos · '+escapeHtml(x.sizeBytes?formatBytes(x.sizeBytes):"Tamanho não informado")+'</small></div><div class="backup-actions"><button class="btn secondary" data-restore-backup="'+escapeHtml(x.id)+'" data-restore-mode="subfolder">Restaurar em pasta</button><button class="btn danger" data-restore-backup="'+escapeHtml(x.id)+'" data-restore-mode="replace">Substituir arquivos</button></div></article>').join("");
+  document.querySelectorAll("[data-restore-backup]").forEach(b=>b.onclick=async()=>{
+   const mode=b.dataset.restoreMode;
+   if(!window.confirm(mode==="replace"?"Isso substituirá os arquivos atuais e poderá reiniciar o bot. Confirmar?":"Isso copiará arquivos para uma subpasta sem substituir a versão atual. Continuar?"))return;
+   b.disabled=true;
+   try{const restored=await api("/bots/"+encodeURIComponent(id)+"/backups/"+encodeURIComponent(b.dataset.restoreBackup)+"/restore",{method:"POST",body:JSON.stringify({mode})});toast(restored.operation?.state==="running"?"Restauração iniciada.":"Solicitação enviada.");await loadBackups()}
+   catch(e){toast(e.message)}
+   finally{b.disabled=false}
+  });
+ }catch(e){if(status)status.textContent=e.message;if(list)list.innerHTML='<div class="dashboard-empty">'+escapeHtml(e.message)+'</div>'}
 }
 function formatBytes(n){if(!Number.isFinite(Number(n)))return "—";const v=Number(n);if(v<1024)return v+" B";if(v<1048576)return (v/1024).toFixed(1)+" KB";return (v/1048576).toFixed(1)+" MB"}
 async function loadBotResources(id){const area=$("#botResources");if(!area)return;try{const r=await api("/bots/"+encodeURIComponent(id)+"/resources");const cpu=r.cpu||{},mem=r.memory||{},disk=r.disk||{};area.innerHTML='<div class="card"><div class="stat-label">CPU</div><div class="stat-value">'+(cpu.usedPercent??"—")+'%</div><div class="stat-label">Limite: '+(cpu.limitPercent??"—")+'%</div></div><div class="card"><div class="stat-label">Memória</div><div class="stat-value">'+formatBytes(mem.usedBytes)+'</div><div class="stat-label">Limite: '+formatBytes(mem.limitBytes)+'</div></div><div class="card"><div class="stat-label">Disco</div><div class="stat-value">'+formatBytes(disk.usedBytes)+'</div><div class="stat-label">Limite: '+formatBytes(disk.limitBytes)+'</div></div>'}catch(e){area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
