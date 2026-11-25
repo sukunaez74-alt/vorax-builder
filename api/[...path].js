@@ -57,18 +57,30 @@ async function validateDiscordBotToken(token) {
     response = await fetch("https://discord.com/api/v10/users/@me", {
       method: "GET",
       headers: { authorization: "Bot " + token, accept: "application/json" },
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(12000)
     });
-  } catch {
-    return { valid: false, unavailable: true };
+  } catch (error) {
+    console.error("Discord token validation network failure:", error?.name || "NetworkError");
+    return { valid: false, unavailable: true, reason: "network" };
   }
   const data = await response.json().catch(() => ({}));
-  if (response.status === 401 || response.status === 403) return { valid: false, unavailable: false };
-  if (!response.ok) return { valid: false, unavailable: true };
+  if (response.status === 401 || response.status === 403) {
+    return { valid: false, unavailable: false, reason: "invalid" };
+  }
+  if (response.status === 429) {
+    return { valid: false, unavailable: true, reason: "rate_limited" };
+  }
+  if (response.status >= 500 || !response.ok) {
+    console.error("Discord token validation returned HTTP", response.status);
+    return { valid: false, unavailable: true, reason: "discord_http_" + response.status };
+  }
+  if (!data.id || data.bot !== true) {
+    return { valid: false, unavailable: false, reason: "not_a_bot" };
+  }
   return {
-    valid: !!data.id && data.bot === true,
+    valid: true,
     unavailable: false,
-    botId: data.id ? String(data.id) : null,
+    botId: String(data.id),
     botName: data.username ? String(data.username) : null
   };
 }
@@ -269,8 +281,18 @@ export async function onRequest(context) {
         return reply({ error: "Informe um token de bot Discord válido, sem espaços, com pelo menos 30 caracteres." }, 400);
       }
       const verifiedToken = await validateDiscordBotToken(discordToken);
-      if (verifiedToken.unavailable) return reply({ error: "Não consegui validar o token com o Discord agora. Tente novamente em instantes." }, 503);
-      if (!verifiedToken.valid) return reply({ error: "O Discord recusou esse token. Confira o Bot Token no Developer Portal e tente novamente." }, 400);
+      if (verifiedToken.unavailable) {
+        const message = verifiedToken.reason === "rate_limited"
+          ? "O Discord limitou temporariamente as verificações. Aguarde um minuto e tente novamente."
+          : "Não foi possível alcançar o Discord para validar o token. Verifique a conexão e tente novamente.";
+        return reply({ error: message, code: verifiedToken.reason || "discord_unavailable" }, 503);
+      }
+      if (!verifiedToken.valid) {
+        const message = verifiedToken.reason === "not_a_bot"
+          ? "A credencial foi aceita, mas não pertence a um usuário Bot. Use o Bot Token da seção Bot no Discord Developer Portal."
+          : "O Discord recusou o token. Gere ou copie novamente o Bot Token na seção Bot do Discord Developer Portal; não use Client Secret, Client ID ou Public Key.";
+        return reply({ error: message, code: verifiedToken.reason || "invalid_discord_token" }, 400);
+      }
       const encryptedToken = await encryptSecret(discordToken, env);
       const id = randomToken(12);
       const now = Date.now();
@@ -311,8 +333,18 @@ export async function onRequest(context) {
             return reply({ error: "O token Discord precisa ter pelo menos 30 caracteres e não pode conter espaços." }, 400);
           }
           const verifiedToken = await validateDiscordBotToken(discordToken);
-          if (verifiedToken.unavailable) return reply({ error: "Não consegui validar o token com o Discord agora. Tente novamente em instantes." }, 503);
-          if (!verifiedToken.valid) return reply({ error: "O Discord recusou esse token. Confira o Bot Token no Developer Portal e tente novamente." }, 400);
+          if (verifiedToken.unavailable) {
+            const message = verifiedToken.reason === "rate_limited"
+              ? "O Discord limitou temporariamente as verificações. Aguarde um minuto e tente novamente."
+              : "Não foi possível alcançar o Discord para validar o token. Verifique a conexão e tente novamente.";
+            return reply({ error: message, code: verifiedToken.reason || "discord_unavailable" }, 503);
+          }
+          if (!verifiedToken.valid) {
+            const message = verifiedToken.reason === "not_a_bot"
+              ? "A credencial foi aceita, mas não pertence a um usuário Bot. Use o Bot Token da seção Bot no Discord Developer Portal."
+              : "O Discord recusou o token. Gere ou copie novamente o Bot Token na seção Bot do Discord Developer Portal; não use Client Secret, Client ID ou Public Key.";
+            return reply({ error: message, code: verifiedToken.reason || "invalid_discord_token" }, 400);
+          }
           const encryptedToken = await encryptSecret(discordToken, env);
           await env.DB.prepare(
             "UPDATE bots SET discord_token_enc=?, updated_at=? WHERE id=? AND user_id=?"
