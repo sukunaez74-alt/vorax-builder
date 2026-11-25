@@ -632,7 +632,7 @@ async function openBot(id){
  try{const hostStatus=await api("/hosting/status");state.hosting=!!hostStatus.connected;}catch{state.hosting=false;}
  const connected=!!state.hosting;
  const botId=b.discordBotId||null;
- const invite=botId?"https://discord.com/oauth2/authorize?client_id="+encodeURIComponent(botId)+"&permissions=288484432&scope=bot%20applications.commands":"";
+ const invite=botId?"https://discord.com/oauth2/authorize?client_id="+encodeURIComponent(botId)+"&permissions=2435968080&scope=bot%20applications.commands":"";
  const serverRunning=b.state==="running";const isRunning=serverRunning && b.botOnlineNow!==false;
  const schedule=b.scheduleEnabled;
  const scheduleText=schedule?(b.scheduleStart+" até "+b.scheduleEnd+" • America/Bahia"):"Sem horário limitado (conforme a disponibilidade da hospedagem)";
@@ -657,7 +657,7 @@ async function openBot(id){
  '<button class="btn wide" id="saveBotSchedule">Salvar horário e servidor</button></section>'+
  '<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
  (invite?'<a class="btn wide" href="'+escapeHtml(invite)+'" target="_blank" rel="noopener">Adicionar bot ao servidor Discord ↗</a>':'<p class="muted small">O convite aparece depois que o servidor valida o token do Discord na primeira inicialização.</p>')+
- '<p class="muted small" style="margin-top:12px">O CAOS sincroniza os comandos de aplicativo ao iniciar. Com o ID do servidor preenchido acima, o registro é direcionado para esse servidor e costuma aparecer mais rápido; sem ele, os comandos são globais e podem levar um tempo para propagar.</p></section>'+
+ '<p class="muted small" style="margin-top:12px">O CAOS sincroniza os comandos de aplicativo ao iniciar. Com o ID do servidor preenchido acima, o registro é direcionado para esse servidor e costuma aparecer mais rápido; sem ele, os comandos são globais e podem levar um tempo para propagar.</p><div class="project-note"><strong>Antes de iniciar:</strong><br>No Discord Developer Portal, ative os intents Server Members Intent e Message Content Intent para este bot. Depois adicione o bot ao servidor pelo botão acima.</div></section>'+
  '<div class="hero-actions" style="margin-top:14px"><button class="btn secondary" id="botClose">Fechar</button></div>'
  );
  const connect=$("#connectHosting");
