@@ -2644,7 +2644,7 @@ export async function onRequest(context) {
       }, 201);
     }
 
-    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|auto-upload|extract|import|config|resources|files|shell|schedule|diagnose|backups)(?:\/([A-Za-z0-9._-]{1,120})(?:\/(restore))?)?)?$/);
+    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|upload-chunk|auto-upload|extract|import|config|resources|files|shell|schedule|diagnose|backups)(?:\/([A-Za-z0-9._-]{1,120})(?:\/(restore))?)?)?$/);
     if (match) {
       const id = match[1];
       const action = match[2] || "";
@@ -2652,6 +2652,36 @@ export async function onRequest(context) {
       const suffix = match[4] || "";
       const bot = await getOwnedBot(id, user.id, env);
       if (!bot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
+
+      if (action === "upload-chunk" && request.method === "POST") {
+        if (bot.project_type !== "custom" && !bot.custom_project) {
+          return reply({ code: "custom_project_required", error: "Este projeto precisa ser criado como Meu próprio bot antes de importar um ZIP." }, 409);
+        }
+        try {
+          const b = await body(request);
+          const uploadId = String(b.uploadId || "");
+          const index = Number(b.index);
+          const totalChunks = Number(b.totalChunks);
+          const chunkBase64 = String(b.chunkBase64 || "");
+          if (!/^[A-Za-z0-9_-]{16,80}$/.test(uploadId)) return reply({ error: "Identificador de envio inválido." }, 400);
+          if (!Number.isInteger(index) || !Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > 24 || index < 0 || index >= totalChunks) {
+            return reply({ error: "Índice ou quantidade de partes inválida." }, 400);
+          }
+          if (!chunkBase64 || chunkBase64.length > 360000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(chunkBase64)) {
+            return reply({ error: "Parte do ZIP vazia ou maior que o limite de 256 KB." }, 413);
+          }
+          let decodedLength = 0;
+          try { decodedLength = atob(chunkBase64).length; } catch { return reply({ error: "Parte do ZIP em Base64 inválida." }, 400); }
+          if (decodedLength > 256 * 1024) return reply({ error: "Cada parte do ZIP pode ter no máximo 256 KB." }, 413);
+          await env.DB.prepare("DELETE FROM bot_upload_chunks WHERE created_at<?").bind(Date.now() - 6 * 60 * 60 * 1000).run();
+          await env.DB.prepare(
+            "INSERT INTO bot_upload_chunks (user_id,bot_id,upload_id,chunk_index,total_chunks,chunk_base64,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT (user_id,bot_id,upload_id,chunk_index) DO UPDATE SET total_chunks=EXCLUDED.total_chunks,chunk_base64=EXCLUDED.chunk_base64,created_at=EXCLUDED.created_at"
+          ).bind(user.id, id, uploadId, index, totalChunks, chunkBase64, Date.now()).run();
+          return reply({ ok: true, uploadId, index, totalChunks, received: decodedLength });
+        } catch (error) {
+          return reply({ error: error.message || "Não consegui guardar esta parte do ZIP." }, 500);
+        }
+      }
 
       if (!action && request.method === "DELETE") {
         let deploymentDeleted = false;
@@ -3475,11 +3505,42 @@ export async function onRequest(context) {
           const b = await body(request);
           const archiveName = String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
-          const archiveBytes = decodeBase64Bytes(b.archiveBase64);
-          if (archiveBytes.byteLength > 3 * 1024 * 1024) {
+          let archiveBytes;
+          const uploadId = String(b.uploadId || "");
+          if (uploadId) {
+            if (!/^[A-Za-z0-9_-]{16,80}$/.test(uploadId)) return reply({ error: "Identificador de envio inválido." }, 400);
+            const chunks = await env.DB.prepare(
+              "SELECT chunk_index,total_chunks,chunk_base64 FROM bot_upload_chunks WHERE user_id=? AND bot_id=? AND upload_id=? ORDER BY chunk_index ASC"
+            ).bind(user.id, id, uploadId).all();
+            const rows = Array.isArray(chunks?.results) ? chunks.results : [];
+            if (!rows.length) return reply({ code: "upload_chunks_missing", error: "Não encontrei as partes deste ZIP. Selecione o arquivo e tente novamente." }, 409);
+            const totalChunks = Number(rows[0].total_chunks || 0);
+            if (!Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > 24 || rows.length !== totalChunks) {
+              return reply({ code: "upload_chunks_incomplete", error: "O envio do ZIP ficou incompleto (" + rows.length + "/" + totalChunks + " partes). Tente novamente." }, 409);
+            }
+            const decoded = [];
+            let totalBytes = 0;
+            for (let i = 0; i < rows.length; i++) {
+              if (Number(rows[i].chunk_index) !== i || Number(rows[i].total_chunks) !== totalChunks) {
+                return reply({ code: "upload_chunks_incomplete", error: "As partes do ZIP chegaram fora de ordem. Tente novamente." }, 409);
+              }
+              const part = decodeBase64Bytes(rows[i].chunk_base64);
+              totalBytes += part.byteLength;
+              if (totalBytes > 5 * 1024 * 1024) return reply({ code: "fallback_zip_too_large", error: "O ZIP limpo passa do limite de 5 MB da rota alternativa. O arquivo original continua intacto." }, 413);
+              decoded.push(part);
+            }
+            archiveBytes = new Uint8Array(totalBytes);
+            let offset = 0;
+            for (const part of decoded) { archiveBytes.set(part, offset); offset += part.byteLength; }
+            await env.DB.prepare("DELETE FROM bot_upload_chunks WHERE user_id=? AND bot_id=? AND upload_id=?")
+              .bind(user.id, id, uploadId).run();
+          } else {
+            archiveBytes = decodeBase64Bytes(b.archiveBase64);
+          }
+          if (archiveBytes.byteLength > 5 * 1024 * 1024) {
             return reply({
               code: "fallback_zip_too_large",
-              error: "Este ZIP passa de 3 MB para o envio pela rota alternativa. Remova node_modules, venv e caches e tente novamente. O arquivo original continua no seu computador."
+              error: "O ZIP limpo passa do limite de 5 MB da rota alternativa. O arquivo original continua intacto."
             }, 413);
           }
 
@@ -4044,6 +4105,17 @@ async function ensureSchema(db) {
         updated_at BIGINT NOT NULL,
         PRIMARY KEY (user_id, provider)
       )`);
+      await db.raw(`CREATE TABLE IF NOT EXISTS bot_upload_chunks (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        bot_id TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        upload_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        total_chunks INTEGER NOT NULL,
+        chunk_base64 TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        PRIMARY KEY (user_id, bot_id, upload_id, chunk_index)
+      )`);
+      await db.raw("CREATE INDEX IF NOT EXISTS idx_bot_upload_chunks_created ON bot_upload_chunks(created_at)");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS schedule_enabled BOOLEAN NOT NULL DEFAULT FALSE");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS schedule_start TEXT NOT NULL DEFAULT '00:00'");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS schedule_end TEXT NOT NULL DEFAULT '23:59'");
