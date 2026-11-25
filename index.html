@@ -608,12 +608,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
   <div class="sidebar-bottom"><div class="host-card"><strong>✦ Seu espaço de criação</strong><p>Crie projetos e organize os módulos sem cadastrar uma chave de API.</p><button class="btn secondary wide" data-view="bots">Ver meus projetos</button></div></div>
  </aside>
  <main class="main">
-  <header class="topbar"><div class="topbar-left"><button class="btn secondary mobile-menu" id="menuBtn">☰</button><div class="breadcrumb"><span class="breadcrumb-mark">✦</span> ʙʟᴀᴄᴋ ᴢᴏɴᴇ <span class="crumb-slash">/</span> <span id="crumb">Início</span></div></div><div class="top-actions"><button class="top-doc-link" data-view="docs">Documentação</button><button class="top-create-btn" data-action="create-bot">＋ Novo bot</button><div class="user-chip"><div class="avatar" id="avatar">B</div><span id="userLabel" class="user-email">Conta</span></div><button class="btn ghost top-logout" id="logoutBtn">Sair</button></div></header>
-  <div id="view"></div>
- </main>
-</div>
-<div id="modalRoot"></div><div id="toastRoot"></div>
-<script>
+  <header class="topbar"><div class="topbar-left"><button class="btn secondary mobile-menu" id="menuBtn">☰</button><div class="breadcrumb"><span class="breadcrumb-mark">✦</span> ʙʟᴀᴄᴋ ᴢᴏɴᴇ <span class="crumb-slash">/</span> <span id="crumb">Início</span></div></div><div class="top-actions"><label class="dashboard-search"><span>⌕</span><input id="dashboardSearch" type="search" placeholder="Buscar um bot..." aria-label="Buscar bots"><kbd>CTRL K</kbd></label><button class="top-doc-link" data-view="docs">Documentação</button><button class="top-create-btn" data-action="create-bot">＋ Novo bot</button><div class="user-chip"><div class="avatar" id="avatar">B</div><span id="userLabel" class="user-email">Conta</span></div><button class
 const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,view:"overview",modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,logs:[]};
 const moduleNames={music:"Música",tickets:"Tickets",attendance:"Bate-ponto",team:"Equipe e cargos",goals:"Metas e ranking",warnings:"Advertências",recruitment:"Recrutamento",logs:"Logs"};
 async function api(path,options={}){
@@ -644,6 +639,8 @@ function showApp(){hidePublicScreens();$("#app").classList.remove("hidden");$("#
 async function enterStudio(){try{const me=await api("/me");if(me.user){state.user=me.user;showApp()}else if(me.gate)showAuth();else showGate()}catch{showGate()}}
 document.querySelectorAll("[data-enter-studio]").forEach(b=>b.addEventListener("click",enterStudio));
 const siteMenu=$("#siteMenuBtn");if(siteMenu)siteMenu.onclick=()=>$(".site-nav").classList.toggle("open");const closeSide=$("#closeSidebar");if(closeSide)closeSide.onclick=()=>$("#sidebar").classList.remove("open");
+document.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"){event.preventDefault();$("#dashboardSearch")?.focus()}});
+document.addEventListener("input",event=>{if(event.target?.id==="dashboardSearch"){const q=event.target.value.toLowerCase();document.querySelectorAll("[data-search-bot]").forEach(card=>card.classList.toggle("search-hidden",!card.dataset.searchBot.toLowerCase().includes(q)))}});
 document.querySelectorAll(".site-nav a").forEach(a=>a.addEventListener("click",()=>$(".site-nav").classList.remove("open")));
 async function boot(){try{const me=await api("/me");if(me.gate){if(me.user){state.user=me.user;showApp()}else showAuth()}else showLanding()}catch{showLanding()}}
 $("#gateForm").addEventListener("submit",async e=>{e.preventDefault();try{await api("/gate",{method:"POST",body:JSON.stringify({phrase:$("#gatePhrase").value})});$("#gatePhrase").value="";showAuth()}catch(err){notice($("#gateNotice"),err.message,"error")}});
@@ -657,13 +654,28 @@ function navigate(view){state.view=view;document.querySelectorAll(".nav-btn").fo
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
 function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 function overviewView(){
- const bot=state.bots[0];
- const running=state.bots.filter(b=>b.state==="running").length;
- return pageHead("Seu painel de controle","Bem-vindo ao seu espaço de criação. Seus bots, módulos e integrações ficam organizados aqui.",'<button class="btn" id="addBot">＋ Criar projeto</button>')+
- '<section class="hero"><div class="hero-content"><div class="caps">BLACK ZONE · ANIME CONTROL STUDIO</div><h2>Transforme suas ideias em experiências Discord.</h2><p>Gerencie cada projeto, escolha módulos e acompanhe a preparação do seu bot em um só lugar.</p><div class="hero-actions"><button class="btn" id="heroCreate">Criar meu bot ↗</button><button class="btn secondary" data-view="resources">Explorar recursos</button></div><div class="hero-tags"><span>✧ BOT DISCORD</span><span>✧ PAINEL EM PORTUGUÊS</span><span>✧ CONTROLE POR PROJETO</span></div></div><div class="hero-seal">✦</div></section>'+
- '<div class="grid stats"><div class="card stat-card"><div class="stat-icon">◈</div><div><div class="stat-value">'+state.bots.length+'</div><div class="stat-label">Servidores cadastrados</div></div></div><div class="card stat-card"><div class="stat-icon">◉</div><div><div class="stat-value">'+running+'</div><div class="stat-label">Bots ativos reportados</div></div></div><div class="card stat-card"><div class="stat-icon">✧</div><div><div class="stat-value">'+(state.hosting?"Conectado":"Pendente")+'</div><div class="stat-label">Hospedagem</div></div></div><div class="card stat-card"><div class="stat-icon">⌘</div><div><div class="stat-value">'+resourceCatalog.length+'</div><div class="stat-label">Módulos CAOS</div></div></div></div>'+
- '<div class="dashboard-shortcuts"><button data-view="bots"><span>◈</span><b>Meus servidores</b><small>Gerencie seus projetos</small><i>↗</i></button><button data-view="resources"><span>✦</span><b>Recursos</b><small>Explore os módulos</small><i>↗</i></button><button data-view="docs"><span>▤</span><b>Documentação</b><small>Consulte os guias</small><i>↗</i></button></div>'+
- '<div class="grid two-col"><section class="card"><div class="section-head"><h3>Seus projetos</h3><button class="link" data-view="bots">Ver todos ↗</button></div>'+(bot?state.bots.slice(0,3).map(botCard).join(""):'<div class="empty"><b>Seu espaço está pronto</b>Crie seu primeiro servidor e configure o token e os módulos que deseja usar.</div>')+'</section><section class="card"><div class="section-head"><h3>Comece por aqui</h3><span class="caps">GUIA RÁPIDO</span></div><div class="quick-guide"><div><span>01</span><p><b>Crie seu projeto</b><small>Escolha a linguagem do seu bot.</small></p></div><div><span>02</span><p><b>Configure os módulos</b><small>Ative somente o que seu código possui.</small></p></div><div><span>03</span><p><b>Conecte a hospedagem</b><small>Prepare o ambiente de execução.</small></p></div></div></section></div>';
+ const bots=state.bots||[];
+ const online=bots.filter(b=>b.state==="running"&&b.botOnlineNow!==false).length;
+ const first=bots[0]||null;
+ const activeModules=first?Object.values(first.modules||{}).filter(Boolean).length:0;
+ return '<div class="cosmic-dashboard"><div class="dashboard-center">'+
+  '<section class="cosmic-hero"><div class="cosmic-hero-copy"><div class="cosmic-kicker"><i></i> CENTRAL DE CONTROLE · BLACK ZONE</div><p>Bem-vindo(a) de volta,</p><h1>BLACK ZONE <em>ESTÚDIO</em></h1><div class="cosmic-subtitle">Sua central de hospedagem e gerenciamento de bots</div>'+
+  '<div class="cosmic-badges"><span><b>◈</b>'+online+' online</span><span><b>⚡</b>'+bots.length+' projetos</span><span><b>✧</b>'+activeModules+' módulos ativos</span><span><b>⬡</b>'+(state.hosting?"Hospedagem conectada":"Hospedagem pendente")+'</span></div></div><div class="cosmic-planet"><div class="planet-ring"></div><div class="planet-core"></div><div class="cosmic-astronaut">◉</div><div class="planet-spark spark-a">✦</div><div class="planet-spark spark-b">✧</div></div></section>'+
+  '<section class="dashboard-panel quick-panel"><div class="dashboard-panel-head"><div><small>ATALHOS</small><h2>Ações rápidas</h2></div></div><div class="quick-action-grid">'+
+   '<button data-action="create-bot" class="quick-action quick-purple"><span>＋</span>Novo bot</button><button data-view="files" class="quick-action quick-blue"><span>⇧</span>Arquivos</button><button data-view="logs" class="quick-action quick-cyan"><span>›_</span>Terminal / logs</button><button data-view="schedules" class="quick-action quick-orange"><span>▦</span>Agendamentos</button><button data-view="integrations" class="quick-action quick-violet"><span>⌘</span>Hospedagem</button>'+
+  '</div></section>'+
+  '<section class="dashboard-panel bots-panel"><div class="dashboard-panel-head"><div><small>SEUS PROJETOS</small><h2>Meus bots</h2></div><div class="panel-head-actions"><span class="small-muted">'+bots.length+' cadastrados</span><button class="icon-button" id="refreshBots">↻</button></div></div>'+
+   (bots.length?'<div class="dashboard-bot-list">'+bots.map(botCard).join("")+'</div>':'<div class="dashboard-empty empty-create"><span>◈</span><b>Seu universo começa aqui</b><p>Crie seu primeiro bot para configurar o token, selecionar módulos e conectar a hospedagem.</p><button class="btn btn-bright" id="addBot">＋ Criar primeiro bot</button></div>')+
+  '</section>'+
+  '<section class="dashboard-panel terminal-panel"><div class="dashboard-panel-head"><div><small>SAÍDA DO PROCESSO</small><h2>Terminal · '+escapeHtml(first?.name||"Bot principal")+'</h2></div><button class="text-action" data-view="logs">Ver registros ↗</button></div><div class="terminal-window"><div class="terminal-top"><i></i><i></i><i></i><span>black-zone · runtime</span></div><div class="terminal-content" id="dashboardTerminal"><div class="dashboard-empty">Consultando logs do servidor…</div></div></div></section>'+
+ '</div><aside class="dashboard-rail">'+
+  '<section class="dashboard-panel system-summary"><div class="rail-title"><span>◈</span> RESUMO DO SISTEMA</div><div class="summary-row"><span>Conta</span><b>Estúdio</b></div><div class="summary-row"><span>Projetos cadastrados</span><b>'+bots.length+'</b></div><div class="summary-row"><span>Bots online</span><b class="'+(online?"good":"muted")+'">'+online+'</b></div><div class="summary-row"><span>Módulos selecionados</span><b>'+activeModules+'</b></div><div class="summary-row"><span>Hospedagem</span><b class="'+(state.hosting?"good":"muted")+'">'+(state.hosting?"Conectada":"Pendente")+'</b></div><div class="summary-row"><span>Banco de dados</span><b id="summaryDbStatus">Verificando…</b></div></section>'+
+  '<section class="dashboard-panel activity-panel"><div class="rail-head"><div class="rail-title"><span>◷</span> ATIVIDADE RECENTE</div><button class="text-action" data-view="logs">Ver tudo</button></div><div id="dashboardActivity"><div class="dashboard-empty">Os eventos recentes serão carregados quando houver logs disponíveis.</div></div></section>'+
+  '<section class="dashboard-panel resources-panel"><div class="rail-title"><span>⌁</span> USO DE RECURSOS</div><div id="dashboardResources"><div class="dashboard-empty">Aguardando dados reais da hospedagem.</div></div></section>'+
+  '<section class="dashboard-panel services-panel"><div class="rail-title"><span>✧</span> STATUS DOS SERVIÇOS</div><div id="dashboardServices"><div class="dashboard-empty">Verificando serviços…</div></div></section>'+
+  '<section class="dashboard-panel time-panel"><div class="rail-title"><span>◷</span> HORÁRIO DA BAHIA</div><div class="server-clock" id="serverClock">--:--:--</div><div class="server-date" id="serverDate">Carregando data…</div><div class="time-orbit"><i></i><b>✦</b></div></section>'+
+  '<section class="dashboard-signature"><b>BLACK ZONE <em>ESTÚDIO</em></b><span>ANIME CONTROL STUDIO</span><small>Seu universo. Seus bots. Seu controle.</small></section>'+
+ '</aside></div>';
 }
 function botStatusLabel(b){
  if(b.scheduleEnabled)return "Agenda diária";
@@ -673,9 +685,19 @@ function botStatusLabel(b){
  return "Pronto para iniciar";
 }
 function botCard(b){
- const label=botStatusLabel(b);
- const active=b.state==="running";
- return '<div class="bot-row"><div class="bot-logo">🤖</div><div class="bot-info"><strong>'+escapeHtml(b.name||"Projeto sem nome")+'</strong><span>'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token Discord protegido":"Token Discord pendente")+'</span></div><span class="status '+(active?"":"off")+'">'+label+'</span><button class="btn secondary" data-openbot="'+escapeHtml(b.id)+'">Gerenciar</button></div>';
+ const running=b.state==="running"&&b.botOnlineNow!==false;
+ const safeId=escapeHtml(b.id);
+ return '<article class="dashboard-bot-card" data-search-bot="'+escapeHtml((b.name||"")+" "+(b.runtime||""))+'">'+
+  '<div class="dashboard-bot-avatar">◈</div>'+
+  '<div class="dashboard-bot-main"><div class="dashboard-bot-title"><strong>'+escapeHtml(b.name||"Projeto sem nome")+'</strong><span class="status-pill '+(running?"pill-online":"pill-offline")+'"><i></i>'+(running?"ONLINE":(b.state==="running"?"FORA DO HORÁRIO":(b.hostingDeploymentId?"OFFLINE":"RASCUNHO")))+'</span></div>'+
+  '<div class="dashboard-bot-meta">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' · '+(b.hostingDeploymentId?"Implantado":"Ainda não publicado")+' · '+(b.hasDiscordToken?"Token protegido":"Token pendente")+'</div>'+
+  '<div class="dashboard-bot-stats"><span><b>CPU</b><small>'+(b.runtimeInfo?.cpu?.usedPercent!=null?escapeHtml(String(b.runtimeInfo.cpu.usedPercent))+"%":"—")+'</small></span><span><b>RAM</b><small>'+(b.runtimeInfo?.memory?.usedBytes!=null?formatBytes(b.runtimeInfo.memory.usedBytes):"—")+'</small></span><span><b>DISCO</b><small>'+(b.runtimeInfo?.disk?.usedBytes!=null?formatBytes(b.runtimeInfo.disk.usedBytes):"—")+'</small></span></div></div>'+
+  '<div class="dashboard-bot-actions">'+
+   '<button class="bot-action action-start" data-bot-power="start" data-bot-id="'+safeId+'" '+(running||!state.hosting||!b.hasDiscordToken?"disabled":"")+'><span>▶</span>Iniciar</button>'+
+   '<button class="bot-action action-restart" data-bot-power="restart" data-bot-id="'+safeId+'" '+(!b.hostingDeploymentId||!state.hosting?"disabled":"")+'><span>↻</span>Reiniciar</button>'+
+   '<button class="bot-action action-stop" data-bot-power="stop" data-bot-id="'+safeId+'" '+(!running||!state.hosting?"disabled":"")+'><span>■</span>Parar</button>'+
+   '<button class="bot-action action-more" data-openbot="'+safeId+'"><span>•••</span>Mais</button>'+
+  '</div></article>';
 }
 function botsView(){return pageHead("Meus bots","Controle a execução, os horários e os comandos do seu bot Discord.",'<button class="btn" id="addBot">＋ Criar projeto</button>')+'<div class="card"><div class="section-head"><h3>Seus bots</h3><button class="btn secondary" id="refreshBots">↻ Atualizar</button></div><div class="list">'+(state.bots.length?state.bots.map(botCard).join(""):'<div class="empty"><b>Nenhum bot cadastrado</b>Crie seu bot, proteja o token e conecte a hospedagem para iniciar.</div>')+'</div></div>'}
 function templatesView(){return pageHead("Modelos prontos","Escolha uma base para organizar o projeto e seus módulos.")+'<div class="grid two-col"><section class="card"><div class="bot-row"><div class="bot-logo">⚡</div><div class="bot-info"><strong>CAOS • Bot de gerenciamento</strong><span>Python • Equipe, tickets, metas, recrutamento e música</span></div><span class="status off">Modelo</span></div><p class="muted small" style="margin:17px 0">Configure os módulos do CAOS e salve suas preferências no Estúdio. Não é necessário informar chave de API nesta etapa. A execução do bot será liberada quando o executor estiver conectado.</p><button class="btn" id="configureCaos">Configurar módulos CAOS ↗</button></section><section class="card"><div class="caps">CATÁLOGO</div><h3>Mais modelos em breve</h3><p class="muted small">O catálogo será ampliado com novas bases de bots.</p></section></div>'}
@@ -733,7 +755,10 @@ function schedulesView(){
  (state.bots.length?'<div class="list">'+state.bots.map(b=>'<div class="bot-row"><div class="bot-logo">◷</div><div class="bot-info"><strong>'+escapeHtml(b.name)+'</strong><span>'+(b.scheduleEnabled?'Online entre '+escapeHtml(b.scheduleStart)+' e '+escapeHtml(b.scheduleEnd):'Sem agendamento diário')+' • America/Bahia</span></div><button class="btn secondary" data-schedule="'+escapeHtml(b.id)+'">Configurar horário</button></div>').join('')+'</div>':'<div class="empty"><b>Nenhum bot cadastrado</b>Crie um bot antes de configurar os horários.</div>')+
  '</div>';
 }
-function logsView(){return pageHead("Atividade","Acompanhe os eventos do seu espaço.")+'<div class="card"><div class="empty"><b>Ainda não há registros de execução</b>Os logs aparecem aqui quando um bot estiver publicado em um executor. Seus projetos e preferências já ficam salvos no banco de dados.</div></div>'}
+function logsView(){
+ return pageHead("Terminal e registros","Saída real retornada pelo provedor de hospedagem.",'<button class="btn secondary" id="refreshLogs">↻ Atualizar logs</button>')+
+ '<section class="dashboard-panel logs-full"><div class="field"><label>PROJETO</label><select id="logsBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'">'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="terminal-window"><div class="terminal-top"><i></i><i></i><i></i><span>black-zone · logs</span></div><div id="logsArea" class="terminal-content"><div class="dashboard-empty">Selecione um projeto e atualize os logs.</div></div></div></section>';
+}
 function settingsView(){return pageHead("Configurações","Gerencie sua conta e veja a situação do ambiente.")+'<div class="grid settings-grid"><section class="card"><div class="section-head"><h3>Seu espaço de criação</h3><span class="status">Sem chave de API</span></div><p class="muted small">Você pode criar projetos, escolher a linguagem e salvar os módulos sem vincular Bot-Hosting ou informar uma chave externa.</p><div class="project-note"><strong>Sobre a execução dos bots</strong><br>O painel e o banco já funcionam. Para iniciar bots Discord e mantê-los ativos 24 horas, ainda será necessário ligar um executor de processos. Isso é diferente de uma chave de API para entrar no painel.</div></section><section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">Sessões protegidas por cookie HttpOnly. As senhas são armazenadas com hash seguro no servidor.</p></section><section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API e a conexão real com o PostgreSQL.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>'}
 function bindView(){
  const add=()=>createBotModal();
@@ -750,6 +775,10 @@ function bindView(){
  const openResources=$("#openResourceModules");if(openResources)openResources.onclick=()=>caosModal(activeBotForResources()?.id);
  const hc=$("#healthCheck");if(hc)hc.onclick=healthCheck;
  const host=$("#hostingConnectPage");if(host)host.onclick=connectHosting;
+ document.querySelectorAll("[data-bot-power]").forEach(button=>{button.onclick=()=>refreshBotPower(button.dataset.botId,button.dataset.botPower,button)});
+ const refreshLogs=$("#refreshLogs");if(refreshLogs)refreshLogs.onclick=loadLogs;
+ if(state.view==="logs")loadLogs();
+ if(state.view==="overview")loadDashboardPanels();
 }
 async function connectHosting(){
  const b=$("#hostingConnectPage");if(b){b.disabled=true;b.textContent="Preparando..."}
@@ -871,14 +900,79 @@ async function openBot(id){
    }catch(e){toast(e.message);btn.disabled=false;btn.textContent="Salvar horário";}
  };
 }
-async function loadBots(){try{const r=await api("/bots");state.bots=Array.isArray(r.deployments)?r.deployments:[];render()}catch(err){toast(err.message)}}
-async function loadLogs(){const b=state.bots[0];if(!b)return toast("Nenhum bot encontrado.");try{const r=await api("/bots/"+encodeURIComponent(b.id)+"/logs");$("#logsArea").innerHTML=(r.lines||[]).map(l=>'<div class="log-line">'+escapeHtml(l)+'</div>').join("")||'<div class="empty">Nenhuma saída recente.</div>'}catch(e){toast(e.message)}}
+async function loadBots(){
+ try{
+  const r=await api("/bots");
+  const list=Array.isArray(r.deployments)?r.deployments:[];
+  state.bots=await Promise.all(list.map(async bot=>{
+   try{return {...bot,...await api("/bots/"+encodeURIComponent(bot.id))}}
+   catch{return bot}
+  }));
+  render();
+ }catch(err){toast(err.message)}
+}
+async function refreshBotPower(id,action,button){
+ if(button){button.disabled=true;button.classList.add("is-loading")}
+ try{
+  await api("/bots/"+encodeURIComponent(id)+"/power",{method:"POST",body:JSON.stringify({action})});
+  toast(action==="stop"?"Parada solicitada.":action==="restart"?"Reinicialização solicitada.":"Inicialização solicitada.");
+  await loadBots();
+  if(state.view==="overview")loadDashboardPanels();
+ }catch(err){toast(err.message)}
+ finally{if(button){button.disabled=false;button.classList.remove("is-loading")}}
+}
+async function loadDashboardPanels(){
+ const bot=state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
+ const logsArea=$("#dashboardTerminal"),resourcesArea=$("#dashboardResources"),activityArea=$("#dashboardActivity"),servicesArea=$("#dashboardServices");
+ const clock=$("#serverClock"),date=$("#serverDate");
+ if(clock)clock.textContent=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Bahia",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(new Date());
+ if(date)date.textContent=new Intl.DateTimeFormat("pt-BR",{timeZone:"America/Bahia",day:"2-digit",month:"long",year:"numeric"}).format(new Date());
+ if(servicesArea){
+  let health=null;
+  try{const response=await fetch("/api/health",{credentials:"same-origin"});if(response.ok)health=await response.json()}catch{}
+  const services=[["API do painel",!!health?.ok],["Banco de dados",!!health?.databaseQuery],["Hospedagem autorizada",!!state.hosting],["Bot implantado",!!bot?.hostingDeploymentId]];
+  servicesArea.innerHTML=services.map(([label,ok])=>'<div class="service-line"><span class="service-dot '+(ok?"online":"pending")+'"></span><span>'+label+'</span><b class="'+(ok?"good":"muted")+'">'+(ok?"Operacional":(label==="Bot implantado"?"Aguardando":"Pendente"))+'</b></div>').join("");
+  const db=$("#summaryDbStatus");if(db){db.textContent=health?.databaseQuery?"Online":"Pendente";db.className=health?.databaseQuery?"good":"muted"}
+ }
+ if(!bot||!bot.hostingDeploymentId){
+  if(logsArea)logsArea.innerHTML='<div class="dashboard-empty">'+(bot?"O projeto ainda não tem uma implantação. Conecte a hospedagem e use Iniciar para liberar os logs.":"Crie seu primeiro bot para acompanhar a saída do processo.")+'</div>';
+  if(resourcesArea)resourcesArea.innerHTML='<div class="dashboard-empty">CPU, memória e armazenamento serão mostrados quando o provedor disponibilizar dados de uma implantação.</div>';
+  if(activityArea)activityArea.innerHTML='<div class="dashboard-empty">As atividades aparecerão aqui quando houver logs do provedor.</div>';
+  return;
+ }
+ try{
+  const [logData,resourceData]=await Promise.all([api("/bots/"+encodeURIComponent(bot.id)+"/logs"),api("/bots/"+encodeURIComponent(bot.id)+"/resources")]);
+  const lines=Array.isArray(logData.lines)?logData.lines:[];
+  if(logsArea)logsArea.innerHTML=lines.length?lines.slice(-8).map(line=>'<div class="terminal-line">'+escapeHtml(line)+'</div>').join(""):'<div class="dashboard-empty">Nenhuma linha de log foi retornada.</div>';
+  if(activityArea)activityArea.innerHTML=lines.length?lines.slice(-5).reverse().map((line,i)=>'<div class="activity-line"><span class="activity-icon '+(i===0?"activity-live":"")+'">'+(i===0?"◉":"≋")+'</span><span>'+escapeHtml(line)+'</span></div>').join(""):'<div class="dashboard-empty">Nenhuma atividade retornada.</div>';
+  if(resourcesArea){
+   const cpu=resourceData.cpu||{},memory=resourceData.memory||{},disk=resourceData.disk||{};
+   const metric=(name,used,max,unit)=>'<div class="usage-item"><div class="usage-top"><span>'+name+'</span><b>'+(used==null?"—":used)+(unit||"")+' <small>/ '+(max==null?"—":max)+(unit||"")+'</small></b></div><div class="usage-track"><i style="width:'+(max&&used!=null?Math.min(100,Math.max(0,Number(used)/Number(max)*100)):0)+'%"></i></div></div>';
+   resourcesArea.innerHTML=metric("CPU",cpu.usedPercent,cpu.limitPercent,"%")+metric("Memória",formatBytes(memory.usedBytes),formatBytes(memory.limitBytes),"")+metric("Armazenamento",formatBytes(disk.usedBytes),formatBytes(disk.limitBytes),"");
+  }
+ }catch(err){
+  if(logsArea)logsArea.innerHTML='<div class="dashboard-empty">'+escapeHtml(err.message)+'</div>';
+  if(resourcesArea)resourcesArea.innerHTML='<div class="dashboard-empty">O provedor não disponibilizou os dados desta implantação.</div>';
+  if(activityArea)activityArea.innerHTML='<div class="dashboard-empty">Não foi possível consultar a atividade.</div>';
+ }
+}
+
+async function loadLogs(){
+ const id=$("#logsBotSelect")?.value||state.bots[0]?.id;
+ if(!id)return toast("Nenhum bot encontrado.");
+ const area=$("#logsArea");if(area)area.innerHTML='<div class="dashboard-empty">Consultando o provedor…</div>';
+ try{const r=await api("/bots/"+encodeURIComponent(id)+"/logs");if(area)area.innerHTML=(r.lines||[]).map(l=>'<div class="terminal-line">'+escapeHtml(l)+'</div>').join("")||'<div class="dashboard-empty">Nenhuma saída recente retornada.</div>'}
+ catch(e){if(area)area.innerHTML='<div class="dashboard-empty">'+escapeHtml(e.message)+'</div>';else toast(e.message)}
+}
 function formatBytes(n){if(!Number.isFinite(Number(n)))return "—";const v=Number(n);if(v<1024)return v+" B";if(v<1048576)return (v/1024).toFixed(1)+" KB";return (v/1048576).toFixed(1)+" MB"}
 async function loadBotResources(id){const area=$("#botResources");if(!area)return;try{const r=await api("/bots/"+encodeURIComponent(id)+"/resources");const cpu=r.cpu||{},mem=r.memory||{},disk=r.disk||{};area.innerHTML='<div class="card"><div class="stat-label">CPU</div><div class="stat-value">'+(cpu.usedPercent??"—")+'%</div><div class="stat-label">Limite: '+(cpu.limitPercent??"—")+'%</div></div><div class="card"><div class="stat-label">Memória</div><div class="stat-value">'+formatBytes(mem.usedBytes)+'</div><div class="stat-label">Limite: '+formatBytes(mem.limitBytes)+'</div></div><div class="card"><div class="stat-label">Disco</div><div class="stat-value">'+formatBytes(disk.usedBytes)+'</div><div class="stat-label">Limite: '+formatBytes(disk.limitBytes)+'</div></div>'}catch(e){area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
 function terminalModal(id){openModal('<div class="modal-head"><h3>Terminal do bot</h3><button class="close" id="closeModal">×</button></div><p class="muted small">Comandos são executados dentro do contêiner desta implantação. Evite comandos que apaguem arquivos ou alterem credenciais.</p><form id="shellForm"><div class="field"><label>COMANDO</label><textarea id="shellCommand" rows="2" required maxlength="1200" placeholder="Ex.: python --version"></textarea></div><button class="btn">Executar comando</button></form><pre id="terminalOutput" class="log-line" style="margin-top:14px;max-height:280px;overflow:auto;white-space:pre-wrap">Terminal pronto.</pre>');$("#shellForm").onsubmit=async e=>{e.preventDefault();const command=$("#shellCommand").value.trim();if(!command)return;const out=$("#terminalOutput");out.textContent+="\n$ "+command+"\nExecutando…";$("#shellCommand").value="";try{const r=await api("/bots/"+encodeURIComponent(id)+"/shell",{method:"POST",body:JSON.stringify({command})});out.textContent=out.textContent.replace("Executando…",(r.output||"Sem saída do comando.")+"\nCódigo de saída: "+(r.exitCode??"—")+(r.timedOut?"\nTempo limite atingido.":"")+(r.truncated?"\nA saída foi reduzida pela hospedagem.":""));}catch(err){out.textContent=out.textContent.replace("Executando…","Erro: "+err.message)}}}
 async function loadFileList(){const id=$("#fileBot")?.value,area=$("#fileList");if(!id)return toast("Crie ou selecione uma implantação primeiro.");if(!area)return;area.innerHTML='<div class="log-line">Carregando arquivos…</div>';try{const r=await api("/bots/"+encodeURIComponent(id)+"/files?path=/");const entries=r.entries||[];area.innerHTML=entries.length?entries.map(x=>'<div class="bot-row"><div class="bot-logo">'+(x.type==="directory"?"📁":"📄")+'</div><div class="bot-info"><strong>'+escapeHtml(x.name||"sem nome")+'</strong><span>'+escapeHtml(x.type||"arquivo")+' • '+formatBytes(x.sizeBytes||0)+'</span></div></div>').join(""):'<div class="empty">Nenhum arquivo encontrado no diretório principal.</div>'}catch(e){area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
 async function uploadZip(){const file=$("#zipFile")?.files?.[0],id=$("#fileBot")?.value;if(!file||!id)return toast("Escolha o bot e um arquivo ZIP.");if(file.size>25*1024*1024)return toast("O arquivo excede o limite inicial de 25 MB.");try{const r=await api("/bots/"+encodeURIComponent(id)+"/upload-url",{method:"POST",body:JSON.stringify({filename:file.name})});const form=new FormData();form.append(r.field||"files",file,file.name);const sent=await fetch(r.url,{method:"POST",body:form});if(!sent.ok)throw new Error("Falha ao enviar o arquivo para a hospedagem.");await api("/bots/"+encodeURIComponent(id)+"/extract",{method:"POST",body:JSON.stringify({filename:file.name})});toast("Pacote enviado. Confira os logs antes de iniciar.");}catch(e){toast(e.message)}}
 async function healthCheck(){const area=$("#healthResult");if(area)area.innerHTML='<div class="log-line">Verificando…</div>';try{const r=await fetch("/api/health",{credentials:"same-origin"});const d=await r.json();if(!r.ok)throw new Error(d.error||"Falha no diagnóstico.");const rows=[["API do painel",d.ok],["PostgreSQL conectado",d.databaseConfigured],["Consulta real ao banco",d.databaseQuery],["Segredo de sessão",d.secretsConfigured?.session],["Criptografia de credenciais",d.secretsConfigured?.encryption]];if(area)area.innerHTML=rows.map(([name,ok])=>'<div class="log-line">'+escapeHtml(name)+': <strong style="color:'+(ok?'#8aefc5':'#ffb2c0')+'">'+(ok?'Configurado':'Pendente')+'</strong></div>').join("");}catch(e){if(area)area.innerHTML='<div class="log-line">'+escapeHtml(e.message)+'</div>'}}
+function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+boot();
+Html(e.message)+'</div>'}}
 function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 boot();
 </script>
