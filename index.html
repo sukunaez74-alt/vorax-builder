@@ -845,11 +845,14 @@ function logsView(){
  return pageHead("Terminal e registros","Consulte os logs e execute comandos no container da hospedagem.",'<button class="btn secondary" id="refreshLogs">↻ Atualizar logs</button>')+
  '<section class="dashboard-panel logs-full"><div class="field"><label>PROJETO</label><select id="logsBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div>'+
  '<div class="terminal-window"><div class="terminal-top"><i></i><i></i><i></i><span>black-zone · logs do processo</span></div><div id="logsArea" class="terminal-content"><div class="dashboard-empty">Selecione um projeto e atualize os logs.</div></div></div>'+
- '<div class="shell-panel"><div class="dashboard-panel-head"><div><small>TERMINAL DO CONTAINER</small><h2>Executar comando</h2></div><span class="small-muted">Shell da hospedagem</span></div><div class="shell-command-row"><input id="shellCommand" spellcheck="false" placeholder="Ex.: python --version ou ls -la"><button class="btn" id="shellRun">Executar ↗</button></div><pre class="shell-output" id="shellOutput">O terminal executa comandos no container deste bot; não é o stdin do processo Discord.</pre></div></section>';
+ (bot.hostingProvider==="squarecloud"
+  ? '<div class="project-note">A API da Square Cloud não oferece terminal de comandos no painel. Você continua com acesso aos logs, navegador de arquivos, edição, download e controles de iniciar/parar/reiniciar.</div>'
+  : '<div class="shell-panel"><div class="dashboard-panel-head"><div><small>TERMINAL DO CONTAINER</small><h2>Executar comando</h2></div><span class="small-muted">Shell da hospedagem</span></div><div class="shell-command-row"><input id="shellCommand" spellcheck="false" placeholder="Ex.: python --version ou ls -la"><button class="btn" id="shellRun">Executar ↗</button></div><pre class="shell-output" id="shellOutput">O terminal executa comandos no container deste bot; não é o stdin do processo Discord.</pre></div>')+'</section>';
 }function backupsView(){
  const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
  if(!bot)return pageHead("Backups e restauração","Nenhum bot cadastrado.")+'<div class="dashboard-empty">Crie um bot para usar esta área.</div>';
- if(bot.hostingProvider==="discloud")return pageHead("Backups e restauração","A hospedagem atual é Discloud.")+'<div class="dashboard-empty">Use o <a href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer">Dashboard da Discloud</a> para consultar e criar backups desta aplicação. O Estúdio não chama o backup do Bot-Hosting para uma aplicação hospedada na Discloud.</div>';
+ if(bot.hostingProvider==="discloud")return pageHead("Backups e restauração","A hospedagem atual é Discloud.")+'<div class="dashboard-empty">Use o <a href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer">Dashboard da Discloud</a> para consultar e criar backups desta aplicação.</div>';
+ if(bot.hostingProvider==="squarecloud")return pageHead("Backups e restauração","A hospedagem atual é Square Cloud.")+'<div class="dashboard-empty">Os snapshots da Square Cloud ainda não foram ligados a esta tela. Os arquivos podem ser exportados pelo gerenciador de arquivos do Estúdio; use Arquivos → Exportar ZIP para guardar uma cópia do projeto.</div>';
  if(!bot.hostingDeploymentId)return pageHead("Backups e restauração","Exporte uma cópia quando a hospedagem estiver preparada.")+'<div class="dashboard-empty">Prepare a hospedagem deste bot primeiro.</div>';
  return pageHead("Backups e restauração","Crie um ZIP para baixar ao seu computador ou restaure um ponto automático do Bot-Hosting.")+
  '<section class="dashboard-panel"><div class="backup-toolbar"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="backup-toolbar-actions"><button class="btn" id="backupManualCreate">↓ Criar e baixar ZIP</button><button class="btn secondary" id="backupRefresh">↻ Atualizar pontos</button></div></div><div id="backupStatus" class="project-note">O ZIP manual é uma cópia dos arquivos atuais. Os pontos de restauração automáticos são fornecidos pelo Bot-Hosting.</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Consultando pontos de restauração…</div></div></section>';
@@ -946,24 +949,33 @@ function verificationAdminView(){
  '<a class="btn secondary" style="display:inline-flex;text-decoration:none;align-items:center;margin-top:12px" id="verificationInviteBot" href="https://discord.com/oauth2/authorize?client_id='+encodeURIComponent(r.botId||"")+'&permissions=19456&scope=bot%20applications.commands" target="_blank" rel="noopener noreferrer">Adicionar bot ao servidor ↗</a></section>';
 }
 async function loadDiscloudHostingState(){
- const node=$("#settingsDiscloudState");
- if(!node)return;
- node.innerHTML="<strong>Consultando provedores do pool…</strong><br>Verificando conexões e limites da conta.";
+ const node=$("#settingsDiscloudState"),squareNode=$("#settingsSquareState");
+ if(!node&&!squareNode)return;
  try{
   const result=await api("/hosting/pool/status");
   const providers=Array.isArray(result.providers)?result.providers:[];
   const primary=providers.find(provider=>provider.id==="bot-hosting")||{};
-  const backup=providers.find(provider=>provider.id==="discloud")||{};
-  const primaryText=primary.connected?(primary.canCreate?"Bot-Hosting conectado e autorizado":"Bot-Hosting conectado; permissão de criação pendente"):"Bot-Hosting não conectado";
-  const backupText=backup.valid
-   ? "Discloud validada · "+escapeHtml(backup.accountLabel||"Conta conectada")+" · plano "+escapeHtml(backup.plan||"não informado")+" · "+Number(backup.appsCount||0)+" aplicação(ões) · "+Number(backup.ramUsedMb||0)+"/"+Number(backup.totalRamMb||0)+" MB RAM"
-   : (backup.connected?"Discloud conectada, mas a API Key precisa ser atualizada":"Discloud ainda não conectada");
-  node.innerHTML="<strong>"+escapeHtml(primaryText)+"</strong><br>"+backupText+
-   "<br><small>Ao enviar um ZIP, o Estúdio tenta o Bot-Hosting primeiro e usa a Discloud quando a primeira hospedagem recusa por capacidade. Cada provedor mantém seu próprio limite.</small>";
-  node.classList.toggle("changes-pending",!backup.valid);
+  const square=providers.find(provider=>provider.id==="squarecloud")||{};
+  const discloud=providers.find(provider=>provider.id==="discloud")||{};
+  if(squareNode){
+   const squareText=square.valid
+    ? "Conectada · "+escapeHtml(square.accountLabel||"Conta Square Cloud")+" · plano "+escapeHtml(square.plan||"não informado")+" · "+Number(square.applicationsCount||0)+" aplicações · "+Number(square.memoryAvailableMb||0)+"/"+Number(square.memoryLimitMb||0)+" MB livres"
+    : (square.connected?"Conectada, mas a chave não tem permissões suficientes ou não foi validada":"Ainda não conectada");
+   squareNode.innerHTML="<strong>"+squareText+"</strong><br><small>"+(square.canCreate?"Tem capacidade informada para receber um novo bot.": "O Estúdio só tentará criar um bot quando a conta tiver pelo menos 512 MB livres.")+"</small>";
+   squareNode.classList.toggle("changes-pending",!square.valid||!square.canCreate);
+  }
+  if(node){
+   const primaryText=primary.connected?(primary.canCreate?"Bot-Hosting conectado e autorizado":"Bot-Hosting conectado; permissão de criação pendente"):"Bot-Hosting não conectado";
+   const discloudText=discloud.valid
+    ? "Conectada · "+escapeHtml(discloud.accountLabel||"Conta Discloud")+" · plano "+escapeHtml(discloud.plan||"não informado")+" · "+Number(discloud.appsCount||0)+" app(s) · "+Number(discloud.ramUsedMb||0)+"/"+Number(discloud.totalRamMb||0)+" MB RAM"
+    : (discloud.connected?"Conectada, mas precisa atualizar a API Key":"Ainda não conectada");
+   node.innerHTML="<strong>"+escapeHtml(discloudText)+"</strong><br><small>"+escapeHtml(primaryText)+". Ordem de seleção: Bot-Hosting, Square Cloud quando houver capacidade, e Discloud como última alternativa gratuita. A conta e o plano de cada serviço continuam sob seu controle.</small>";
+   node.classList.toggle("changes-pending",!discloud.valid);
+  }
  }catch(error){
-  node.innerHTML="<strong>Não consegui consultar o pool.</strong><br>"+escapeHtml(error.message||"Falha de conexão.");
-  node.classList.add("changes-pending");
+  const message=escapeHtml(error.message||"Falha de conexão.");
+  if(node){node.innerHTML="<strong>Não consegui consultar o pool.</strong><br>"+message;node.classList.add("changes-pending")}
+  if(squareNode){squareNode.innerHTML="<strong>Não consegui consultar a Square Cloud.</strong><br>"+message;squareNode.classList.add("changes-pending")}
  }
 }
 function settingsView(){
@@ -977,6 +989,7 @@ function settingsView(){
  '<div id="settingsDiscordOAuthState" class="project-note changes-pending"><strong>Conferindo configuração OAuth…</strong></div>'+
  '<button class="btn" id="connectDiscordAccount" disabled>'+(linked?"Trocar conta vinculada":"Vincular minha conta Discord ↗")+'</button></section>'+
  '<section class="card"><div class="section-head"><h3>Executor de bots</h3><span class="status">OAuth · sem chave manual</span></div><p class="muted small">Conecte sua conta Bot-Hosting uma vez. O Estúdio usa autorização OAuth e guarda os tokens de acesso criptografados; você não precisa copiar uma chave de API.</p><div id="settingsHostingState" class="project-note"><strong>Consultando autorização…</strong><br>Verificando se esta conta já autorizou o executor.</div><button class="btn" id="settingsHostingConnect">Conectar / reconectar Bot-Hosting</button><p class="muted small" style="margin-top:10px">O bot central do ADM continua nesta hospedagem. O provedor adicional é configurado separadamente.</p></section>'+
+'<section class="card"><div class="section-head"><h3>Square Cloud · Gerenciador completo</h3><span class="status">PROVEDOR COM ARQUIVOS</span></div><p class="muted small">A Square Cloud oferece no Estúdio envio de ZIP, navegador de arquivos, edição, download, logs e controles de iniciar/parar/reiniciar. É um provedor pago: o plano Hobby começa em R$ 12,49/mês. O Estúdio nunca compra nem altera seu plano sem sua autorização.</p><div id="settingsSquareState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando sua conta Square Cloud e memória disponível.</div><form id="squareConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>SQUARE CLOUD API KEY</label><input id="squareApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua API Key da Square Cloud" minlength="32" maxlength="1024"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="squareConnectButton" type="submit">Validar e conectar Square Cloud</button><a class="btn secondary" href="https://squarecloud.app/account/security" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir conta e API Keys ↗</a></div></form><p class="muted small" style="margin-top:10px">Ao criar a chave, libere os escopos: <b>account:read, apps:read, apps:write, apps:control, files:read, files:write e envs:write</b>. Conecte uma conta com espaço para pelo menos 512 MB por bot.</p></section>'+
 '<section class="card"><div class="section-head"><h3>Pool de hospedagem · Discloud</h3><span class="status">PROVEDOR RESERVA</span></div><p class="muted small">Conecte a Discloud como hospedagem reserva. Quando o Bot-Hosting estiver sem vaga, o Estúdio poderá encaminhar o ZIP para a Discloud automaticamente. A chave fica guardada criptografada no servidor; não cole essa chave no chat.</p><div id="settingsDiscloudState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando a conta Discloud.</div><form id="discloudConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>DISCLOUD API KEY</label><input id="discloudApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua API Key da Discloud" minlength="16" maxlength="512"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="discloudConnectButton" type="submit">Validar e conectar Discloud</button><a class="btn secondary" href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir Dashboard Discloud ↗</a></div></form><p class="muted small" style="margin-top:10px">No Dashboard da Discloud, abra Ferramentas → Chaves de API e gere sua chave. O plano Free oficial informa limite de 1 bot e 100 MB de RAM; o Estúdio respeitará a capacidade real da conta.</p></section>'+
 '<section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">As sessões usam cookies HttpOnly. Os Bot Tokens são criptografados no servidor e nunca são devolvidos ao navegador em texto aberto.</p></section>'+
  '<section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API, o PostgreSQL e a configuração do ambiente.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>';
@@ -996,6 +1009,20 @@ function bindView(){
    await loadDiscloudHostingState();
   }catch(error){toast(error.message||"Não consegui conectar a Discloud.");}
   finally{button.disabled=false;button.textContent="Validar e conectar Discloud"}
+ };
+ const squareForm=$("#squareConnectForm");
+ if(squareForm)squareForm.onsubmit=async e=>{
+  e.preventDefault();
+  const input=$("#squareApiToken"),button=$("#squareConnectButton"),token=(input?.value||"").trim();
+  if(!token){toast("Cole a API Key da Square Cloud antes de conectar.");input?.focus();return;}
+  button.disabled=true;button.textContent="Validando API Key…";
+  try{
+   const r=await api("/hosting/square/connect",{method:"POST",body:JSON.stringify({apiToken:token})});
+   input.value="";
+   toast(r.message||"Square Cloud conectada com segurança.");
+   await loadDiscloudHostingState();
+  }catch(error){toast(error.message||"Não consegui conectar a Square Cloud.");}
+  finally{button.disabled=false;button.textContent="Validar e conectar Square Cloud"}
  };
  const verifyForm=$("#verificationBotConfigForm");
  if(verifyForm)verifyForm.onsubmit=async e=>{
@@ -1963,6 +1990,13 @@ async function saveBotFile(){
 async function downloadBotFile(id,path){
  try{
   const result=await api("/bots/"+encodeURIComponent(id)+"/files/download-url?path="+encodeURIComponent(path));
+  if(result.base64){
+   const binary=atob(result.base64),bytes=new Uint8Array(binary.length);
+   for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+   const blob=new Blob([bytes],{type:"application/octet-stream"}),url=URL.createObjectURL(blob);
+   const link=document.createElement("a");link.href=url;link.download=result.filename||String(path).split("/").pop()||"download.bin";document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+   return;
+  }
   if(!result.url)throw new Error("O provedor não retornou um link de download.");
   window.location.assign(result.url);
  }catch(error){toast(error.message)}
@@ -1974,6 +2008,15 @@ async function exportSelectedFiles(){
  const button=$("#fileExportZip");button.disabled=true;button.textContent="Compactando…";
  try{
   const result=await api("/bots/"+encodeURIComponent(id)+"/files/compress",{method:"POST",body:JSON.stringify({root,files})});
+  if(result.archiveBase64){
+   const binary=atob(result.archiveBase64),bytes=new Uint8Array(binary.length);
+   for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+   const blob=new Blob([bytes],{type:"application/zip"}),url=URL.createObjectURL(blob);
+   const link=document.createElement("a");link.href=url;link.download=result.filename||"black-zone-export.zip";document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url);
+   toast("ZIP criado. O download vai começar.");
+   await loadFiles(id,root);
+   return;
+  }
   if(!result.archive)throw new Error("O provedor não retornou o nome do ZIP.");
   const signed=await api("/bots/"+encodeURIComponent(id)+"/files/download-url?path="+encodeURIComponent(result.archive));
   if(!signed.url)throw new Error("ZIP criado, mas o provedor não forneceu o link de download.");
