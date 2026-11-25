@@ -1062,6 +1062,51 @@ async function cogitConfig(userId, env) {
   try { const value = await decryptSecret(row.encrypted_token, env); const config = JSON.parse(value || "{}"); return config?.token ? { token: String(config.token) } : null; }
   catch { return null; }
 }
+async function aclCloudsRequest(token, path = "", method = "GET", payload = null, form = null, raw = false) {
+  const suffix = path ? (path.startsWith("?") ? path : (path.startsWith("/") ? path : "/" + path)) : "";
+  const headers = { Authorization: "Bearer " + token, Accept: "application/json", "User-Agent": "BlackZoneStudio/1.0" };
+  if (payload !== null && !form && !raw) headers["Content-Type"] = "application/json";
+  if (raw) headers["Content-Type"] = "text/plain";
+  const response = await fetch("https://aclclouds.com/api/client" + suffix, {
+    method, headers,
+    body: form || (payload === null ? undefined : (raw ? String(payload) : JSON.stringify(payload))),
+    signal: AbortSignal.timeout(60000)
+  });
+  const text = await response.text();
+  let data = {};
+  if (text) { try { data = JSON.parse(text); } catch { data = { text }; } }
+  if (!response.ok) {
+    const first = Array.isArray(data?.errors) ? data.errors[0] : null;
+    const code = String(first?.code || data?.code || data?.error || "");
+    const reason = externalErrorText(first?.detail || data?.message || data?.error_description || data?.error || text) || ("HTTP " + response.status);
+    const error = new Error("ACLClouds · " + method + " /api/client" + suffix + " · " + reason);
+    error.status = response.status; error.code = code; throw error;
+  }
+  return { data, raw: text, status: response.status };
+}
+function aclCloudsAttributes(value) {
+  if (!value || typeof value !== "object") return {};
+  if (value.attributes && typeof value.attributes === "object") return value.attributes;
+  if (value.data?.attributes && typeof value.data.attributes === "object") return value.data.attributes;
+  return value.data && typeof value.data === "object" && !Array.isArray(value.data) ? value.data : value;
+}
+function aclCloudsIdentifier(value) {
+  const id = String(value || "").trim();
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(id)) throw new Error("Identificador de servidor ACLClouds inválido.");
+  return id;
+}
+async function aclCloudsServices(token) {
+  const services = [];
+  for (let page = 1; page <= 50; page++) {
+    const response = await aclCloudsRequest(token, "?per_page=100&page=" + page);
+    const payload = response.data || {};
+    const items = Array.isArray(payload.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+    services.push(...items.map(item => item?.attributes || item).filter(Boolean));
+    const pagination = payload.meta?.pagination || null;
+    if (!pagination || Number(pagination.current_page || page) >= Number(pagination.total_pages || page) || !items.length) break;
+  }
+  return services;
+}
 function cogitIdentifier(value) {
   const id = String(value || "").trim();
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error("Identificador do servidor Cogithost inválido.");
@@ -2262,6 +2307,66 @@ export async function onRequest(context) {
       } catch (error) { return reply({ error: error.message || "Não consegui vincular esse servidor Cogithost." }, 502); }
     }
 
+    if (path === "/hosting/aclclouds/connect" && request.method === "POST") {
+      const b = await body(request), token = String(b.apiToken || "").trim();
+      if (token.length < 20 || token.length > 1024 || /\s/.test(token)) return reply({ error: "Informe uma API Key ACLClouds válida." }, 400);
+      try {
+        const accountResult = await aclCloudsRequest(token, "/account");
+        const account = aclCloudsAttributes(accountResult.data);
+        const services = await aclCloudsServices(token);
+        const encrypted = await encryptSecret(token, env);
+        const label = String(account.username || account.email || "ACLClouds").slice(0, 120);
+        await env.DB.prepare("INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,'aclclouds',?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at")
+          .bind(user.id, encrypted, label, "Free · 1 bot Discord por conta", Date.now()).run();
+        const bots = services.filter(item => String(item.service_type || "").toLowerCase() === "discord");
+        return reply({ ok: true, connected: true, provider: "aclclouds", accountLabel: label, serversCount: services.length, botsCount: bots.length, message: "ACLClouds validada. A chave foi criptografada e os servidores Discord foram consultados." });
+      } catch (error) { return reply({ error: error.message || "Não consegui validar a API Key ACLClouds." }, 401); }
+    }
+    if (path === "/hosting/aclclouds/disconnect" && request.method === "POST") {
+      const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='aclclouds' AND provider_app_id IS NOT NULL LIMIT 1").bind(user.id).first();
+      if (linked) return reply({ error: "Há bots vinculados à ACLClouds. Desvincule os servidores antes de desconectar." }, 409);
+      await env.DB.prepare("DELETE FROM provider_connections WHERE user_id=? AND provider='aclclouds'").bind(user.id).run();
+      return reply({ ok: true, connected: false });
+    }
+    if (path === "/hosting/aclclouds/servers" && request.method === "GET") {
+      try {
+        const token = await providerToken(user.id, "aclclouds", env);
+        if (!token) return reply({ code: "provider_not_connected", error: "Conecte a ACLClouds em Configurações." }, 409);
+        const services = await aclCloudsServices(token);
+        const servers = services.filter(item => String(item.service_type || "").toLowerCase() === "discord").map(item => ({
+          id: String(item.identifier || ""), uuid: String(item.uuid || ""), name: String(item.name || "Discord bot"),
+          status: String(item.status || "active"), suspended: !!item.is_suspended,
+          memoryMb: Number(item.limits?.memory || 0), diskMb: Number(item.limits?.disk || 0), cpu: Number(item.limits?.cpu || 0)
+        })).filter(item => item.id);
+        return reply({ connected: true, servers, total: servers.length, planLimit: 1 });
+      } catch (error) { return reply({ error: error.message || "Não consegui listar servidores ACLClouds." }, 502); }
+    }
+    if (path === "/hosting/aclclouds/attach" && request.method === "POST") {
+      const b = await body(request), botId = String(b.botId || "");
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(botId)) return reply({ error: "Selecione um projeto válido do Estúdio." }, 400);
+      const bot = await getOwnedBot(botId, user.id, env);
+      if (!bot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
+      if (bot.hosting_deployment_id || bot.provider_app_id) return reply({ error: "Este projeto já está vinculado a uma hospedagem. Crie um projeto novo para vincular o servidor ACLClouds." }, 409);
+      try {
+        const token = await providerToken(user.id, "aclclouds", env);
+        if (!token) return reply({ code: "provider_not_connected", error: "Conecte a ACLClouds em Configurações." }, 409);
+        const serverId = aclCloudsIdentifier(b.serverId);
+        const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='aclclouds' AND provider_app_id=? LIMIT 1").bind(user.id, serverId).first();
+        if (linked) return reply({ error: "Este servidor ACLClouds já está vinculado a outro projeto do Estúdio." }, 409);
+        const services = await aclCloudsServices(token);
+        const service = services.find(item => String(item.identifier || "") === serverId);
+        if (!service || String(service.service_type || "").toLowerCase() !== "discord") return reply({ error: "A API não encontrou um serviço Discord com esse identificador nesta conta." }, 404);
+        const resourceResult = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+        const resource = aclCloudsAttributes(resourceResult.data);
+        const current = String(resource.current_state || "").toLowerCase();
+        const state = current === "running" ? "running" : "stopped";
+        const customProject = { packageName: bot.name, rootPath: "/", runtime: bot.runtime || "python", provider: "aclclouds", linkedAt: Date.now() };
+        await env.DB.prepare("UPDATE bots SET hosting_provider='aclclouds',provider_app_id=?,hosting_deployment_id=NULL,project_type='custom',custom_project=?::jsonb,state=?,updated_at=? WHERE id=? AND user_id=?")
+          .bind(serverId, JSON.stringify(customProject), state, Date.now(), botId, user.id).run();
+        return reply({ ok: true, provider: "aclclouds", providerAppId: serverId, serverName: String(service.name || "ACLClouds bot"), state,
+          message: "Servidor ACLClouds vinculado. Confira no painel ACLClouds se o comando Startup aponta para o arquivo principal e configure DISCORD_TOKEN nas variáveis do servidor." });
+      } catch (error) { return reply({ error: error.message || "Não consegui vincular o servidor ACLClouds." }, 502); }
+    }
     if (path === "/hosting/cube/connect" && request.method === "POST") {
       const b = await body(request);
       const token = String(b.apiToken || "").trim();
@@ -2327,11 +2432,12 @@ export async function onRequest(context) {
     }
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
-      const [discloudRow, squareRow, cubeRow, cogitRow, hostingRow] = await Promise.all([
+      const [discloudRow, squareRow, cubeRow, cogitRow, aclRow, hostingRow] = await Promise.all([
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cubecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cogithost'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='aclclouds'").bind(user.id).first(),
         env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(user.id).first()
       ]);
       let discloud = { connected: false, provider: "discloud" };
@@ -2415,11 +2521,31 @@ export async function onRequest(context) {
           cogithost = { connected: true, valid: true, provider: "cogithost", accountLabel: "Cogithost", plan: "Free / Pterodactyl", serversCount: servers.length, canCreate: false, canAttach: servers.length > 0 };
         } catch (error) { cogithost = { connected: true, valid: false, provider: "cogithost", error: error.message || "Falha de validação." }; }
       }
+      let aclclouds = { connected: false, provider: "aclclouds" };
+      if (aclRow) {
+        try {
+          const token = await providerToken(user.id, "aclclouds", env);
+          const accountResult = token ? await aclCloudsRequest(token, "/account") : null;
+          const account = aclCloudsAttributes(accountResult?.data);
+          const services = token ? await aclCloudsServices(token) : [];
+          const bots = services.filter(item => String(item.service_type || "").toLowerCase() === "discord");
+          aclclouds = {
+            connected: true, valid: !!token, provider: "aclclouds",
+            accountLabel: account.username || account.email || aclRow.account_label || "ACLClouds",
+            plan: "Free · 1 Discord bot por conta",
+            serversCount: services.length, botsCount: bots.length,
+            canCreate: false, canAttach: bots.length > 0
+          };
+        } catch (error) {
+          aclclouds = { connected: true, valid: false, provider: "aclclouds", error: error.message || "Falha ao validar ACLClouds." };
+        }
+      }
       const scopes = String(hostingRow?.scope || "").split(/\s+/).filter(Boolean);
       return reply({
         providers: [
           { id: "bot-hosting", name: "Bot-Hosting", connected: !!hostingRow, canCreate: !!hostingRow && scopes.includes("deployments:write") && scopes.includes("credits:spend"), role: "principal" },
           { id: "cogithost", name: "Cogithost", role: "servidor-conectado", ...cogithost, canCreate: false },
+          { id: "aclclouds", name: "ACLClouds", role: "servidor-conectado", ...aclclouds, canCreate: false, canAttach: !!aclclouds.valid && !!aclclouds.canAttach },
           { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
           { id: "squarecloud", name: "Square Cloud", role: "reserva-paga", ...square, canCreate: !!square.valid && !!square.canCreate },
           { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, canCreate: false, role: "compatibilidade-parcial", ...discloud, canCreate: false }
@@ -2778,6 +2904,15 @@ export async function onRequest(context) {
             runtimeInfo = { error: error.message || "Falha ao consultar Square Cloud." };
           }
 
+        } else if (bot.hosting_provider === "aclclouds" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "aclclouds", env);
+            if (!token) throw new Error("Conta ACLClouds desconectada.");
+            const result = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(aclCloudsIdentifier(bot.provider_app_id)) + "/resources");
+            runtimeInfo = aclCloudsAttributes(result.data);
+            const current = String(runtimeInfo.current_state || "").toLowerCase();
+            state = current === "running" ? "running" : (current === "starting" ? "starting" : "stopped");
+          } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar ACLClouds." }; }
         } else if (bot.hosting_provider === "cogithost" && bot.provider_app_id) {
           try {
             const config = await cogitConfig(user.id, env);
@@ -2892,6 +3027,21 @@ export async function onRequest(context) {
           } catch (error) {
             return reply({ ok: false, code: "provider_action_failed", error: error.message || "Falha ao controlar a aplicação na Discloud." }, 502);
           }
+        }
+        if (bot.hosting_provider === "aclclouds" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "aclclouds", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações." }, 409);
+            const serverId = aclCloudsIdentifier(bot.provider_app_id);
+            await aclCloudsRequest(token, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
+            const check = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+            const resource = aclCloudsAttributes(check.data);
+            const current = String(resource.current_state || "").toLowerCase();
+            const state = signal === "stop" ? "stopped" : (current === "running" ? "running" : "starting");
+            await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?").bind(state, Date.now(), id, user.id).run();
+            return reply({ ok: true, action: signal, state, provider: "aclclouds", providerAppId: serverId, discordOnline: false,
+              resources: resource.resources || null, hint: signal === "stop" ? "Servidor parado na ACLClouds." : "Comando enviado à ACLClouds. Confira os logs para confirmar a conexão do Discord." });
+          } catch (error) { return reply({ ok: false, error: error.message || "Falha ao controlar servidor ACLClouds." }, 502); }
         }
         if (bot.hosting_provider === "cogithost" && bot.provider_app_id) {
           try {
@@ -3121,6 +3271,30 @@ export async function onRequest(context) {
           return reply({ error: error.message || "Não consegui consultar a Discloud." }, 502);
         }
       }
+      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "aclclouds" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "aclclouds", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações." }, 409);
+          const serverId = aclCloudsIdentifier(bot.provider_app_id);
+          if (action === "logs") {
+            const result = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(serverId) + "/logs?lines=100");
+            const payload = result.data || {};
+            const rawLines = Array.isArray(payload.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+            const lines = rawLines.map(line => String(typeof line === "string" ? line : (line?.attributes?.line || line?.line || line?.message || JSON.stringify(line)))).slice(-100);
+            return reply({ provider: "aclclouds", lines, logs: lines });
+          }
+          const result = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+          const attributes = aclCloudsAttributes(result.data);
+          if (action === "diagnose") return reply({ provider: "aclclouds", ...attributes });
+          const usage = attributes.resources || {};
+          return reply({ provider: "aclclouds", resources: {
+            currentState: attributes.current_state || null, cpu: usage.cpu_absolute ?? null,
+            memoryBytes: usage.memory_bytes ?? null, diskBytes: usage.disk_bytes ?? null,
+            networkRxBytes: usage.network_rx_bytes ?? null, networkTxBytes: usage.network_tx_bytes ?? null,
+            uptime: usage.uptime ?? null
+          } });
+        } catch (error) { return reply({ error: error.message || "Não consegui consultar ACLClouds." }, 502); }
+      }
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         try {
           const config = await cogitConfig(user.id, env);
@@ -3198,6 +3372,21 @@ export async function onRequest(context) {
         }
       }
 
+      if (action === "files" && !subPath && request.method === "GET" && bot.hosting_provider === "aclclouds" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "aclclouds", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações." }, 409);
+          const directory = safeVolumePath(url.searchParams.get("path") || "/");
+          const result = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(aclCloudsIdentifier(bot.provider_app_id)) + "/files/list?directory=" + encodeURIComponent(directory));
+          const payload = result.data || {};
+          const values = Array.isArray(payload.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+          const entries = values.map(item => {
+            const a = item?.attributes || item || {};
+            return { name: String(a.name || ""), type: a.is_file ? "file" : "directory", sizeBytes: Number(a.size || 0), modifiedAt: a.modified_at || null };
+          }).filter(item => item.name);
+          return reply({ provider: "aclclouds", path: directory, entries });
+        } catch (error) { return reply({ error: error.message || "Falha ao listar arquivos ACLClouds." }, 502); }
+      }
       if (action === "files" && !subPath && request.method === "GET" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         try {
           const config = await cogitConfig(user.id, env);
@@ -3256,6 +3445,22 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao listar arquivos." }, 502); }
       }
 
+      if (action === "files" && subPath === "download-url" && request.method === "GET" && bot.hosting_provider === "aclclouds" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "aclclouds", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações." }, 409);
+          const filePath = safeVolumePath(url.searchParams.get("path") || "/");
+          const result = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(aclCloudsIdentifier(bot.provider_app_id)) + "/files/download?file=" + encodeURIComponent(filePath));
+          const downloadUrl = String(aclCloudsAttributes(result.data).url || result.data?.url || "");
+          if (!downloadUrl.startsWith("https://")) return reply({ error: "ACLClouds não retornou uma URL de download segura." }, 502);
+          const response = await fetch(downloadUrl, { signal: AbortSignal.timeout(60000) });
+          if (!response.ok) throw new Error("Download ACLClouds · HTTP " + response.status);
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          if (bytes.byteLength > 4 * 1024 * 1024) return reply({ error: "O arquivo passa de 4 MB. Use o painel ACLClouds para baixar arquivos maiores." }, 413);
+          let binary = ""; for (let i=0;i<bytes.length;i+=0x8000) binary += String.fromCharCode(...bytes.subarray(i,i+0x8000));
+          return reply({ provider: "aclclouds", base64: btoa(binary), filename: filePath.split("/").pop() || "download.bin" });
+        } catch (error) { return reply({ error: error.message || "Falha ao baixar arquivo ACLClouds." }, 502); }
+      }
       if (action === "files" && subPath === "download-url" && request.method === "GET" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         try {
           const config = await cogitConfig(user.id, env);
@@ -3452,6 +3657,18 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao salvar arquivo." }, 502); }
       }
 
+      if (action === "files" && subPath === "delete" && request.method === "POST" && bot.hosting_provider === "aclclouds" && bot.provider_app_id) {
+        const b = await body(request), filePath = safeVolumePath(b.path);
+        if (filePath === "/") return reply({ error: "A pasta raiz não pode ser removida." }, 400);
+        try {
+          const token = await providerToken(user.id, "aclclouds", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações." }, 409);
+          const root = filePath.split("/").slice(0, -1).join("/") || "/";
+          const name = filePath.split("/").pop();
+          const result = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(aclCloudsIdentifier(bot.provider_app_id)) + "/files/delete", "POST", { root, files: [name] });
+          return reply(result.data || {});
+        } catch (error) { return reply({ error: error.message || "Falha ao excluir arquivo ACLClouds." }, 502); }
+      }
       if (action === "files" && subPath === "delete" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         const b = await body(request), filePath = safeVolumePath(b.path);
         if (filePath === "/") return reply({ error: "A pasta raiz não pode ser removida." }, 400);
@@ -3552,6 +3769,29 @@ export async function onRequest(context) {
 
           // Existing projects stay on their current provider. New projects prefer
           // Square Cloud when the connected account has the required memory budget.
+          if (currentProvider === "aclclouds" && currentAppId) {
+            const aclToken = await providerToken(user.id, "aclclouds", env);
+            if (!aclToken) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações para atualizar este bot." }, 409);
+            const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
+            const serverId = aclCloudsIdentifier(currentAppId);
+            const uploadResponse = await aclCloudsRequest(aclToken, "/servers/" + encodeURIComponent(serverId) + "/files/upload");
+            const uploadUrl = String(aclCloudsAttributes(uploadResponse.data).url || uploadResponse.data?.url || "");
+            if (!uploadUrl.startsWith("https://")) throw new Error("ACLClouds não retornou URL segura para o ZIP.");
+            const form = new FormData();
+            const archiveFile = archiveName.replace(/\.zip$/i, "-black-zone.zip");
+            form.append("files", new Blob([prepared.bytes], { type: "application/zip" }), archiveFile);
+            const uploaded = await fetch(uploadUrl, { method: "POST", body: form, signal: AbortSignal.timeout(60000) });
+            if (!uploaded.ok) throw new Error("O envio do ZIP à ACLClouds falhou: HTTP " + uploaded.status);
+            const deployResult = await aclCloudsRequest(aclToken, "/servers/" + encodeURIComponent(serverId) + "/files/deploy", "POST", {
+              directory: "/", clean: false, keep: [], archive: archiveFile
+            });
+            await env.DB.prepare("UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='aclclouds',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='installing',updated_at=? WHERE id=? AND user_id=?")
+              .bind(serverId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
+            return reply({ ok: true, provider: "aclclouds", providerAppId: serverId, runtime: prepared.runtime,
+              customProject: prepared.customProject, deployment: deployResult.data || null,
+              message: "ZIP enviado e implantado na ACLClouds. Confira o comando Startup no painel ACLClouds e configure DISCORD_TOKEN nas variáveis do servidor antes de iniciar." });
+          }
+
           if (currentProvider === "cubecloud" && currentAppId) {
             if (!cubeToken) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações para atualizar este bot." }, 409);
             const prepared = await prepareCubeCloudProject(archiveBytes, bot, b.runtime, env);
@@ -3710,6 +3950,18 @@ export async function onRequest(context) {
         }
       }
 
+      if (action === "upload-url" && request.method === "POST" && bot.hosting_provider === "aclclouds" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "aclclouds", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações." }, 409);
+          const b = await body(request), directory = safeVolumePath(b.path || "/");
+          const signed = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(aclCloudsIdentifier(bot.provider_app_id)) + "/files/upload");
+          const upload = aclCloudsAttributes(signed.data);
+          const uploadUrl = String(upload.url || signed.data?.url || "");
+          if (!uploadUrl.startsWith("https://")) return reply({ error: "ACLClouds não retornou URL de upload válida." }, 502);
+          return reply({ url: uploadUrl, field: "files", path: directory, provider: "aclclouds" });
+        } catch (error) { return reply({ error: error.message || "Falha ao preparar upload ACLClouds." }, 502); }
+      }
       if (action === "upload-url" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         try {
           const config = await cogitConfig(user.id, env);
@@ -3799,6 +4051,18 @@ export async function onRequest(context) {
         }
       }
 
+      if (action === "extract" && request.method === "POST" && bot.hosting_provider === "aclclouds" && bot.provider_app_id) {
+        const b = await body(request), file = String(b.file || "");
+        if (!/^[A-Za-z0-9._-]{1,140}\.zip$/i.test(file) || file.includes("..")) return reply({ error: "Nome de ZIP inválido." }, 400);
+        try {
+          const token = await providerToken(user.id, "aclclouds", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações." }, 409);
+          const result = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(aclCloudsIdentifier(bot.provider_app_id)) + "/files/deploy", "POST", {
+            directory: safeVolumePath(b.path || "/"), clean: false, keep: [], archive: file
+          });
+          return reply({ ...(result.data || {}), provider: "aclclouds" });
+        } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP na ACLClouds." }, 502); }
+      }
       if (action === "extract" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         const b = await body(request), file = String(b.file || "");
         if (!/^[A-Za-z0-9._-]{1,140}\.zip$/i.test(file) || file.includes("..")) return reply({ error: "Nome de ZIP inválido." }, 400);
