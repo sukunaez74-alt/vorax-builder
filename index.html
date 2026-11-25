@@ -941,6 +941,27 @@ function verificationAdminView(){
  '<div class="notice" style="margin-top:14px">Depois de salvar, o botão <b>Iniciar bot</b> prepara a hospedagem automaticamente e liga o bot com esse convite.</div>'+
  '<a class="btn secondary" style="display:inline-flex;text-decoration:none;align-items:center;margin-top:12px" id="verificationInviteBot" href="https://discord.com/oauth2/authorize?client_id='+encodeURIComponent(r.botId||"")+'&permissions=19456&scope=bot%20applications.commands" target="_blank" rel="noopener noreferrer">Adicionar bot ao servidor ↗</a></section>';
 }
+async function loadDiscloudHostingState(){
+ const node=$("#settingsDiscloudState");
+ if(!node)return;
+ node.innerHTML="<strong>Consultando conexão…</strong><br>Validando a conta Discloud.";
+ try{
+  const r=await api("/hosting/discloud/status");
+  if(r.connected&&r.valid){
+   node.innerHTML="<strong>Discloud conectada e validada.</strong><br>Conta: "+escapeHtml(r.accountLabel||"Conta Discloud")+" · Plano: "+escapeHtml(r.plan||"não informado")+(r.appsCount!==null&&r.appsCount!==undefined?" · Aplicações: "+Number(r.appsCount):"")+".";
+   node.classList.remove("changes-pending");
+  }else if(r.connected){
+   node.innerHTML="<strong>A chave Discloud precisa ser atualizada.</strong><br>"+escapeHtml(r.error||"Validação pendente.");
+   node.classList.add("changes-pending");
+  }else{
+   node.innerHTML="<strong>Discloud ainda não conectada.</strong><br>Adicione a API Key para registrar esse provedor no pool.";
+   node.classList.add("changes-pending");
+  }
+ }catch(error){
+  node.innerHTML="<strong>Não consegui consultar a Discloud.</strong><br>"+escapeHtml(error.message||"Falha de conexão.");
+  node.classList.add("changes-pending");
+ }
+}
 function settingsView(){
  const linked=!!state.user?.discordLinked;
  const linkedName=state.user?.discordUsername||"Conta Discord vinculada";
@@ -951,12 +972,27 @@ function settingsView(){
  '<div class="project-note"><strong>'+(linked?"Conta conectada: "+escapeHtml(linkedName):"Nenhuma conta Discord vinculada.")+'</strong><br>'+(linked?"O ID Discord está associado ao perfil atual do Estúdio.":"Apenas o perfil Discord será compartilhado com o Estúdio, usando o escopo identify.")+'</div>'+
  '<div id="settingsDiscordOAuthState" class="project-note changes-pending"><strong>Conferindo configuração OAuth…</strong></div>'+
  '<button class="btn" id="connectDiscordAccount" disabled>'+(linked?"Trocar conta vinculada":"Vincular minha conta Discord ↗")+'</button></section>'+
- '<section class="card"><div class="section-head"><h3>Executor de bots</h3><span class="status">OAuth · sem chave manual</span></div><p class="muted small">Conecte sua conta Bot-Hosting uma vez. O Estúdio usa autorização OAuth e guarda os tokens de acesso criptografados; você não precisa copiar uma chave de API.</p><div id="settingsHostingState" class="project-note"><strong>Consultando autorização…</strong><br>Verificando se esta conta já autorizou o executor.</div><button class="btn" id="settingsHostingConnect">Conectar / reconectar Bot-Hosting</button><p class="muted small" style="margin-top:10px">Depois da autorização, abra um bot e clique em Iniciar. O Estúdio prepara o container Python do CAOS, instala as dependências e verifica a conexão real com o Discord.</p></section>'+
- '<section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">As sessões usam cookies HttpOnly. Os Bot Tokens são criptografados no servidor e nunca são devolvidos ao navegador em texto aberto.</p></section>'+
+ '<section class="card"><div class="section-head"><h3>Executor de bots</h3><span class="status">OAuth · sem chave manual</span></div><p class="muted small">Conecte sua conta Bot-Hosting uma vez. O Estúdio usa autorização OAuth e guarda os tokens de acesso criptografados; você não precisa copiar uma chave de API.</p><div id="settingsHostingState" class="project-note"><strong>Consultando autorização…</strong><br>Verificando se esta conta já autorizou o executor.</div><button class="btn" id="settingsHostingConnect">Conectar / reconectar Bot-Hosting</button><p class="muted small" style="margin-top:10px">O bot central do ADM continua nesta hospedagem. O provedor adicional é configurado separadamente.</p></section>'+
+'<section class="card"><div class="section-head"><h3>Pool de hospedagem · Discloud</h3><span class="status">PROVEDOR RESERVA</span></div><p class="muted small">Adicione sua conta Discloud para preparar a segunda rota do pool. A chave é validada pela API oficial e guardada criptografada no servidor do Estúdio; não cole essa chave no chat.</p><div id="settingsDiscloudState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando a conta Discloud.</div><form id="discloudConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>DISCLOUD API KEY</label><input id="discloudApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua API Key da Discloud" minlength="16" maxlength="512"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="discloudConnectButton" type="submit">Validar e conectar Discloud</button><a class="btn secondary" href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir Dashboard Discloud ↗</a></div></form><p class="muted small" style="margin-top:10px">No Dashboard da Discloud, abra Ferramentas → Chaves de API e gere sua chave. O plano Free oficial informa limite de 1 bot e 100 MB de RAM; o Estúdio respeitará a capacidade real da conta.</p></section>'+
+'<section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">As sessões usam cookies HttpOnly. Os Bot Tokens são criptografados no servidor e nunca são devolvidos ao navegador em texto aberto.</p></section>'+
  '<section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API, o PostgreSQL e a configuração do ambiente.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>';
 }
 function bindView(){
-
+ if(state.view==="settings"){loadSettingsHostingState();loadDiscloudHostingState();}
+ const discloudForm=$("#discloudConnectForm");
+ if(discloudForm)discloudForm.onsubmit=async e=>{
+  e.preventDefault();
+  const input=$("#discloudApiToken"),button=$("#discloudConnectButton"),token=(input?.value||"").trim();
+  if(!token){toast("Cole a API Key da Discloud antes de conectar.");input?.focus();return;}
+  button.disabled=true;button.textContent="Validando API Key…";
+  try{
+   const r=await api("/hosting/discloud/connect",{method:"POST",body:JSON.stringify({apiToken:token})});
+   input.value="";
+   toast(r.message||"Discloud conectada com segurança.");
+   await loadDiscloudHostingState();
+  }catch(error){toast(error.message||"Não consegui conectar a Discloud.");}
+  finally{button.disabled=false;button.textContent="Validar e conectar Discloud"}
+ };
  const verifyForm=$("#verificationBotConfigForm");
  if(verifyForm)verifyForm.onsubmit=async e=>{
   e.preventDefault();const button=$("#verificationSave");if(button){button.disabled=true;button.textContent="Validando e criptografando…"}
