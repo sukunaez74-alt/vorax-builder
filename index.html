@@ -694,7 +694,16 @@ function botStatusLabel(b){
 function botCard(b){
  const online=b.discordOnline===true;
  const processActive=b.state==="running";
- const statusText=online?"ONLINE":(processActive?"PROCESSO ATIVO":(b.hostingDeploymentId?"OFFLINE":"RASCUNHO"));
+ const presence=String(b.discordStatus?.status||"");
+ const statusText=online?"ONLINE":(
+  presence==="token_error"?"TOKEN INVÁLIDO":
+  presence==="intents_error"?"INTENTS PENDENTES":
+  presence==="reconnecting"?"RECONECTANDO":
+  presence==="starting"||b.state==="starting"?"INICIANDO":
+  b.scheduleEnabled&&b.scheduleActiveNow===false?"FORA DO HORÁRIO":
+  processActive?"AGUARDANDO DISCORD":
+  b.hostingDeploymentId?"OFFLINE":"RASCUNHO"
+ );
  const allocation=b.runtimeInfo?.resources||{};
  const safeId=escapeHtml(b.id);
  return '<article class="dashboard-bot-card" data-search-bot="'+escapeHtml((b.name||"")+" "+(b.runtime||""))+'">'+
@@ -1101,7 +1110,7 @@ async function openBot(id){
  '<div class="modal-head"><h3>'+escapeHtml(b.name||"Projeto")+'</h3><button class="close" id="closeModal">×</button></div>'+
  '<p class="muted small">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token do Discord protegido":"Token do Discord pendente")+'</p>'+
  '<div class="grid stats" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:15px 0">'+
- '<div class="card"><div class="stat-label">STATUS DO SERVIDOR</div><div class="stat-value" style="font-size:17px">'+(isRunning?"Online no Discord":(serverRunning?"Processo ativo · aguardando login":(b.scheduleEnabled?"Fora do horário":(b.hostingDeploymentId?"Parado":"Não iniciado"))))+'</div></div>'+
+ '<div class="card"><div class="stat-label">STATUS DO SERVIDOR</div><div class="stat-value" style="font-size:17px">'+(isRunning?"Online no Discord":(b.discordStatus?.status==="token_error"?"Token recusado pelo Discord":b.discordStatus?.status==="intents_error"?"Intents pendentes":(b.scheduleEnabled&&b.scheduleActiveNow===false?"Fora do horário":serverRunning?"Processo ativo · aguardando login":(b.hostingDeploymentId?"Parado":"Não iniciado"))))+'</div></div>'+
  '<div class="card"><div class="stat-label">MÓDULOS ATIVOS</div><div class="stat-value">'+enabled+'</div></div></div>'+
  connectPanel+
  (b.discordStatus?.status==='token_error'?'<div class="project-note changes-pending"><strong>O Discord recusou o token durante a inicialização.</strong><br>Abra a configuração, substitua o token e salve novamente.</div>':b.discordStatus?.status==='intents_error'?'<div class="project-note changes-pending"><strong>Intents privilegiados não habilitados.</strong><br>Ative Server Members Intent e Message Content Intent no Developer Portal.</div>':(serverRunning&&!isRunning?'<div class="project-note"><strong>O processo da hospedagem está ativo, mas o login no Discord ainda não foi confirmado.</strong><br>Consulte o terminal para ver se o token foi aceito ou se faltam intents.</div>':''))+
