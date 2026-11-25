@@ -365,9 +365,83 @@ async function hostRequest(userId, env, path, method = "GET", data = null) {
 const CAOS_MAIN_PY = "";
 const CAOS_REQUIREMENTS = "discord.py[voice]==2.7.1\ndavey==0.1.7\nPyNaCl>=1.6.0,<1.7.0\npython-dotenv>=1.0,<2.0\nyt-dlp[default]>=2026.10.26\ndeno>=2.3.0\nimageio-ffmpeg>=0.8.1\n";
 function runnerTemplate() {
-  return "import os, signal, subprocess, sys, time\nfrom datetime import datetime\nfrom zoneinfo import ZoneInfo\n\nTZ = os.getenv('TZ', 'America/Bahia')\nENABLED = os.getenv('CAOS_SCHEDULE_ENABLED', '0') == '1'\nSTART = os.getenv('CAOS_SCHEDULE_START', '00:00')\nEND = os.getenv('CAOS_SCHEDULE_END', '23:59')\nchild = None\nstop_requested = False\n\ndef in_window():\n    if not ENABLED: return True\n    now = datetime.now(ZoneInfo(TZ)).strftime('%H:%M')\n    if START < END: return START <= now < END\n    return now >= START or now < END\n\ndef stop_child():\n    global child\n    if child and child.poll() is None:\n        print('AGENDAMENTO: encerrando o bot fora da janela configurada.', flush=True)\n        child.terminate()\n        try: child.wait(timeout=20)\n        except subprocess.TimeoutExpired: child.kill(); child.wait(timeout=5)\n    child = None\n\ndef shutdown(_sig, _frame):\n    global stop_requested\n    stop_requested = True\n\nsignal.signal(signal.SIGTERM, shutdown)\nsignal.signal(signal.SIGINT, shutdown)\ntry:\n    os.remove('caos-status.json')\nexcept FileNotFoundError:\n    pass\nprint('BLACK ZONE supervisor iniciado; fuso=' + TZ + '; agenda=' + (START + '-' + END if ENABLED else 'sempre online'), flush=True)\ntry:\n    while not stop_requested:\n        desired = in_window()\n        if desired and (child is None or child.poll() is not None):\n            if child is not None: print('CAOS encerrou com código ' + str(child.returncode) + '; tentando novamente.', flush=True)\n            print('AGENDAMENTO: iniciando o CAOS.', flush=True)\n            child = subprocess.Popen([sys.executable, '-u', 'main.py'])\n        elif not desired and child is not None:\n            stop_child()\n        time.sleep(10)\nfinally:\n    stop_child()\n    print('BLACK ZONE supervisor encerrado.', flush=True)\n";
-}
+  return String.raw\`import json, os, signal, subprocess, sys, time
+from datetime import datetime, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
+TZ = os.getenv("TZ", "America/Bahia")
+ENABLED = os.getenv("CAOS_SCHEDULE_ENABLED", "0") == "1"
+START = os.getenv("CAOS_SCHEDULE_START", "00:00")
+END = os.getenv("CAOS_SCHEDULE_END", "23:59")
+STATUS = Path("caos-status.json")
+child = None
+stop_requested = False
+
+def write_status(status, **details):
+    payload = {"status": status, "updatedAt": datetime.now(timezone.utc).isoformat(), **details}
+    temp = STATUS.with_suffix(".json.tmp")
+    try:
+        temp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        temp.replace(STATUS)
+    except OSError as exc:
+        print("STATUS: não foi possível gravar estado: " + type(exc).__name__, flush=True)
+
+def in_window():
+    if not ENABLED:
+        return True
+    now = datetime.now(ZoneInfo(TZ)).strftime("%H:%M")
+    if START < END:
+        return START <= now < END
+    return now >= START or now < END
+
+def stop_child(reason="stopped"):
+    global child
+    current = child
+    child = None
+    if current and current.poll() is None:
+        print("SUPERVISOR: encerrando CAOS (" + reason + ").", flush=True)
+        current.terminate()
+        try:
+            current.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            current.kill()
+            current.wait(timeout=5)
+    write_status("offline", reason=reason)
+
+def shutdown(_sig, _frame):
+    global stop_requested
+    stop_requested = True
+
+signal.signal(signal.SIGTERM, shutdown)
+signal.signal(signal.SIGINT, shutdown)
+write_status("starting", supervisor=True)
+print("BLACK ZONE supervisor iniciado; fuso=" + TZ + "; agenda=" + (START + "-" + END if ENABLED else "sempre online"), flush=True)
+
+try:
+    while not stop_requested:
+        desired = in_window()
+        if not desired:
+            if child is not None:
+                stop_child("outside_schedule")
+            else:
+                write_status("offline", reason="outside_schedule")
+        else:
+            if child is not None and child.poll() is not None:
+                exit_code = child.returncode
+                child = None
+                write_status("restarting", reason="process_exited", exitCode=exit_code)
+                print("SUPERVISOR: CAOS encerrou com código " + str(exit_code) + "; tentando novamente.", flush=True)
+            if child is None:
+                write_status("starting", supervisor=True)
+                print("SUPERVISOR: iniciando main.py.", flush=True)
+                child = subprocess.Popen([sys.executable, "-u", "main.py"])
+        time.sleep(5)
+finally:
+    stop_child("supervisor_shutdown")
+    print("BLACK ZONE supervisor encerrado.", flush=True)
+\`;
+}
 
 
 function isInsideSchedule(start, end, timezone) {
@@ -1025,6 +1099,7 @@ export async function onRequest(context) {
         if (!["start","stop","restart"].includes(signal)) return reply({ error: "Ação de energia inválida." }, 400);
         const connected = await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first();
         if (!connected) return reply({ code: "hosting_not_connected", error: "Conecte sua conta Bot-Hosting para habilitar os controles reais de iniciar e parar." }, 409);
+
         let deploymentId = bot.hosting_deployment_id;
         let botId = bot.discord_bot_id;
         try {
@@ -1033,38 +1108,101 @@ export async function onRequest(context) {
             deploymentId = provisioned.deploymentId;
             botId = provisioned.botId;
           }
-          if (!deploymentId) return reply({ error: "Este bot ainda não tem um servidor de execução. Pressione Iniciar para preparar a hospedagem." }, 409);
-          const result = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", {
-            action: signal, waitSeconds: signal === "start" || signal === "restart" ? 45 : 0
-          });
-          const actualState = String(result.state || "").toLowerCase();
+          if (!deploymentId) return reply({ error: "Este bot ainda não tem um servidor de execução." }, 409);
+
+          let result = null;
+          if (signal === "stop") {
+            result = await hostRequest(
+              user.id, env,
+              "/deployments/" + encodeURIComponent(deploymentId) + "/power",
+              "POST",
+              { action: "stop", waitSeconds: 20 }
+            );
+          } else {
+            // Files, environment variables and startup settings were just written
+            // by ensureBotDeployment. Apply them atomically and let the provider
+            // restart/settle the process before reading its diagnosis.
+            result = await hostRequest(
+              user.id, env,
+              "/deployments/" + encodeURIComponent(deploymentId) + "/apply",
+              "POST",
+              { restart: true, waitSeconds: 45 }
+            );
+            let appliedState = String(result.state || "").toLowerCase();
+            if (["offline","stopped","unknown",""].includes(appliedState)) {
+              const startResult = await hostRequest(
+                user.id, env,
+                "/deployments/" + encodeURIComponent(deploymentId) + "/power",
+                "POST",
+                { action: "start", waitSeconds: 45 }
+              );
+              result = {
+                ...result,
+                ...startResult,
+                logs: [
+                  ...(Array.isArray(result.logs) ? result.logs : []),
+                  ...(Array.isArray(startResult.logs) ? startResult.logs : [])
+                ]
+              };
+            }
+          }
+
+          let actualState = String(result.state || (signal === "stop" ? "offline" : "starting")).toLowerCase();
           await env.DB.prepare("UPDATE bots SET state=?,hosting_deployment_id=?,updated_at=? WHERE id=? AND user_id=?")
-            .bind(actualState || (signal === "stop" ? "stopped" : "starting"), deploymentId, Date.now(), id, user.id).run();
-          const lines = Array.isArray(result.logs) ? result.logs : [];
+            .bind(actualState, deploymentId, Date.now(), id, user.id).run();
+
           let diagnostic = null;
           let discordStatus = null;
-          if (signal !== "stop" && actualState === "running") {
+          if (signal !== "stop" && ["running","starting","installing"].includes(actualState)) {
             try {
-              diagnostic = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=15");
-              discordStatus = await readDiscordRuntimeStatus(user.id, env, deploymentId);
-            } catch {}
+              diagnostic = await hostRequest(
+                user.id, env,
+                "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=30"
+              );
+              actualState = String(diagnostic.state || actualState).toLowerCase();
+            } catch (error) {
+              diagnostic = { hint: error.message };
+            }
+            discordStatus = await readDiscordRuntimeStatus(user.id, env, deploymentId);
           }
-          const finalState = String(diagnostic?.state || actualState || "").toLowerCase();
+
           const scheduleAllowed = !bot.schedule_enabled ||
             isInsideSchedule(bot.schedule_start || "00:00", bot.schedule_end || "23:59", bot.schedule_timezone || "America/Bahia");
-          const discordOnline = signal !== "stop" && finalState === "running" && scheduleAllowed && recentDiscordStatus(discordStatus);
-          const logs = [...lines, ...(Array.isArray(diagnostic?.logs) ? diagnostic.logs : [])].slice(-60);
-          const commandsSynced = logs.some(line => String(line).includes("Comandos globais sincronizados") || String(line).includes("Comandos sincronizados no servidor de teste"));
-          if (signal !== "stop" && !["running","starting","installing"].includes(finalState)) {
+          const discordOnline = signal !== "stop" && actualState === "running" && scheduleAllowed && recentDiscordStatus(discordStatus);
+          const logs = [
+            ...(Array.isArray(result.logs) ? result.logs : []),
+            ...(Array.isArray(diagnostic?.logs) ? diagnostic.logs : [])
+          ].slice(-80);
+
+          if (signal !== "stop" && !["running","starting","installing"].includes(actualState)) {
+            await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
+              .bind(actualState || "offline", Date.now(), id, user.id).run();
             return reply({
-              ok: false, state: finalState || "offline", deploymentId,
-              discordOnline: false, logs,
-              hint: result.hint || diagnostic?.hint || "O executor não confirmou que o processo iniciou."
+              ok: false,
+              action: signal,
+              state: actualState || "offline",
+              deploymentId,
+              discordOnline: false,
+              discordStatus: discordStatus ? { status: discordStatus.status, updatedAt: discordStatus.updatedAt || null, error: discordStatus.error || null } : null,
+              logs,
+              hint: diagnostic?.hint || result.hint || "O provedor não confirmou que o processo iniciou. Consulte os logs."
             }, 502);
           }
+
+          await env.DB.prepare("UPDATE bots SET state=?,hosting_deployment_id=?,updated_at=? WHERE id=? AND user_id=?")
+            .bind(signal === "stop" ? "stopped" : actualState, deploymentId, Date.now(), id, user.id).run();
+
+          const commandsSynced = logs.some(line =>
+            String(line).includes("Comandos globais sincronizados") ||
+            String(line).includes("Comandos sincronizados no servidor de teste")
+          );
           return reply({
-            ok: true, action: signal, state: signal === "stop" ? (finalState || "stopped") : finalState,
-            deploymentId, discordBotId: botId || null, commandsSynced,
+            ok: true,
+            action: signal,
+            state: signal === "stop" ? "stopped" : actualState,
+            deploymentId,
+            discordBotId: botId || null,
+            commandsSynced,
             scheduled: !!bot.schedule_enabled,
             botOnlineNow: discordOnline,
             discordOnline,
@@ -1075,9 +1213,11 @@ export async function onRequest(context) {
               error: discordStatus.error || null
             } : null,
             logs,
-            hint: discordOnline
-              ? "O CAOS confirmou a conexão com o Discord."
-              : (discordStatus?.error || diagnostic?.hint || result.hint || "O processo foi iniciado, mas ainda não há confirmação de sessão ativa no Discord. Confira o terminal e os intents do bot.")
+            hint: signal === "stop"
+              ? "O processo foi parado na hospedagem."
+              : (discordOnline
+                ? "O CAOS confirmou uma sessão ativa com o Discord."
+                : (discordStatus?.error || diagnostic?.hint || result.hint || "O container foi aplicado, mas o login no Discord ainda não foi confirmado. Confira logs e intents."))
           });
         } catch (error) {
           return reply({ ok: false, error: error.message || "Falha ao controlar o bot no Bot-Hosting." }, 502);
