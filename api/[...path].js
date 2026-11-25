@@ -1160,17 +1160,27 @@ async function prepareDiscloudProject(archiveBytes, bot, requestedRuntime, env) 
     mainFile = "blackzone_launcher.cjs";
     const launcher = String.raw`const fs=require("node:fs");
 const path=require("node:path");
+const {spawn}=require("node:child_process");
 const {pathToFileURL}=require("node:url");
-for(const line of (fs.existsSync(".env")?fs.readFileSync(".env","utf8"):"").split(/\\r?\\n/)){
- const m=line.match(/^\\s*([A-Za-z_][A-Za-z0-9_.-]*)\\s*=\\s*(.*)\\s*$/);
+for(const line of (fs.existsSync(".env")?fs.readFileSync(".env","utf8"):"").split(/\r?\n/)){
+ const m=line.match(/^\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*=\s*(.*)\s*$/);
  if(!m)continue;
  let value=m[2].trim();
  if((value.startsWith('"')&&value.endsWith('"'))||(value.startsWith("'")&&value.endsWith("'")))value=value.slice(1,-1);
  process.env[m[1]]=value;
 }
 (async()=>{
- const target=path.resolve(process.cwd(), ${JSON.stringify(entryFile)});
- await import(pathToFileURL(target).href);
+ if(${JSON.stringify(!!packageJson?.scripts?.start)}){
+  const child=spawn("npm",["run","start"],{stdio:"inherit",env:process.env});
+  const forward=(signal)=>{if(child.exitCode===null)child.kill(signal)};
+  process.on("SIGTERM",()=>forward("SIGTERM"));
+  process.on("SIGINT",()=>forward("SIGINT"));
+  child.on("exit",(code,signal)=>{process.exitCode=code??(signal?1:0)});
+  child.on("error",error=>{console.error("BLACK ZONE launcher:",error);process.exitCode=1});
+ }else{
+  const target=path.resolve(process.cwd(), ${JSON.stringify(entryFile)});
+  await import(pathToFileURL(target).href);
+ }
 })().catch(error=>{console.error("BLACK ZONE launcher:",error);process.exitCode=1;});`;
     output.file(mainFile, launcher);
   } else {
