@@ -1749,7 +1749,7 @@ async function uploadBotFile(){
   toast(error.message||"Não consegui importar este ZIP.");
   if(status)status.textContent=error.message||"Falha ao importar o pacote.";
  }finally{
-  if(button){button.disabled=false;button.textContent="⇧ Enviar ZIP"}
+  if(button){button.disabled=false;button.textContent="⇧ Escolha um ZIP"}
   input.value="";
  }
 }
