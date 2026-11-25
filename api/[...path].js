@@ -3992,182 +3992,25 @@ export async function onRequest(context) {
             });
           }
 
-          // A Discloud pode devolver 504 mesmo depois de receber/criar a aplicação.
-          // Marcamos a tentativa antes do POST e recuperamos apenas um app que combine
-          // com o nome e o launcher gerados pelo Estúdio. Nunca substituímos apps de fora.
-          let discloudCapacityMessage = "";
-          if (discloudToken) {
-            let accountInfo = null;
-            try {
-              const account = await discloudRequest(discloudToken, "/user");
-              accountInfo = account?.user || null;
-            } catch (error) {
-              discloudCapacityMessage = "Discloud não confirmou a capacidade desta conta agora: " + String(error?.message || "falha de consulta");
-            }
-            if (accountInfo) {
-              const planName = String(accountInfo.plan || "");
-              const appIds = Array.isArray(accountInfo.apps) ? accountInfo.apps.map(value => String(value || "")).filter(Boolean) : null;
-              const totalRamMb = Number(accountInfo.totalRamMb || 0);
-              const ramUsedMb = Number(accountInfo.ramUsedMb || 0);
-              if (!/\bfree\b/i.test(planName)) {
-                discloudCapacityMessage = "Discloud ignorada: a conta conectada não está no plano Free. Nenhum plano pago será usado.";
-              } else if (!appIds) {
-                discloudCapacityMessage = "Discloud não informou a quantidade de aplicações da conta; a vaga Free não pôde ser confirmada.";
-              } else {
-                const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
-                const expectedName = discloudExpectedProjectName(bot);
-                const expectedMainFile = discloudLauncherForRuntime(prepared.runtime);
-                let savedProject = bot.custom_project;
-                if (typeof savedProject === "string") {
-                  try { savedProject = JSON.parse(savedProject || "null"); } catch { savedProject = null; }
-                }
-                const pending = savedProject?.discloudUploadPending || null;
-                const baselineIds = Array.isArray(pending?.baselineAppIds) ? pending.baselineAppIds.map(String) : [];
-                const candidateIds = pending ? appIds.filter(appId => !baselineIds.includes(appId)) : appIds;
-
-                // Recovery also covers the previous version, which did not persist
-                // pending metadata before its first POST /upload.
-                if (candidateIds.length) {
-                  const recovered = await findDiscloudProjectApp(discloudToken, candidateIds, expectedName, expectedMainFile);
-                  if (recovered) {
-                    const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='discloud' AND provider_app_id=? AND id<>? LIMIT 1")
-                      .bind(user.id, String(recovered.id), id).first();
-                    if (linked) {
-                      discloudCapacityMessage = "A aplicação Discloud que combina com este projeto já está vinculada a outro projeto do Estúdio. Nenhum aplicativo foi alterado.";
-                    } else {
-                      await env.DB.prepare(
-                        "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
-                      ).bind(String(recovered.id), prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
-                      let startMessage = "Aplicação recuperada; a inicialização foi solicitada.";
-                      try {
-                        await discloudRequest(discloudToken, "/app/" + encodeURIComponent(String(recovered.id)) + "/start", "PUT");
-                      } catch (startError) {
-                        if (!/already|online|running|process|in process|409/i.test(String(startError?.message || ""))) {
-                          startMessage = "Aplicação recuperada e vinculada, mas a inicialização não foi confirmada. Use Iniciar novamente. " + String(startError?.message || "");
-                        }
-                      }
-                      return reply({
-                        ok: true, provider: "discloud", providerAppId: String(recovered.id),
-                        runtime: prepared.runtime, customProject: prepared.customProject,
-                        state: "starting", app: recovered,
-                        message: "O Estúdio encontrou a aplicação que já havia sido criada e a vinculou ao projeto, sem enviar outro ZIP. " + startMessage
-                      });
-                    }
-                  }
-                }
-
-                if (appIds.length >= 1) {
-                  discloudCapacityMessage = pending && candidateIds.length
-                    ? "Discloud recebeu uma aplicação nova, mas ainda não confirmou os detalhes para vinculá-la com segurança. O Estúdio não enviará outro ZIP nem alterará essa aplicação; tente recuperar novamente em alguns instantes."
-                    : "Discloud: a vaga Free desta conta já está ocupada (" + appIds.length + "/1 bot). Nenhuma aplicação existente foi alterada.";
-                } else if (totalRamMb - ramUsedMb < 100) {
-                  discloudCapacityMessage = "Discloud: a conta Free não informou 100 MB disponíveis para outro bot.";
-                } else if (pending && (Date.now() - Number(pending.startedAt || 0)) < 300000) {
-                  return reply({
-                    ok: false, code: "discloud_upload_pending", pending: true,
-                    error: "A Discloud ainda está processando a tentativa anterior. Para evitar criar um bot duplicado, o Estúdio não reenviará o ZIP agora. Aguarde alguns minutos e importe o mesmo ZIP novamente; o sistema primeiro vai procurar a aplicação que já pode ter sido criada."
-                  }, 202);
-                } else {
-                  const startedAt = Date.now();
-                  const pendingProject = {
-                    ...prepared.customProject,
-                    discloudUploadPending: {
-                      startedAt,
-                      baselineAppIds: appIds,
-                      expectedName,
-                      expectedMainFile,
-                      archiveName
-                    }
-                  };
-                  await env.DB.prepare(
-                    "UPDATE bots SET runtime=?,project_type='custom',custom_project=?::jsonb,state='installing',updated_at=? WHERE id=? AND user_id=?"
-                  ).bind(prepared.runtime, JSON.stringify(pendingProject), startedAt, id, user.id).run();
-
-                  const form = new FormData();
-                  form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
-                  let uploaded = null;
-                  try {
-                    uploaded = await discloudRequest(discloudToken, "/upload", "POST", form);
-                  } catch (error) {
-                    const message = String(error?.message || "");
-                    const isTimeout = /HTTP 504\b|HTTP 524\b|timed? ?out|timeout|origin web server did not respond/i.test(message);
-                    if (isTimeout) {
-                      let afterIds = [];
-                      try {
-                        const after = await discloudRequest(discloudToken, "/user");
-                        afterIds = Array.isArray(after?.user?.apps) ? after.user.apps.map(value => String(value || "")).filter(Boolean) : [];
-                      } catch {}
-                      const newIds = afterIds.filter(appId => !appIds.includes(appId));
-                      const recovered = newIds.length
-                        ? await findDiscloudProjectApp(discloudToken, newIds, expectedName, expectedMainFile)
-                        : null;
-                      if (recovered) {
-                        const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='discloud' AND provider_app_id=? AND id<>? LIMIT 1")
-                          .bind(user.id, String(recovered.id), id).first();
-                        if (linked) {
-                          return reply({ ok: false, code: "discloud_upload_pending", pending: true, error: "A aplicação criada pela Discloud já aparece vinculada a outro projeto do Estúdio. Nenhum outro upload será iniciado." }, 202);
-                        }
-                        await env.DB.prepare(
-                          "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
-                        ).bind(String(recovered.id), prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
-                        let startMessage = "A aplicação foi recuperada e a inicialização foi solicitada.";
-                        try {
-                          await discloudRequest(discloudToken, "/app/" + encodeURIComponent(String(recovered.id)) + "/start", "PUT");
-                        } catch (startError) {
-                          if (!/already|online|running|process|in process|409/i.test(String(startError?.message || ""))) {
-                            startMessage = "A aplicação foi recuperada, mas a inicialização não foi confirmada. Use Iniciar novamente. " + String(startError?.message || "");
-                          }
-                        }
-                        return reply({
-                          ok: true, provider: "discloud", providerAppId: String(recovered.id),
-                          runtime: prepared.runtime, customProject: prepared.customProject,
-                          state: "starting", app: recovered,
-                          message: "A Discloud respondeu com demora, mas o Estúdio localizou e vinculou a aplicação criada. " + startMessage
-                        });
-                      }
-                      return reply({
-                        ok: false, code: "discloud_upload_pending", pending: true,
-                        error: "A Discloud demorou para responder (504). O Estúdio salvou o estado desta tentativa e não vai enviar outro ZIP por enquanto, para evitar duplicidade. Aguarde alguns minutos e importe o mesmo ZIP novamente; ele vai verificar se a aplicação apareceu."
-                      }, 202);
-                    }
-                    if (/limit|quota|maximum|plan|ram|app.*count|application.*limit|bot.*limit/i.test(message)) {
-                      await env.DB.prepare("UPDATE bots SET custom_project=NULL,state='draft',updated_at=? WHERE id=? AND user_id=?")
-                        .bind(Date.now(), id, user.id).run();
-                      discloudCapacityMessage = "Discloud sem vaga Free para este ZIP: " + message;
-                    } else {
-                      throw error;
-                    }
-                  }
-                  if (uploaded) {
-                    const projectId = String(uploaded.app?.id || "");
-                    if (!projectId) throw new Error("A Discloud recebeu o ZIP, mas não retornou o ID da nova aplicação. O estado da tentativa foi preservado para recuperação.");
-                    await env.DB.prepare(
-                      "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
-                    ).bind(projectId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
-                    let startMessage = "O upload criou a aplicação e a inicialização foi solicitada.";
-                    try {
-                      await discloudRequest(discloudToken, "/app/" + encodeURIComponent(projectId) + "/start", "PUT");
-                    } catch (startError) {
-                      if (!/already|online|running|process|in process|409/i.test(String(startError?.message || ""))) {
-                        startMessage = "A aplicação foi criada e vinculada; o comando de início não foi confirmado. Use Iniciar novamente para repetir. " + String(startError?.message || "");
-                      }
-                    }
-                    return reply({
-                      ok: true, provider: "discloud", providerAppId: projectId,
-                      runtime: prepared.runtime, customProject: prepared.customProject,
-                      state: "starting", app: uploaded.app || null, logs: uploaded.logs || null,
-                      message: "ZIP enviado para a vaga gratuita da Discloud. " + startMessage
-                    });
-                  }
-                }
-              }
-            }
+          if (!cubeToken) {
+            return reply({
+              code: "cube_connection_required",
+              error: "Para novos bots, o Estúdio agora usa somente a Cube Hosting no plano Free. Abra a área Arquivos, conecte sua API Key Cube uma vez e reimporte o ZIP. Bots que já estão na Discloud continuam funcionando por lá."
+            }, 409);
           }
           let cubeCapacityMessage = "";
-          if (cubeToken) {
+          {
             try {
               const usage = await cubeCloudRequest(cubeToken, "/account/usage");
               const plan = usage.plan || {};
+              const planId = String(plan.id || "").trim().toLowerCase();
+              const planName = String(plan.name || "").trim().toLowerCase();
+              if (planId !== "free" && planName !== "free") {
+                return reply({
+                  code: "free_plan_required",
+                  error: "O Estúdio só cria novos bots na Cube Hosting usando o plano Free. Nenhum projeto foi criado em plano pago."
+                }, 409);
+              }
               const projects = usage.projects || {};
               const maxBots = Number(plan.maxBots || 0);
               const minMemory = Number(plan.minMemoryMb?.bot || (String(plan.id).toLowerCase() === "free" ? 100 : 256));
@@ -4213,12 +4056,12 @@ export async function onRequest(context) {
 
           const squareCapacityMessage = "";
           // Square Cloud exige assinatura e fica fora da seleção automática de novos bots.
-          const providerIssues = [discloudCapacityMessage, cubeCapacityMessage, squareCapacityMessage].filter(Boolean);
+          const providerIssues = [cubeCapacityMessage].filter(Boolean);
           return reply({
             code: providerIssues.length ? "provider_capacity_full" : "provider_not_connected",
             error: providerIssues.length
               ? providerIssues.join(" ") + " Nenhum bot existente foi alterado."
-              : "Não há uma hospedagem gratuita autorizada e com vaga disponível para receber este ZIP agora. O Estúdio não vai escolher serviços pagos nem alterar outros bots. Seu projeto continua salvo no painel; tente novamente quando uma vaga gratuita compatível estiver disponível."
+              : "A Cube Hosting não confirmou uma vaga gratuita para receber este ZIP. O Estúdio não tentará a Discloud nem qualquer plano pago. Seu projeto e os outros bots continuam preservados."
           }, providerIssues.length ? 402 : 409);
         } catch (error) {
           const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
