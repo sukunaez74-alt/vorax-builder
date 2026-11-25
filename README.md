@@ -31,7 +31,9 @@ Crie uma API key em Account > Developer no Bot-Hosting. Para os recursos iniciai
 - `deployments:read`
 - `deployments:write`
 - `deployments:power`
-- `files:write`
+- `deployments:shell` (terminal)
+- `files:read` (listagem)
+- `files:write` (envio de ZIP)
 - `env:write`
 
 Conecte essa chave na tela Configurações. O backend valida e guarda a chave criptografada por usuário; ela não fica no HTML nem no armazenamento do navegador.
@@ -44,7 +46,9 @@ A integração usa a API REST oficial do Bot-Hosting (`https://bot-hosting.net/a
 - `deployments:read`
 - `deployments:write`
 - `deployments:power`
-- `files:write`
+- `deployments:shell` (terminal)
+- `files:read` (listagem)
+- `files:write` (envio de ZIP)
 - `env:write`
 
 A criação de recursos que gerem cobrança deve ser autorizada separadamente no Bot-Hosting; não conceda `credits:spend` a menos que queira permitir gastos pela chave. As operações de upload usam a URL assinada e o nome de campo multipart retornado pela API; o fallback documentado é `files`. A aplicação usa `files.decompress` após o envio do ZIP. Consulte a [referência oficial da API](https://bot-hosting.net/api), que está em beta público e pode mudar.
