@@ -1574,10 +1574,15 @@ async function analyzeImportedBot(id,packageName,status){
   Number(meta.imageCount||0)+" imagens"
  ];
  if(meta.dependencyFile)summary.push("Dependências: "+meta.dependencyFile);
- if(status)status.textContent=summary.join(" · ")+". As dependências serão instaladas na primeira inicialização.";
+ const finalSummary=summary.join(" · ")+". As dependências serão instaladas na primeira inicialização.";
+ if(status)status.textContent=finalSummary;
  await loadBots();
  state.activeBot=id;
- if(state.view==="files")render();
+ if(state.view==="files"){
+  render();
+  const finalStatus=$("#fileStatus");
+  if(finalStatus)finalStatus.textContent=finalSummary;
+ }
  toast("Pacote analisado e salvo. Revise o token e depois inicie o bot.");
 }
 async function uploadBotFile(){
