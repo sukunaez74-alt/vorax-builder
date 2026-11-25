@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 
-const backend = "functions/api/[[path]].js";
+const backends = ["api/[...path].js", "functions/api/[[path]].js"];
 const html = "index.html";
 
 function check(file) {
@@ -15,7 +15,7 @@ function check(file) {
   console.log("OK: sintaxe de " + file);
 }
 
-check(backend);
+for (const backend of backends) check(backend);
 const source = readFileSync(html, "utf8");
 const scripts = [...source.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
 if (!scripts.length) throw new Error("Nenhum script encontrado em index.html");
