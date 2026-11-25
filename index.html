@@ -835,6 +835,7 @@ async function loadSettings(){
    toast(messages[result]||"Retorno da hospedagem recebido.");
    window.history.replaceState({},document.title,window.location.pathname);
  }
+ if(state.view==="overview"&&document.querySelector(".cosmic-dashboard"))render();
 }
 async function openBot(id){
  let b=state.bots.find(x=>x.id===id);if(!b)return;
