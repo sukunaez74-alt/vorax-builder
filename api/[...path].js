@@ -227,77 +227,71 @@ export async function onRequest(context) {
       return reply({ ok: true }, 200, { "set-cookie": clearCookie("bz_session") });
     }
     const auth = await requireUser(request, env); if (auth.error) return auth.error; const user = auth.user;
-    if (path === "/settings/hosting" && request.method === "GET") {
-      const row = await env.DB.prepare("SELECT updated_at FROM hosting_keys WHERE user_id=?").bind(user.id).first();
-      return reply({ connected: !!row, updatedAt: row ? row.updated_at : null });
-    }
-    if (path === "/settings/hosting" && request.method === "POST") {
-      const b = await body(request); const key = String(b.apiKey || "").trim();
-      if (!/^bhk_[A-Za-z0-9_-]{1,200}$/.test(key)) return reply({ error: "A chave deve começar com bhk_ e conter apenas letras, números, _ ou -." }, 400);
-      const check = await fetch(HOST + "/deployments?brief=true", { headers: { authorization: "Bearer " + key } });
-      const data = await check.json(); if (!check.ok) return reply({ error: data.error || "A chave foi recusada ou não tem o escopo deployments:read." }, 400);
-      const encrypted = await encryptSecret(key, env);
-      await env.DB.prepare("INSERT INTO hosting_keys (user_id,encrypted_key,updated_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET encrypted_key=excluded.encrypted_key,updated_at=excluded.updated_at")
-        .bind(user.id, encrypted, Date.now()).run();
-      return reply({ ok: true, connected: true });
-    }
     if (path === "/bots" && request.method === "GET") {
-      const result = await hostRequest(user.id, env, "/deployments?brief=true");
-      return reply({ deployments: Array.isArray(result.deployments) ? result.deployments : [] });
+      const rows = await env.DB.prepare(
+        "SELECT id,name,runtime,state,modules,created_at,updated_at FROM bots WHERE user_id=? ORDER BY created_at DESC"
+      ).bind(user.id).all();
+      return reply({ deployments: rows.map(row => ({
+        ...row,
+        modules: typeof row.modules === "string" ? JSON.parse(row.modules) : row.modules,
+        executionAvailable: false
+      })) });
     }
     if (path === "/bots" && request.method === "POST") {
-      const b = await body(request); const name = String(b.name || "CAOS").trim().slice(0, 48);
+      const b = await body(request);
+      const name = String(b.name || "Novo bot").trim().slice(0, 48);
       const runtime = b.runtime === "nodejs" ? "nodejs" : "python";
-      const result = await hostRequest(user.id, env, "/deployments", "POST", { name, source: "blank", runtime, runtimeVersion: runtime === "python" ? "3.11" : "22" });
-      return reply(result, 201);
+      if (name.length < 2) return reply({ error: "Digite um nome com pelo menos 2 caracteres." }, 400);
+      const id = randomToken(12);
+      const now = Date.now();
+      await env.DB.prepare(
+        "INSERT INTO bots (id,user_id,name,runtime,state,modules,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)"
+      ).bind(id, user.id, name, runtime, "draft", JSON.stringify({}), now, now).run();
+      return reply({
+        id, name, runtime, state: "draft", modules: {},
+        executionAvailable: false,
+        message: "Projeto criado e salvo no Estúdio. A execução contínua será ativada quando o executor de bots estiver disponível."
+      }, 201);
     }
-    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|config|resources|files|shell))?$/);
+    const match = path.match(/^\\/bots\\/([A-Za-z0-9_-]{1,80})(?:\\/(logs|power|upload-url|extract|config|resources|files|shell))?$/);
     if (match) {
-      const id = match[1]; const action = match[2] || "";
-      if (action === "resources" && request.method === "GET") {
-        const result = await hostRequest(user.id, env, "/deployments/" + id + "/resources");
-        return reply(result);
+      const id = match[1];
+      const action = match[2] || "";
+      const ownedBot = await env.DB.prepare(
+        "SELECT id FROM bots WHERE id=? AND user_id=?"
+      ).bind(id, user.id).first();
+      if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
+
+      if (!action && request.method === "GET") {
+        const bot = await env.DB.prepare(
+          "SELECT id,name,runtime,state,modules,created_at,updated_at FROM bots WHERE id=? AND user_id=?"
+        ).bind(id, user.id).first();
+        if (bot && typeof bot.modules === "string") bot.modules = JSON.parse(bot.modules);
+        return reply({ ...bot, executionAvailable: false });
       }
-      if (action === "files" && request.method === "GET") {
-        const requestedPath = url.searchParams.get("path") || "/";
-        if (!requestedPath.startsWith("/") || requestedPath.split("/").includes("..") || requestedPath.includes(String.fromCharCode(0))) return reply({ error: "Caminho inválido." }, 400);
-        const result = await hostRequest(user.id, env, "/deployments/" + id + "/files?path=" + encodeURIComponent(requestedPath));
-        return reply(result);
-      }
-      if (action === "shell" && request.method === "POST") {
-        const b = await body(request); const command = String(b.command || "").trim();
-        if (!command || command.length > 1200) return reply({ error: "Digite um comando de até 1.200 caracteres." }, 400);
-        const result = await hostRequest(user.id, env, "/deployments/" + id + "/shell", "POST", { command, timeout: 90, maxChars: 8000 });
-        return reply(result);
-      }
-      if (action === "logs" && request.method === "GET") {
-        const result = await hostRequest(user.id, env, "/deployments/" + id + "/diagnose?waitSeconds=0");
-        return reply({ state: result.state, resources: result.resources, lines: result.logs || [], hint: result.hint || "" });
-      }
-      if (action === "power" && request.method === "POST") {
-        const b = await body(request); const allowed = ["start", "stop", "restart"];
-        if (!allowed.includes(b.action)) return reply({ error: "Ação inválida." }, 400);
-        const result = await hostRequest(user.id, env, "/deployments/" + id + "/power", "POST", { action: b.action, waitSeconds: b.action === "stop" ? 0 : 30 });
-        return reply(result);
-      }
-      if (action === "upload-url" && request.method === "POST") {
-        const result = await hostRequest(user.id, env, "/deployments/" + id + "/files/upload-url", "POST", { path: "/" });
-        return reply(result);
-      }
-      if (action === "extract" && request.method === "POST") {
-        const b = await body(request); const file = String(b.filename || "");
-        if (!/^[A-Za-z0-9_. -]{1,100}\.zip$/i.test(file)) return reply({ error: "Nome de arquivo ZIP inválido." }, 400);
-        const result = await hostRequest(user.id, env, "/deployments/" + id + "/files/decompress", "POST", { file, removeArchive: true });
-        return reply(result);
-      }
+
       if (action === "config" && request.method === "POST") {
-        const b = await body(request); const token = String(b.discordToken || "").trim();
-        if (token.length < 40 || token.length > 200) return reply({ error: "Token de bot Discord inválido." }, 400);
+        const b = await body(request);
         const allowed = ["music","tickets","attendance","team","goals","warnings","recruitment","logs"];
-        const modules = {}; for (const key of allowed) modules[key] = !!(b.modules && b.modules[key]);
-        await hostRequest(user.id, env, "/deployments/" + id + "/env", "POST", { key: "DISCORD_TOKEN", value: token, secret: true });
-        await hostRequest(user.id, env, "/deployments/" + id + "/env", "POST", { key: "CAOS_MODULES", value: JSON.stringify(modules), secret: false });
-        return reply({ ok: true, restartRequired: true, note: "Segredos e seleções foram salvos. Reinicie o bot para aplicar as variáveis de ambiente." });
+        const modules = {};
+        for (const key of allowed) modules[key] = !!(b.modules && b.modules[key]);
+        await env.DB.prepare(
+          "UPDATE bots SET modules=?::jsonb, updated_at=? WHERE id=? AND user_id=?"
+        ).bind(JSON.stringify(modules), Date.now(), id, user.id).run();
+        return reply({
+          ok: true,
+          modules,
+          state: "draft",
+          executionAvailable: false,
+          note: "Preferências salvas. A execução do bot será habilitada quando o executor estiver conectado."
+        });
+      }
+
+      if (["power","logs","resources","files","shell","upload-url","extract"].includes(action)) {
+        return reply({
+          code: "runtime_not_connected",
+          error: "Este projeto está salvo no Estúdio, mas ainda não há um executor de bots conectado. Nenhuma ação foi simulada."
+        }, 409);
       }
     }
     return reply({ error: "Rota não encontrada." }, 404);
@@ -328,6 +322,9 @@ function makeDatabase(connectionString) {
             async run() {
               const rows = await sql.query(query, params);
               return { success: true, results: rows };
+            },
+            async all() {
+              return sql.query(query, params);
             }
           };
         }
@@ -359,7 +356,18 @@ async function ensureSchema(db) {
           user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
           encrypted_key TEXT NOT NULL, updated_at BIGINT NOT NULL
         )`,
-        "CREATE TABLE IF NOT EXISTS app_state (id TEXT PRIMARY KEY, owner_user_id TEXT)"
+        "CREATE TABLE IF NOT EXISTS app_state (id TEXT PRIMARY KEY, owner_user_id TEXT)",
+        `CREATE TABLE IF NOT EXISTS bots (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          runtime TEXT NOT NULL CHECK (runtime IN ('python','nodejs')),
+          state TEXT NOT NULL DEFAULT 'draft',
+          modules JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )`,
+        "CREATE INDEX IF NOT EXISTS idx_bots_user_created ON bots(user_id, created_at DESC)"
       ];
       for (const statement of statements) await db.raw(statement);
       await db.raw("INSERT INTO app_state (id, owner_user_id) VALUES ('main', NULL) ON CONFLICT (id) DO NOTHING");
