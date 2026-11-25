@@ -829,9 +829,13 @@ async function loadFleetProviders(){
    }else if(p.id==="bot-hosting"){
     capacity=p.canCreate?"Criação autorizada pela conta":"Consulte a vaga do seu plano";
     detail="A implantação ADM permanece separada e não será alterada";
+   }else if(p.deploymentMode==="manual"){
+    capacity=p.plan||"Plano gratuito anunciado";
+    detail=p.detail||"Implantação feita no painel do provedor.";
    }
-   const stateText=!connected?"Não conectado":!valid?"Conexão precisa de revisão":p.canCreate?"Pode receber novos bots":p.canAttach?"Pode vincular servidores existentes":"Sem vaga confirmada";
-   return '<article class="fleet-provider-card"><div class="fleet-provider-top"><strong>'+name+'</strong><span class="fleet-provider-dot '+(p.canCreate||p.canAttach?"is-ready":(connected?"is-waiting":""))+'"></span></div><b>'+escapeHtml(capacity)+'</b><small>'+escapeHtml(detail)+'</small><span class="fleet-provider-state">'+escapeHtml(stateText)+'</span></article>';
+   const stateText=p.deploymentMode==="manual"?"Grátis · deploy manual no painel":(!connected?"Não conectado":!valid?"Conexão precisa de revisão":p.canCreate?"Pode receber novos bots":p.canAttach?"Pode vincular servidores existentes":"Sem vaga confirmada");
+   const action=p.deploymentMode==="manual"&&p.url?'<a class="link" href="'+escapeHtml(p.url)+'" target="_blank" rel="noopener noreferrer">Abrir painel do provedor ↗</a>':"";
+   return '<article class="fleet-provider-card"><div class="fleet-provider-top"><strong>'+name+'</strong><span class="fleet-provider-dot '+(p.canCreate||p.canAttach?"is-ready":(connected?"is-waiting":""))+'"></span></div><b>'+escapeHtml(capacity)+'</b><small>'+escapeHtml(detail)+'</small><span class="fleet-provider-state">'+escapeHtml(stateText)+'</span>'+action+'</article>';
   }).join("")||'<div class="dashboard-empty">Nenhum provedor foi retornado pelo painel.</div>';
  }catch(error){root.innerHTML='<div class="dashboard-empty">'+escapeHtml(error.message||"Não foi possível consultar os provedores.")+'</div>';}
 }
