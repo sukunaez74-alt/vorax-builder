@@ -605,6 +605,15 @@ async function discordAccountLinkCallback(request, env) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
+  if (url.searchParams.get("error")) {
+    return new Response(null, {
+      status: 302,
+      headers: {
+        location: new URL("/?discord=error", request.url).href,
+        "set-cookie": clearCookie("bz_discord_link_state")
+      }
+    });
+  }
   const issuer = url.searchParams.get("iss");
   if (issuer && issuer !== "https://discord.com") {
     return reply({ error: "O emissor OAuth retornado não corresponde ao Discord." }, 400);
