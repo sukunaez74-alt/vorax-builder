@@ -530,7 +530,7 @@ async function api(path,options={}){
  if(!res.ok){
   const message=data.error||data.message||data.detail;
   if(message)throw new Error(message);
-  throw new Error("O servidor respondeu com erro HTTP "+res.status+". Atualize a página e tente novamente; se continuar, informe esse código de erro.");
+  throw new Error(res.status===404?"A rota desta função não foi encontrada na versão publicada. Atualize o painel e tente novamente.":"O servidor respondeu com erro HTTP "+res.status+". Atualize a página e tente novamente; se continuar, informe esse código de erro.");
  }
  if(raw&&!Object.keys(data).length)throw new Error("O servidor respondeu em um formato inesperado. Atualize a página e tente novamente.");
  return data;
@@ -652,7 +652,7 @@ async function openBot(id){
  '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Horário de funcionamento</h3><span class="status off">'+(schedule?"Agendado":"Sem agenda")+'</span></div>'+
  '<label class="module" style="display:flex;align-items:center;gap:12px"><input id="scheduleEnabled" type="checkbox" class="toggle" '+(schedule?"checked":"")+'><span><strong>Ativar horário diário</strong><small>O supervisor liga e desliga o processo do bot automaticamente</small></span></label>'+
  '<div class="grid two-col" style="margin-top:12px"><div class="field"><label>FICAR ONLINE A PARTIR DE</label><input id="scheduleStart" type="time" value="'+escapeHtml(b.scheduleStart||"00:00")+'"></div><div class="field"><label>FICAR OFFLINE A PARTIR DE</label><input id="scheduleEnd" type="time" value="'+escapeHtml(b.scheduleEnd||"23:59")+'"></div></div>'+
- '<div class="field"><label>ID DO SERVIDOR DISCORD (OPCIONAL)</label><input id="scheduleGuildId" inputmode="numeric" placeholder="Para sincronizar comandos imediatamente" value="'+escapeHtml(b.guildId||"")+'"></div>'+
+ '<div class="field"><label>ID DO SERVIDOR OU LINK DE CONVITE (OPCIONAL)</label><input id="scheduleGuildId" placeholder="Cole o ID numérico ou discord.gg/..." value="'+escapeHtml(b.guildId||"")+'"></div>'+
  '<div class="project-note"><strong>Fuso horário: America/Bahia.</strong><br>Sem agenda, o supervisor mantém o bot online enquanto a hospedagem estiver ativa. Com agenda, o processo do Discord só roda dentro da janela diária.</div>'+
  '<button class="btn wide" id="saveBotSchedule">Salvar horário e servidor</button></section>'+
  '<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
@@ -693,8 +693,8 @@ async function openBot(id){
    const start=$("#scheduleStart").value,end=$("#scheduleEnd").value,guildId=$("#scheduleGuildId").value.trim();
    const btn=$("#saveBotSchedule");btn.disabled=true;btn.textContent="Salvando...";
    try{
-     await api("/bots/"+encodeURIComponent(id)+"/schedule",{method:"POST",body:JSON.stringify({enabled,start,end,guildId})});
-     await loadBots();toast("Horário e servidor salvos.");await openBot(id);
+     const saved=await api("/bots/"+encodeURIComponent(id)+"/schedule",{method:"POST",body:JSON.stringify({enabled,start,end,guildId})});
+     await loadBots();toast(saved.inviteResolved?"Convite reconhecido! ID do servidor e horário salvos.":"Horário e servidor salvos.");await openBot(id);
    }catch(e){toast(e.message);btn.disabled=false;btn.textContent="Salvar horário e servidor";}
  };
 }
