@@ -253,7 +253,7 @@ export async function onRequest(context) {
         message: "Projeto criado e salvo no Estúdio. A execução contínua será ativada quando o executor de bots estiver disponível."
       }, 201);
     }
-    const match = path.match(/^\\/bots\\/([A-Za-z0-9_-]{1,80})(?:\\/(logs|power|upload-url|extract|config|resources|files|shell))?$/);
+    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|config|resources|files|shell))?$/);
     if (match) {
       const id = match[1];
       const action = match[2] || "";
