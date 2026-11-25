@@ -909,7 +909,35 @@ async function connectHosting(){
 }
 function openModal(content){window.__modalCloseGuard=null;$("#modalRoot").innerHTML='<div class="modal-wrap" id="modalWrap"><div class="modal">'+content+'</div></div>';$("#modalWrap").onclick=e=>{if(e.target.id==="modalWrap")closeModal()};const c=$("#closeModal");if(c)c.onclick=()=>closeModal()}
 function closeModal(force=false){if(!force&&window.__modalCloseGuard&&!window.__modalCloseGuard())return;window.__modalCloseGuard=null;$("#modalRoot").innerHTML=""}
-function createBotModal(){openModal('<div class="modal-head"><h3>Criar novo bot</h3><button class="close" id="closeModal">×</button></div><form id="createBotForm"><div class="field"><label>NOME DO PROJETO</label><input name="name" value="CAOS" required maxlength="48"></div><div class="field"><label>AMBIENTE DE EXECUÇÃO</label><select name="runtime"><option value="python">Python 3.11 · CAOS</option></select></div><div class="field"><label>TOKEN DO BOT DISCORD</label><input name="discordToken" type="password" autocomplete="new-password" placeholder="Cole o Bot Token (com ou sem prefixo Bot)" minlength="30" maxlength="512" required></div><div class="project-note"><strong>Use o Bot Token, não a Public Key.</strong><br>Pode colar com ou sem o prefixo <code>Bot </code>. O Estúdio remove esse prefixo se estiver presente, valida com o Discord e guarda o token criptografado. Não use Client ID, Client Secret ou Public Key.</div><button class="btn wide">Criar projeto e proteger token ↗</button></form>');$("#createBotForm").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api("/bots",{method:"POST",body:JSON.stringify({name:f.get("name"),runtime:f.get("runtime"),discordToken:f.get("discordToken")})});closeModal();toast("Projeto criado e token Discord protegido.");await loadBots();navigate("bots")}catch(err){toast(err.message)}}}
+function createBotModal(){
+ openModal(
+  '<div class="modal-head"><h3>Criar novo bot</h3><button class="close" id="closeModal">×</button></div>'+
+  '<form id="createBotForm">'+
+  '<div class="field"><label>NOME DO PROJETO</label><input name="name" value="Meu bot" required maxlength="48"></div>'+
+  '<div class="field"><label>AMBIENTE DE EXECUÇÃO</label><select name="runtime"><option value="python">Python 3.11 · CAOS</option></select></div>'+
+  '<div class="project-note"><strong>Primeiro criamos o projeto.</strong><br>Na próxima etapa, você salva o Bot Token em separado. O Estúdio valida a credencial, guarda o valor criptografado e só então libera o botão de iniciar.</div>'+
+  '<button class="btn wide" type="submit">Criar projeto e configurar token ↗</button></form>'
+ );
+ $("#createBotForm").onsubmit=async e=>{
+  e.preventDefault();
+  const form=e.currentTarget;
+  const name=new FormData(form).get("name");
+  const button=form.querySelector('button[type="submit"]');
+  if(button){button.disabled=true;button.textContent="Criando projeto…"}
+  try{
+   const created=await api("/bots",{method:"POST",body:JSON.stringify({name,runtime:"python"})});
+   closeModal(true);
+   await loadBots();
+   state.activeBot=created.id;
+   navigate("bots");
+   toast("Projeto criado. Agora configure o token Discord.");
+   caosModal(created.id);
+  }catch(error){
+   toast(error.message);
+   if(button){button.disabled=false;button.textContent="Criar projeto e configurar token ↗"}
+  }
+ };
+}
 function caosModal(targetId){
  if(!state.bots.length){toast("Primeiro crie um projeto em Meus bots.");navigate("bots");return}
  const options=state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===targetId?"selected":"")+'>'+escapeHtml(b.name||b.id)+'</option>').join("");
