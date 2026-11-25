@@ -808,36 +808,28 @@ function integrationsView(){
 
 function filesView(){
  const bots=state.bots||[];
- const bot=bots.find(b=>b.id===state.activeBot)||bots.find(b=>b.hostingDeploymentId)||bots[0];
- if(!bot)return pageHead("Arquivos do bot","Crie um projeto para importar o código do seu bot.")+'<div class="dashboard-empty"><b>Nenhum bot cadastrado</b><br>Crie um projeto antes de enviar seu pacote.</div><button class="btn" data-action="create-bot">＋ Criar bot</button>';
- const choices=bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("");
- if(bot.projectType!=="custom"){
-  return pageHead("Bot padrão do Estúdio","Este projeto usa o bot oficial da plataforma. As atualizações da versão padrão serão aplicadas pelo Estúdio.")+
-   '<section class="dashboard-panel"><div class="project-note"><strong>Projeto do bot padrão</strong><br>Os arquivos oficiais são administrados pelo Estúdio e não são substituídos por envios particulares. Para usar o código que você já tem, crie outro projeto e escolha <b>Meu próprio bot</b>.</div>'+
-   '<div class="hero-actions"><button class="btn" id="fileOpenTokenConfig">Configurar token do Discord</button><button class="btn secondary" data-openbot="'+escapeHtml(bot.id)+'">Abrir projeto ↗</button></div></section>';
+ const customBots=bots.filter(b=>b.projectType==="custom"||b.customProject);
+ const bot=customBots.find(b=>b.id===state.activeBot)||customBots[0]||null;
+ if(!bot){
+  return pageHead("ZIP ou bot já criado","Crie um bot e envie o ZIP que contém o projeto.")+
+   '<section class="dashboard-panel file-import-panel"><div class="project-note"><strong>Nenhum bot próprio criado ainda.</strong><br>Clique em Novo bot para começar.</div><button class="btn" data-action="create-bot">＋ Novo bot</button></section>';
  }
- const selectedRuntime="auto";
- const statusText=bot.hostingDeploymentId
-  ? "Servidor preparado. Envie ou atualize o código deste projeto."
-  : "O servidor será preparado automaticamente no primeiro envio.";
- return pageHead("Meu próprio bot","Envie o ZIP ou a pasta extraída. O Estúdio identifica a linguagem, o arquivo de início, comandos, dependências e recursos sem desmontar as subpastas.")+
- '<section class="dashboard-panel file-manager file-import-panel">'+
-  '<div class="file-toolbar"><div class="field"><label>PROJETO</label><select id="filesBotSelect">'+choices+'</select></div>'+
-  '<div class="field file-package-name"><label>NOME DO PROJETO</label><input id="fileBundleName" value="'+escapeHtml(bot.name||"meu-bot")+'" maxlength="64" placeholder="meu-bot"></div>'+
-  '<div class="field file-runtime-choice"><label>DETECÇÃO DA LINGUAGEM</label><select id="fileRuntime"><option value="auto" '+(selectedRuntime==="auto"?"selected":"")+'>Automática · recomendada</option><option value="python" '+(selectedRuntime==="python"?"selected":"")+'>Forçar Python 3.11</option><option value="nodejs" '+(selectedRuntime==="nodejs"?"selected":"")+'>Forçar Node.js 22</option></select></div>'+
-  '<div class="file-toolbar-actions"><button class="btn secondary" id="fileOpenTokenConfig">Token do Discord</button><button class="btn secondary" id="fileRefresh" '+(!bot.hostingDeploymentId?"disabled":"")+'>↻ Atualizar arquivos</button><button class="btn secondary" id="fileExportZip" '+(!bot.hostingDeploymentId?"disabled":"")+'>▣ Exportar ZIP</button></div></div>'+
-  '<div class="file-import-actions"><button class="btn" id="fileUploadButton">⇧ Enviar ZIP</button><button class="btn secondary" id="fileFolderButton">▣ Enviar pasta completa</button><button class="btn secondary" id="fileMultipleButton">＋ Escolher arquivos</button>'+
-  '<input id="fileUploadInput" type="file" hidden accept=".zip,application/zip,application/x-zip-compressed">'+
-  '<input id="fileFolderInput" type="file" hidden webkitdirectory directory multiple>'+
-  '<input id="fileMultipleInput" type="file" hidden multiple>'+
-  '<span class="file-import-hint">Pode enviar o ZIP ou a pasta já extraída. O Estúdio mantém comandos, subpastas, fotos, imagens, configurações e outros arquivos do projeto; a linguagem e o arquivo de início são detectados automaticamente.</span></div>'+
-  '<div id="fileStatus" class="project-note file-import-status">'+escapeHtml(statusText)+'</div>'+
-  '<div class="project-note"><strong>Token do Discord:</strong> você pode salvar no botão acima, de forma criptografada. Também pode usar o token que já estiver no seu próprio código; nesse caso, o campo do painel pode ficar vazio. Por segurança, recomendamos guardar o token no painel e usar a variável de ambiente <code>DISCORD_TOKEN</code>.</div>'+
-  '<div class="file-path-row"><span>CAMINHO</span><input id="filePath" value="/" spellcheck="false"><button class="btn secondary" id="fileGo" '+(!bot.hostingDeploymentId?"disabled":"")+'>Abrir</button><button class="btn ghost" id="fileUp" '+(!bot.hostingDeploymentId?"disabled":"")+'>↑ Subir pasta</button></div>'+
-  '<div class="file-entry-list" id="fileEntries"><div class="dashboard-empty">'+(bot.hostingDeploymentId?"Carregando arquivos do servidor…":"Envie o pacote para preparar o servidor.")+'</div></div>'+
-  '<section class="file-editor hidden" id="fileEditor"><div class="file-editor-head"><div><small>EDITOR DE TEXTO</small><b id="fileEditorName">Arquivo</b></div><div><button class="btn secondary" id="fileCloseEditor">Fechar</button><button class="btn" id="fileSaveEditor">Salvar arquivo</button></div></div><textarea id="fileEditorText" spellcheck="false" rows="18"></textarea></section>'+
- '</section>';
-}function schedulesView(){
+ const choices=customBots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("");
+ const meta=bot.customProject||null;
+ const summary=meta
+  ? "Projeto reconhecido · "+Number(meta.fileCount||0)+" arquivos · "+Number(meta.imageCount||0)+" imagens · início: "+String(meta.entryFile||"não identificado")
+  : "Este bot ainda não tem um ZIP importado. Escolha o arquivo ZIP que contém seu bot.";
+ return pageHead("ZIP ou bot já criado","Selecione o bot e envie o ZIP do projeto. O Estúdio identifica os arquivos e prepara a inicialização.")+
+  '<section class="dashboard-panel file-import-panel">'+
+   (customBots.length>1?'<div class="field"><label>BOT</label><select id="filesBotSelect">'+choices+'</select></div>':'<div class="project-note"><strong>'+escapeHtml(bot.name||"Meu bot")+'</strong></div>')+
+   '<div class="file-import-actions file-import-actions-simple">'+
+    '<button class="btn" id="fileUploadButton">⇧ Escolha um ZIP</button>'+
+    '<input id="fileUploadInput" type="file" hidden accept=".zip,application/zip,application/x-zip-compressed">'+
+   '</div>'+
+   '<div id="fileStatus" class="project-note file-import-status">'+escapeHtml(summary)+'</div>'+
+  '</section>';
+}
+function schedulesView(){
  return pageHead("Agendamentos","Defina a janela diária em que cada bot deve ficar conectado ao Discord.")+
  '<div class="card"><div class="section-head"><h3>Rotinas dos seus bots</h3></div>'+
  (state.bots.length?'<div class="list">'+state.bots.map(b=>'<div class="bot-row"><div class="bot-logo">◷</div><div class="bot-info"><strong>'+escapeHtml(b.name)+'</strong><span>'+(b.scheduleEnabled?'Online entre '+escapeHtml(b.scheduleStart)+' e '+escapeHtml(b.scheduleEnd):'Sem agendamento diário')+' • America/Bahia</span></div><button class="btn secondary" data-schedule="'+escapeHtml(b.id)+'">Configurar horário</button></div>').join('')+'</div>':'<div class="empty"><b>Nenhum bot cadastrado</b>Crie um bot antes de configurar os horários.</div>')+
@@ -1047,7 +1039,7 @@ function bindView(){
  const fileFolderInput=$("#fileFolderInput");if(fileFolderInput)fileFolderInput.onchange=uploadBotFolder;
  const fileSave=$("#fileSaveEditor");if(fileSave)fileSave.onclick=saveBotFile;
  const fileClose=$("#fileCloseEditor");if(fileClose)fileClose.onclick=()=>$("#fileEditor").classList.add("hidden");
- if(state.view==="files")loadFiles();
+
  const backupManual=$("#backupManualCreate");if(backupManual)backupManual.onclick=createManualBackup;
  const backupRefresh=$("#backupRefresh");if(backupRefresh)backupRefresh.onclick=loadBackups;
  const backupBot=$("#backupBotSelect");if(backupBot)backupBot.onchange=loadBackups;
@@ -1066,55 +1058,29 @@ function openModal(content){window.__modalCloseGuard=null;$("#modalRoot").innerH
 function closeModal(force=false){if(!force&&window.__modalCloseGuard&&!window.__modalCloseGuard())return;window.__modalCloseGuard=null;$("#modalRoot").innerHTML=""}
 function createBotModal(){
  openModal(
-  '<div class="modal-head"><h3>Criar projeto</h3><button class="close" id="closeModal">×</button></div>'+
+  '<div class="modal-head"><h3>Novo bot</h3><button class="close" id="closeModal">×</button></div>'+
   '<form id="createBotForm">'+
-  '<div class="field"><label>NOME DO PROJETO</label><input name="name" value="Meu bot" required maxlength="48" placeholder="Dê um nome ao projeto"></div>'+
-  '<div class="project-type-heading"><b>Como você quer criar seu bot?</b><span>Escolha uma das duas opções.</span></div>'+
-  '<div class="project-type-choices">'+
-   '<label class="project-type-option"><input type="radio" name="projectType" value="standard" checked><span class="project-type-card"><b>Bot padrão do Estúdio</b><small>Use o bot oficial da plataforma. Ele recebe as atualizações que o proprietário publicar.</small><em>Ideal para quem quer usar o bot pronto.</em></span></label>'+
-   '<label class="project-type-option"><input type="radio" name="projectType" value="custom"><span class="project-type-card"><b>Meu próprio bot</b><small>Importe um bot que você já criou ou que já possui. O Estúdio organiza os arquivos e prepara o servidor.</small><em>ZIP · pasta completa · vários arquivos</em></span></label>'+
-  '</div>'+
-  '<div id="customProjectSetup" class="custom-project-setup" hidden>'+
-   '<div class="field"><label>LINGUAGEM DO MEU BOT</label><select name="runtime"><option value="python">Python 3.11</option><option value="nodejs">Node.js 22</option></select></div>'+
-   '<div class="project-note"><strong>Próximo passo:</strong> o Estúdio abrirá a área Arquivos para você escolher o ZIP, uma pasta inteira ou vários arquivos. O token pode ser salvo no painel ou ficar no seu código.</div>'+
-  '</div>'+
-  '<div id="standardProjectSetup" class="project-note"><strong>Bot oficial do Estúdio</strong><br>O código padrão é mantido pelo proprietário e recebe as atualizações oficiais.</div>'+
-  '<button class="btn wide" id="createBotSubmit" type="submit">Criar bot padrão ↗</button></form>'
+  '<div class="field"><label>NOME DO BOT</label><input name="name" value="Meu bot" required maxlength="48" placeholder="Dê um nome ao bot"></div>'+
+  '<div class="project-note"><strong>ZIP ou bot já criado</strong><br>Importe o projeto que você já tem. Depois de criar, aparecerá apenas um botão para escolher o arquivo ZIP do bot.</div>'+
+  '<button class="btn wide" id="createBotSubmit" type="submit">ZIP ou bot já criado ↗</button></form>'
  );
  const form=$("#createBotForm");
- const updateMode=()=>{
-  const mode=form.querySelector('input[name="projectType"]:checked')?.value||"standard";
-  const custom=mode==="custom";
-  $("#customProjectSetup").hidden=!custom;
-  $("#standardProjectSetup").hidden=custom;
-  $("#createBotSubmit").textContent=custom?"Criar meu projeto e enviar arquivos ↗":"Criar bot padrão ↗";
- };
- form.querySelectorAll('input[name="projectType"]').forEach(input=>input.addEventListener("change",updateMode));
- updateMode();
  form.onsubmit=async e=>{
   e.preventDefault();
   const data=new FormData(form);
   const name=String(data.get("name")||"").trim();
-  const projectType=String(data.get("projectType")||"standard");
-  const runtime=projectType==="custom"?String(data.get("runtime")||"python"):"python";
   const button=$("#createBotSubmit");
-  if(button){button.disabled=true;button.textContent="Criando projeto…"}
+  if(button){button.disabled=true;button.textContent="Criando bot…"}
   try{
-   const created=await api("/bots",{method:"POST",body:JSON.stringify({name,projectType,runtime})});
+   const created=await api("/bots",{method:"POST",body:JSON.stringify({name,projectType:"custom",runtime:"python"})});
    closeModal(true);
    await loadBots();
    state.activeBot=created.id;
-   if(projectType==="custom"){
-    navigate("files");
-    toast("Projeto criado. Agora envie o ZIP, a pasta ou os arquivos do seu bot.");
-   }else{
-    navigate("bots");
-    toast("Bot padrão criado. Agora configure o token do Discord.");
-    caosModal(created.id);
-   }
+   navigate("files");
+   toast("Bot criado. Agora escolha o ZIP do seu projeto.");
   }catch(error){
-   toast(error.message||"Não consegui criar o projeto.");
-   if(button){button.disabled=false;button.textContent=projectType==="custom"?"Criar meu projeto e enviar arquivos ↗":"Criar bot padrão ↗"}
+   toast(error.message||"Não consegui criar o bot.");
+   if(button){button.disabled=false;button.textContent="ZIP ou bot já criado ↗"}
   }
  };
 }
@@ -1748,7 +1714,7 @@ async function uploadBotFile(){
  const input=$("#fileUploadInput"),file=input?.files?.[0];
  if(!file)return;
  const id=$("#filesBotSelect")?.value||state.activeBot;
- const packageName=safePackageName($("#fileBundleName")?.value||file.name.replace(/\.zip$/i,""));
+ const packageName=safePackageName(state.bots.find(bot=>bot.id===id)?.name||file.name.replace(/\.zip$/i,""));
  const runtimeChoice=$("#fileRuntime")?.value||"auto";
  const currentBot=state.bots.find(bot=>bot.id===id);
  const button=$("#fileUploadButton"),status=$("#fileStatus");
