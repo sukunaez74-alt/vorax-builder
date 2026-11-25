@@ -881,10 +881,11 @@ async function setHostEnv(userId, env, deploymentId, key, value, secret = false)
   });
 }
 async function ensureBotDeployment(bot, userId, env) {
-  if (bot.runtime !== "python") {
-    throw new Error("A integração automática atual prepara o modelo CAOS em Python 3.11. Para Node.js, envie um ZIP com o código do seu bot.");
+  const customProject = typeof bot.custom_project === "string" ? JSON.parse(bot.custom_project || "null") : (bot.custom_project || null);
+  if (!customProject && bot.runtime !== "python") {
+    throw new Error("Este projeto ainda não tem um pacote importado compatível. Envie um ZIP ou uma pasta de arquivos primeiro.");
   }
-  if (!CAOS_MAIN_PY || CAOS_MAIN_PY.length < 10000) {
+  if (!customProject && (!CAOS_MAIN_PY || CAOS_MAIN_PY.length < 10000)) {
     throw new Error("O pacote CAOS não foi incluído nesta publicação do servidor. Atualize o painel e tente novamente.");
   }
   if (!bot.discord_token_enc) throw new Error("Salve primeiro o Bot Token Discord deste projeto.");
@@ -922,6 +923,24 @@ async function ensureBotDeployment(bot, userId, env) {
     if (!deploymentId) throw new Error("O Bot-Hosting respondeu sem o identificador da implantação.");
     await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,discord_bot_id=?,discord_bot_name=?,state='draft',updated_at=? WHERE id=? AND user_id=?")
       .bind(deploymentId, identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
+  }
+
+  if (customProject) {
+    const runtime = customProject.runtime === "nodejs" ? "nodejs" : "python";
+    const runtimeVersion = runtime === "nodejs" ? "22" : "3.11";
+    const entryFile = String(customProject.entryFile || "").replace(/^\\/+/, "");
+    if (!entryFile || entryFile.split("/").some(part => part === "..")) throw new Error("O pacote importado não tem um arquivo principal válido. Reenvie a pasta ou o ZIP.");
+    await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
+    await setHostEnv(userId, env, deploymentId, "BOT_TOKEN", token, true);
+    await setHostEnv(userId, env, deploymentId, "TOKEN", token, true);
+    await setHostEnv(userId, env, deploymentId, "APP_URL", "https://black-zone-estudio.vercel.app", false);
+    await setHostEnv(userId, env, deploymentId, "BOT_NAME", bot.name || "Discord Bot", false);
+    await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
+      runtime, runtimeVersion, entryFile, startCommand: customProject.startCommand || null
+    });
+    await env.DB.prepare("UPDATE bots SET runtime=?,discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?")
+      .bind(runtime, identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
+    return { deploymentId, botId: identity.botId, botName: identity.botName || null, customProject: true, entryFile, runtime };
   }
 
   // Só reenviamos o pacote CAOS quando a versão instalada mudou.
@@ -987,7 +1006,7 @@ async function ensureBotDeployment(bot, userId, env) {
 }
 async function getOwnedBot(id, userId, env) {
   return env.DB.prepare(
-    "SELECT id,name,runtime,state,modules,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE id=? AND user_id=?"
+    "SELECT id,name,runtime,state,modules,custom_project,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE id=? AND user_id=?"
   ).bind(id, userId).first();
 }
 function validClock(value) { return typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value); }
@@ -1000,6 +1019,86 @@ function safeVolumePath(value) {
   const normalized = "/" + raw.split("/").filter(Boolean).join("/");
   return normalized === "" ? "/" : normalized;
 }
+async function scanImportedProject(userId, env, deploymentId) {
+  const ignored = new Set([".git","node_modules",".venv","venv","__pycache__",".next","vendor"]);
+  const imageExt = /\\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp)$/i;
+  const queue = [{ path: "/", depth: 0 }];
+  const seen = new Set();
+  const files = [];
+  let rootEntries = [];
+  let directoryCount = 0;
+  while (queue.length && files.length < 900) {
+    const item = queue.shift();
+    if (seen.has(item.path) || item.depth > 8) continue;
+    seen.add(item.path);
+    const listing = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files?path=" + encodeURIComponent(item.path));
+    const entries = Array.isArray(listing.entries) ? listing.entries : [];
+    if (item.path === "/") rootEntries = entries;
+    for (const e of entries) {
+      const name = String(e?.name || "");
+      if (!name || name === "." || name === "..") continue;
+      const full = safeVolumePath((item.path === "/" ? "" : item.path) + "/" + name);
+      if (e.type === "directory" || e.type === "folder") {
+        if (ignored.has(name)) continue;
+        directoryCount++;
+        if (item.depth < 8) queue.push({ path: full, depth: item.depth + 1 });
+      } else if (e.type === "file") files.push(full);
+    }
+  }
+  if (queue.length) throw new Error("O pacote contém pastas demais para uma análise segura. Remova node_modules, .git e ambientes virtuais e envie novamente.");
+  const rootFiles = rootEntries.filter(e => e?.type === "file");
+  const rootDirs = rootEntries.filter(e => (e?.type === "directory" || e?.type === "folder") && !ignored.has(String(e.name || "")));
+  if (!rootFiles.length && rootDirs.length === 1) {
+    const wrapper = String(rootDirs[0].name || "");
+    const inner = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files?path=" + encodeURIComponent("/" + wrapper));
+    const children = (Array.isArray(inner.entries) ? inner.entries : []).filter(e => e?.name && e.name !== "." && e.name !== "..").map(e => wrapper + "/" + String(e.name));
+    if (children.length) {
+      await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/move", "POST", { files: children, to: "/" });
+      await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/delete", "POST", { root: "/", files: [wrapper] });
+      return scanImportedProject(userId, env, deploymentId);
+    }
+  }
+  const relative = files.map(p => p.replace(/^\\//, ""));
+  const pyPriority = ["main.py","bot.py","run.py","app.py","index.py","start.py"];
+  const jsPriority = ["index.js","bot.js","main.js","app.js","src/index.js","src/bot.js","index.mjs","bot.mjs"];
+  const score = (p, pref) => {
+    const exact = pref.indexOf(p.toLowerCase());
+    if (exact >= 0) return exact;
+    const tail = pref.indexOf(p.toLowerCase().split("/").pop());
+    return tail < 0 ? 999 : 30 + tail;
+  };
+  const py = relative.filter(p => /\\.py$/i.test(p)).sort((a,b)=>score(a,pyPriority)-score(b,pyPriority));
+  const js = relative.filter(p => /\\.(?:js|mjs|cjs)$/i.test(p)).sort((a,b)=>score(a,jsPriority)-score(b,jsPriority));
+  let pkg = null;
+  const packagePath = relative.find(p => p.toLowerCase() === "package.json");
+  if (packagePath) {
+    try {
+      const r = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/content?path=" + encodeURIComponent("/" + packagePath));
+      pkg = JSON.parse(String(r.content || "{}"));
+    } catch {}
+  }
+  let runtime = "python", entryFile = py[0] || "", startCommand = null;
+  const declaredMain = typeof pkg?.main === "string" ? pkg.main.replace(/^\\.\\//, "") : "";
+  if (js.length && (!py.length || pkg)) {
+    runtime = "nodejs";
+    entryFile = (declaredMain && relative.includes(declaredMain) ? declaredMain : "") || js[0];
+    if (pkg?.scripts?.start) startCommand = "npm start";
+  }
+  if (!entryFile) {
+    return {
+      ok: false, needsEntryFile: true, fileCount: files.length,
+      imageCount: files.filter(p => imageExt.test(p)).length,
+      candidates: [...py.slice(0,12).map(path => ({path,runtime:"python"})), ...js.slice(0,12).map(path => ({path,runtime:"nodejs"}))],
+      error: "Os arquivos foram enviados, mas não encontrei automaticamente o arquivo principal. Procure main.py, bot.py, index.js ou bot.js."
+    };
+  }
+  return {
+    ok: true, runtime, entryFile, startCommand,
+    dependencyFile: runtime === "nodejs" ? (relative.includes("package.json") ? "package.json" : null) : (relative.includes("requirements.txt") ? "requirements.txt" : null),
+    fileCount: files.length, directoryCount, imageCount: files.filter(p => imageExt.test(p)).length
+  };
+}
+
 function recentDiscordStatus(status, afterTimestamp = 0) {
   if (!status || status.status !== "online" || !status.updatedAt) return false;
   const updatedAt = Date.parse(status.updatedAt);
@@ -1220,23 +1319,28 @@ export async function onRequest(context) {
   const { request, env } = context; const url = new URL(request.url); const path = url.pathname.replace(/^\/api/, "") || "/";
   if (path === "/health" && request.method === "GET") {
     let databaseQuery = false;
+    let databaseError = null;
     if (env.DB) {
-      const probe = await env.DB.prepare("SELECT ?::text AS check_value")
-        .bind("black-zone-estudio").first();
-      databaseQuery = probe?.check_value === "black-zone-estudio";
+      try {
+        const probe = await env.DB.prepare("SELECT ?::text AS check_value").bind("black-zone-estudio").first();
+        databaseQuery = probe?.check_value === "black-zone-estudio";
+        if (!databaseQuery) databaseError = "A consulta de teste não retornou o valor esperado.";
+      } catch (error) { databaseError = error?.message || "A consulta ao banco falhou."; }
     }
-    const oauth = await discordOAuthCredentials(env);
+    let oauth = { clientId: "", clientSecret: "" };
+    try { oauth = await discordOAuthCredentials(env); } catch {}
+    const secretsConfigured = {
+      gate: !!env.APP_GATE_PHRASE,
+      session: !!env.APP_SESSION_SECRET,
+      encryption: !!env.APP_ENCRYPTION_KEY,
+      discordOAuth: !!(oauth.clientId && oauth.clientSecret)
+    };
+    const essentialReady = !!env.DB && databaseQuery && secretsConfigured.session && secretsConfigured.encryption;
     return reply({
-      ok: true,
-      service: "black-zone-estudio",
-      databaseConfigured: !!env.DB,
-      databaseQuery,
-      secretsConfigured: {
-        gate: !!env.APP_GATE_PHRASE,
-        session: !!env.APP_SESSION_SECRET,
-        encryption: !!env.APP_ENCRYPTION_KEY,
-        discordOAuth: !!(oauth.clientId && oauth.clientSecret)
-      }
+      ok: true, operational: essentialReady, state: essentialReady ? "operational" : "degraded",
+      service: "black-zone-estudio", databaseConfigured: !!env.DB, databaseQuery, databaseError,
+      secretsConfigured,
+      checks: { api: true, database: !!env.DB && databaseQuery, session: secretsConfigured.session, encryption: secretsConfigured.encryption }
     });
   }
 
@@ -1534,11 +1638,12 @@ export async function onRequest(context) {
 
     if (path === "/bots" && request.method === "GET") {
       const rows = await env.DB.prepare(
-        "SELECT id,name,runtime,state,modules,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE user_id=? ORDER BY created_at DESC"
+        "SELECT id,name,runtime,state,modules,custom_project,created_at,updated_at,(discord_token_enc IS NOT NULL) AS has_discord_token,discord_bot_id,discord_bot_name,hosting_deployment_id,schedule_enabled,schedule_start,schedule_end,schedule_timezone,guild_id FROM bots WHERE user_id=? ORDER BY created_at DESC"
       ).bind(user.id).all();
       return reply({ deployments: rows.map(row => ({
         ...row,
         modules: typeof row.modules === "string" ? JSON.parse(row.modules) : row.modules,
+        customProject: typeof row.custom_project === "string" ? JSON.parse(row.custom_project || "null") : (row.custom_project || null),
         hasDiscordToken: !!row.has_discord_token,
         discordBotId: row.discord_bot_id || null,
         discordBotName: row.discord_bot_name || null,
@@ -1606,7 +1711,7 @@ export async function onRequest(context) {
       }, 201);
     }
 
-    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|config|resources|files|shell|schedule|diagnose|backups)(?:\/([A-Za-z0-9._-]{1,120})(?:\/(restore))?)?)?$/);
+    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|extract|import|config|resources|files|shell|schedule|diagnose|backups)(?:\/([A-Za-z0-9._-]{1,120})(?:\/(restore))?)?)?$/);
     if (match) {
       const id = match[1];
       const action = match[2] || "";
@@ -1616,36 +1721,25 @@ export async function onRequest(context) {
       if (!bot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
 
       if (!action && request.method === "DELETE") {
+        let deploymentDeleted = false;
         if (bot.hosting_deployment_id) {
-          const connection = await env.DB.prepare(
-            "SELECT user_id FROM hosting_connections WHERE user_id=?"
-          ).bind(user.id).first();
-          if (!connection) {
-            return reply({
-              error: "Conecte o Bot-Hosting antes de excluir este bot. Assim posso parar e remover também a implantação, sem deixar recursos abandonados."
-            }, 409);
-          }
-          try {
-            await hostRequest(
-              user.id, env,
-              "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/power",
-              "POST",
-              { action: "stop", waitSeconds: 10 }
-            );
-            await hostRequest(
-              user.id, env,
-              "/deployments/" + encodeURIComponent(bot.hosting_deployment_id),
-              "DELETE"
-            );
-          } catch (error) {
-            return reply({
-              error: "Não consegui remover a implantação da hospedagem. O projeto continua salvo no painel. " + (error.message || ""),
-              code: "deployment_delete_failed"
-            }, 502);
+          const otherReference = await env.DB.prepare("SELECT id FROM bots WHERE hosting_deployment_id=? AND id<>? LIMIT 1").bind(bot.hosting_deployment_id, id).first();
+          const centralSettings = await verificationBotSettings(env);
+          const usedByVerificationBot = String(centralSettings?.hosting_deployment_id || "") === String(bot.hosting_deployment_id);
+          if (!otherReference && !usedByVerificationBot) {
+            const connection = await env.DB.prepare("SELECT user_id FROM hosting_connections WHERE user_id=?").bind(user.id).first();
+            if (!connection) return reply({ error: "Conecte o Bot-Hosting antes de excluir este bot. Assim posso parar e remover também a implantação, sem deixar recursos abandonados." }, 409);
+            try {
+              await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/power", "POST", { action: "stop", waitSeconds: 10 });
+              await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id), "DELETE");
+              deploymentDeleted = true;
+            } catch (error) {
+              return reply({ error: "Não consegui remover a implantação da hospedagem. O projeto continua salvo no painel. " + (error.message || ""), code: "deployment_delete_failed" }, 502);
+            }
           }
         }
         await env.DB.prepare("DELETE FROM bots WHERE id=? AND user_id=?").bind(id, user.id).run();
-        return reply({ ok: true, deleted: true, deploymentDeleted: !!bot.hosting_deployment_id });
+        return reply({ ok: true, deleted: true, deploymentDeleted, sharedDeploymentRetained: !!bot.hosting_deployment_id && !deploymentDeleted });
       }
 
       if (!action && request.method === "GET") {
@@ -1684,7 +1778,8 @@ export async function onRequest(context) {
         const modules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
         return reply({
           id: bot.id, name: bot.name, runtime: bot.runtime, state,
-          modules, hasDiscordToken: hasToken,
+          modules, customProject: typeof bot.custom_project === "string" ? JSON.parse(bot.custom_project || "null") : (bot.custom_project || null),
+          hasDiscordToken: hasToken,
           discordBotId, discordBotName,
           hostingDeploymentId: bot.hosting_deployment_id || null,
           scheduleEnabled: !!bot.schedule_enabled,
@@ -1954,11 +2049,25 @@ export async function onRequest(context) {
       }
 
       if (action === "upload-url" && request.method === "POST") {
-        if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Clique em Iniciar uma vez para preparar a hospedagem antes de enviar arquivos." }, 409);
         try {
           const b = await body(request);
           const root = safeVolumePath(b.path || "/");
-          return reply(await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/upload-url", "POST", { path: root }));
+          let deploymentId = bot.hosting_deployment_id || null;
+          if (!deploymentId) {
+            const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(user.id).first();
+            if (!hosting) return reply({ code: "hosting_not_connected", error: "Conecte o Bot-Hosting antes de enviar o pacote do bot." }, 409);
+            const scopes = String(hosting.scope || "").split(/\\s+/).filter(Boolean);
+            if (!scopes.includes("deployments:write") || !scopes.includes("credits:spend") || !scopes.includes("files:write")) {
+              return reply({ code: "hosting_scope_missing", error: "A autorização do Bot-Hosting precisa liberar criação e envio de arquivos. Reconecte a hospedagem nas Configurações." }, 403);
+            }
+            const safeName = ("black-zone-" + String(bot.name || "bot").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + String(bot.id).slice(0, 5)).replace(/-+/g, "-");
+            const created = await hostRequest(user.id, env, "/deployments", "POST", { name: safeName, source: "blank", runtime: "python", runtimeVersion: "3.11" });
+            deploymentId = String((created.deployment || created).id || "");
+            if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID do servidor para receber arquivos.");
+            await env.DB.prepare("UPDATE bots SET hosting_deployment_id=?,state='draft',updated_at=? WHERE id=? AND user_id=?").bind(deploymentId, Date.now(), id, user.id).run();
+          }
+          const signed = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/upload-url", "POST", { path: root });
+          return reply({ ...signed, deploymentId, path: root });
         } catch (error) { return reply({ error: error.message || "Falha ao preparar envio." }, 502); }
       }
 
@@ -1972,6 +2081,38 @@ export async function onRequest(context) {
         try {
           return reply(await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/decompress", "POST", { root: safeVolumePath(b.path || "/"), file, removeArchive: true }));
         } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP." }, 502); }
+      }
+
+      if (action === "import" && request.method === "POST") {
+        if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Envie o pacote para preparar a hospedagem primeiro." }, 409);
+        try {
+          const analysis = await scanImportedProject(user.id, env, bot.hosting_deployment_id);
+          if (!analysis.ok) return reply(analysis, 422);
+          const customProject = {
+            rootPath: "/", runtime: analysis.runtime, entryFile: analysis.entryFile,
+            startCommand: analysis.startCommand || null, dependencyFile: analysis.dependencyFile || null,
+            fileCount: analysis.fileCount, directoryCount: analysis.directoryCount,
+            imageCount: analysis.imageCount, importedAt: Date.now()
+          };
+          try {
+            const marker = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/content?path=%2Fcaos-version.txt");
+            if (String(marker.content || "").trim()) {
+              const main = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/content?path=%2Fmain.py");
+              if (String(main.content || "") === CAOS_MAIN_PY) await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/delete", "POST", { root: "/", files: ["/main.py"] });
+              await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/delete", "POST", { root: "/", files: ["/runner.py", "/caos-version.txt"] });
+            }
+          } catch {}
+          await env.DB.prepare("UPDATE bots SET runtime=?,custom_project=?::jsonb,state='stopped',updated_at=? WHERE id=? AND user_id=?")
+            .bind(analysis.runtime, JSON.stringify(customProject), Date.now(), id, user.id).run();
+          await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/startup", "PATCH", {
+            runtime: analysis.runtime, runtimeVersion: analysis.runtime === "nodejs" ? "22" : "3.11",
+            entryFile: analysis.entryFile, startCommand: customProject.startCommand
+          });
+          return reply({
+            ok: true, imported: true, customProject,
+            message: "Pacote analisado e salvo. O arquivo principal foi identificado; as dependências serão instaladas pela hospedagem na próxima inicialização."
+          });
+        } catch (error) { return reply({ error: error.message || "Falha ao analisar o pacote importado." }, 502); }
       }
 
       if (action === "shell" && request.method === "POST") {
@@ -2168,6 +2309,7 @@ async function ensureSchema(db) {
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS schedule_end TEXT NOT NULL DEFAULT '23:59'");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS schedule_timezone TEXT NOT NULL DEFAULT 'America/Bahia'");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS guild_id TEXT");
+      await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS custom_project JSONB");
       await db.raw("INSERT INTO app_state (id, owner_user_id) VALUES ('main', NULL) ON CONFLICT (id) DO NOTHING");
     })().catch(error => { schemaPromise = null; throw error; });
   }
