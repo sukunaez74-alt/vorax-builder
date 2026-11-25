@@ -2547,7 +2547,7 @@ export async function onRequest(context) {
           { id: "cogithost", name: "Cogithost", role: "servidor-conectado", ...cogithost, canCreate: false },
           { id: "aclclouds", name: "ACLClouds", role: "servidor-conectado", ...aclclouds, canCreate: false, canAttach: !!aclclouds.valid && !!aclclouds.canAttach },
           { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
-          { id: "squarecloud", name: "Square Cloud", role: "reserva-paga", ...square, canCreate: !!square.valid && !!square.canCreate },
+          { id: "squarecloud", name: "Square Cloud", role: "paga-fora-do-pool", ...square, canCreate: false },
           { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, canCreate: false, role: "compatibilidade-parcial", ...discloud, canCreate: false }
         ]
       });
@@ -3905,49 +3905,14 @@ export async function onRequest(context) {
             }
           }
 
-          let squareCapacityMessage = "";
-          if (squareToken) {
-            try {
-              const account = await squareCloudRequest(squareToken, "/users/me");
-              const availableMb = Number(account.user?.plan?.memory?.available || 0);
-              if (availableMb >= 512) {
-                const prepared = await prepareSquareCloudProject(archiveBytes, bot, b.runtime, env);
-                const form = new FormData();
-                form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
-                const created = await squareCloudRequest(squareToken, "/apps", "POST", null, form);
-                const appId = String(created.id || "");
-                if (!appId) throw new Error("A Square Cloud recebeu o ZIP, mas não retornou o ID da aplicação.");
-                await env.DB.prepare(
-                  "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='squarecloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
-                ).bind(appId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
-                if (Object.keys(prepared.envs).length) {
-                  await squareCloudRequest(squareToken, "/apps/" + encodeURIComponent(squareAppId(appId)) + "/envs", "POST", { envs: prepared.envs });
-                }
-                await squareCloudRequest(squareToken, "/apps/" + encodeURIComponent(squareAppId(appId)) + "/restart", "POST");
-                return reply({
-                  ok: true, provider: "squarecloud", providerAppId: appId,
-                  runtime: prepared.runtime, customProject: prepared.customProject,
-                  application: created,
-                  message: "ZIP enviado à Square Cloud, variáveis seguras aplicadas e inicialização confirmada pelo provedor."
-                });
-              }
-              squareCapacityMessage = "Sua conta Square Cloud tem apenas " + availableMb + " MB livres; são necessários 512 MB para criar este bot.";
-            } catch (error) {
-              const capacityCodes = new Set([
-                "APPLICATIONS_LIMIT_REACHED","INSUFFICIENT_MEMORY","CLUSTER_SELECTION_FAILED","project_limit_reached","free_slot_required","free_slot_lost","plan_limit_reached",
-                "CLUSTER_MAINTENANCE_TRY_LATER","CLUSTER_UNAVAILABLE","LOAD_BALANCER_LIMIT_REACHED"
-              ]);
-              if (!capacityCodes.has(String(error?.code || ""))) throw error;
-              squareCapacityMessage = error.message || "A Square Cloud não tem capacidade disponível.";
-            }
-          }
-
+          const squareCapacityMessage = "";
+          // Square Cloud exige assinatura e fica fora da seleção automática de novos bots.
           const providerIssues = [cubeCapacityMessage, squareCapacityMessage].filter(Boolean);
           return reply({
             code: providerIssues.length ? "provider_capacity_full" : "provider_not_connected",
             error: providerIssues.length
               ? providerIssues.join(" ") + " Nenhum bot existente foi alterado."
-              : "O Bot-Hosting está sem vaga. Conecte Cube Hosting ou Square Cloud nas Configurações para ampliar seu pool. A Discloud continua disponível apenas para projetos que já estão hospedados nela."
+              : "O Bot-Hosting está sem vaga. Para novos bots, o Estúdio só deve usar hospedagem gratuita. Conecte uma conta gratuita compatível; a Cube Hosting pode receber ZIP pelo Estúdio quando sua vaga Free estiver liberada. FadeHost e Quaxly têm planos grátis, mas o deploy deles precisa ser feito no painel do provedor. Nenhum serviço pago será escolhido automaticamente."
           }, providerIssues.length ? 402 : 409);
         } catch (error) {
           const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
