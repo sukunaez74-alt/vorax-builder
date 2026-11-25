@@ -859,6 +859,26 @@ export async function onRequest(context) {
         } catch (error) { return reply({ error: error.message || "Falha ao listar arquivos." }, 502); }
       }
 
+      if (action === "files" && subPath === "download-url" && request.method === "GET") {
+        if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Hospedagem não preparada." }, 409);
+        try {
+          const filePath = safeVolumePath(url.searchParams.get("path"));
+          return reply(await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/download-url?path=" + encodeURIComponent(filePath)));
+        } catch (error) { return reply({ error: error.message || "Falha ao preparar download." }, 502); }
+      }
+
+      if (action === "files" && subPath === "compress" && request.method === "POST") {
+        if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Hospedagem não preparada." }, 409);
+        const b = await body(request);
+        const root = safeVolumePath(b.root || "/");
+        const items = Array.isArray(b.files) ? b.files : [];
+        if (!items.length || items.length > 300) return reply({ error: "Selecione de 1 a 300 arquivos ou pastas para exportar." }, 400);
+        const files = items.map(item => safeVolumePath(item));
+        try {
+          return reply(await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/files/compress", "POST", { root, files }));
+        } catch (error) { return reply({ error: error.message || "Falha ao criar o arquivo ZIP." }, 502); }
+      }
+
       if (action === "files" && subPath === "content" && request.method === "GET") {
         if (!bot.hosting_deployment_id) return reply({ code: "not_deployed", error: "Inicie o bot antes de ler arquivos." }, 409);
         try {
