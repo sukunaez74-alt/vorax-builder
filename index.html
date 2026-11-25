@@ -555,15 +555,31 @@ function overviewView(){const bot=state.bots[0];return pageHead("Visão geral","
 '<section class="hero"><div class="hero-content"><div class="caps">BLACK ZONE • CENTRAL DE CRIAÇÃO</div><h2>Seu próximo bot começa por uma boa ideia.</h2><p>Crie um projeto, escolha Python ou Node.js e organize os módulos do CAOS. Não é necessário vincular uma chave de API para usar o espaço de projetos.</p><div class="hero-actions"><button class="btn" id="heroCreate">Criar meu projeto ↗</button><button class="btn secondary" data-view="templates">Explorar modelos</button></div></div></section>'+
 '<div class="grid stats"><div class="card stat-card"><div class="stat-icon">🤖</div><div><div class="stat-value">'+state.bots.length+'</div><div class="stat-label">Projetos criados</div></div></div><div class="card stat-card"><div class="stat-icon">◉</div><div><div class="stat-value">'+state.bots.filter(b=>b.state==="running").length+'</div><div class="stat-label">Bots em execução</div></div></div><div class="card stat-card"><div class="stat-icon">✦</div><div><div class="stat-value">Livre</div><div class="stat-label">Acesso ao workspace</div></div></div><div class="card stat-card"><div class="stat-icon">◷</div><div><div class="stat-value">Em breve</div><div class="stat-label">Execução agendada</div></div></div></div>'+
 '<div class="grid two-col"><section class="card"><div class="section-head"><h3>Projetos recentes</h3><button class="link" data-view="bots">Ver todos ↗</button></div>'+(bot?botCard(bot):'<div class="empty"><b>Seu espaço está pronto</b>Crie o primeiro projeto. Ele ficará salvo na sua conta, sem chave de API.</div>')+'</section><section class="card"><div class="section-head"><h3>Próximos passos</h3><span class="caps">ESTÚDIO</span></div><div class="list"><div class="log-line"><span class="time">01</span>Crie um projeto Python ou Node.js.</div><div class="log-line"><span class="time">02</span>Escolha os módulos que deseja organizar.</div><div class="log-line"><span class="time">03</span>A execução 24/7 será habilitada quando o executor de bots estiver conectado.</div></div></section></div>'}
-function botCard(b){const stateLabel=b.state==="running"?"Em execução":"Projeto salvo";return '<div class="bot-row"><div class="bot-logo">🤖</div><div class="bot-info"><strong>'+escapeHtml(b.name||"Projeto sem nome")+'</strong><span>'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token Discord protegido":"Token Discord pendente")+'</span></div><span class="status off">'+stateLabel+'</span><button class="btn secondary" data-openbot="'+escapeHtml(b.id)+'">Abrir</button></div>'}
-function botsView(){return pageHead("Meus projetos","Crie e organize seus bots sem vincular uma chave de API.",'<button class="btn" id="addBot">＋ Criar projeto</button>')+'<div class="card"><div class="section-head"><h3>Seus projetos</h3><button class="btn secondary" id="refreshBots">↻ Atualizar</button></div><div class="list">'+(state.bots.length?state.bots.map(botCard).join(""):'<div class="empty"><b>Seu primeiro projeto começa aqui</b>Crie um projeto agora. Ele será salvo no seu espaço sem conexão externa.</div>')+'</div></div>'}
+function botStatusLabel(b){
+ if(b.scheduleEnabled)return "Agenda diária";
+ if(b.state==="running")return "Servidor ativo";
+ if(b.state==="stopped"||b.state==="offline")return "Parado";
+ if(b.hostingDeploymentId)return "Hospedagem criada";
+ return "Pronto para iniciar";
+}
+function botCard(b){
+ const label=botStatusLabel(b);
+ const active=b.state==="running";
+ return '<div class="bot-row"><div class="bot-logo">🤖</div><div class="bot-info"><strong>'+escapeHtml(b.name||"Projeto sem nome")+'</strong><span>'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token Discord protegido":"Token Discord pendente")+'</span></div><span class="status '+(active?"":"off")+'">'+label+'</span><button class="btn secondary" data-openbot="'+escapeHtml(b.id)+'">Gerenciar</button></div>';
+}
+function botsView(){return pageHead("Meus bots","Controle a execução, os horários e os comandos do seu bot Discord.",'<button class="btn" id="addBot">＋ Criar projeto</button>')+'<div class="card"><div class="section-head"><h3>Seus bots</h3><button class="btn secondary" id="refreshBots">↻ Atualizar</button></div><div class="list">'+(state.bots.length?state.bots.map(botCard).join(""):'<div class="empty"><b>Nenhum bot cadastrado</b>Crie seu bot, proteja o token e conecte a hospedagem para iniciar.</div>')+'</div></div>'}
 function templatesView(){return pageHead("Modelos prontos","Escolha uma base para organizar o projeto e seus módulos.")+'<div class="grid two-col"><section class="card"><div class="bot-row"><div class="bot-logo">⚡</div><div class="bot-info"><strong>CAOS • Bot de gerenciamento</strong><span>Python • Equipe, tickets, metas, recrutamento e música</span></div><span class="status off">Modelo</span></div><p class="muted small" style="margin:17px 0">Configure os módulos do CAOS e salve suas preferências no Estúdio. Não é necessário informar chave de API nesta etapa. A execução do bot será liberada quando o executor estiver conectado.</p><button class="btn" id="configureCaos">Configurar módulos CAOS ↗</button></section><section class="card"><div class="caps">CATÁLOGO</div><h3>Mais modelos em breve</h3><p class="muted small">O catálogo será ampliado com novas bases de bots.</p></section></div>'}
 function modulesMarkup(){return '<div class="project-note" style="margin:14px 0"><strong>Escolha somente o que seu código oferece.</strong><br>Os módulos começam desligados. Não precisa ativar todos; marque apenas os recursos que realmente existem no seu bot.</div><div class="grid module-grid">'+Object.entries(moduleNames).map(([k,n])=>'<label class="module"><div class="module-top"><strong>'+n+'</strong><input type="checkbox" class="toggle module-toggle" data-module="'+k+'" '+(state.modules[k]?"checked":"")+'></div><small>Ativar este módulo</small></label>').join("")+'</div>'}
 function filesView(){return pageHead("Pacotes e arquivos","A área de envio será ativada junto com o executor de bots.")+'<section class="card"><div class="project-note"><strong>Seu projeto já pode ser criado e configurado.</strong><br>O envio de ZIP e a publicação de arquivos ainda precisam do executor de bots. Por enquanto, você pode organizar o projeto e os módulos sem vincular nenhuma chave de API.</div></section>'}
-function schedulesView(){return pageHead("Agendamentos","Prepare as rotinas que poderão ser executadas pelo seu bot.")+'<div class="card"><div class="empty"><b>Agendamentos ainda não ativados</b>Os horários automáticos serão ligados quando o executor de bots estiver pronto. Nenhuma execução fictícia será exibida.</div></div>'}
+function schedulesView(){
+ return pageHead("Agendamentos","Defina a janela diária em que cada bot deve ficar conectado ao Discord.")+
+ '<div class="card"><div class="section-head"><h3>Rotinas dos seus bots</h3></div>'+
+ (state.bots.length?'<div class="list">'+state.bots.map(b=>'<div class="bot-row"><div class="bot-logo">◷</div><div class="bot-info"><strong>'+escapeHtml(b.name)+'</strong><span>'+(b.scheduleEnabled?'Online entre '+escapeHtml(b.scheduleStart)+' e '+escapeHtml(b.scheduleEnd):'Sem agendamento diário')+' • America/Bahia</span></div><button class="btn secondary" data-schedule="'+escapeHtml(b.id)+'">Configurar horário</button></div>').join('')+'</div>':'<div class="empty"><b>Nenhum bot cadastrado</b>Crie um bot antes de configurar os horários.</div>')+
+ '</div>';
+}
 function logsView(){return pageHead("Atividade","Acompanhe os eventos do seu espaço.")+'<div class="card"><div class="empty"><b>Ainda não há registros de execução</b>Os logs aparecem aqui quando um bot estiver publicado em um executor. Seus projetos e preferências já ficam salvos no banco de dados.</div></div>'}
 function settingsView(){return pageHead("Configurações","Gerencie sua conta e veja a situação do ambiente.")+'<div class="grid settings-grid"><section class="card"><div class="section-head"><h3>Seu espaço de criação</h3><span class="status">Sem chave de API</span></div><p class="muted small">Você pode criar projetos, escolher a linguagem e salvar os módulos sem vincular Bot-Hosting ou informar uma chave externa.</p><div class="project-note"><strong>Sobre a execução dos bots</strong><br>O painel e o banco já funcionam. Para iniciar bots Discord e mantê-los ativos 24 horas, ainda será necessário ligar um executor de processos. Isso é diferente de uma chave de API para entrar no painel.</div></section><section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">Sessões protegidas por cookie HttpOnly. As senhas são armazenadas com hash seguro no servidor.</p></section><section class="card"><div class="section-head"><h3>Diagnóstico do sistema</h3><span class="status">Verificação</span></div><p class="muted small">Verifique a API e a conexão real com o PostgreSQL.</p><button class="btn secondary" id="healthCheck">Testar sistema</button><div id="healthResult" class="list" style="margin-top:14px"></div></section></div>'}
-function bindView(){const add=()=>createBotModal();["addBot","heroCreate"].forEach(id=>{const e=$("#"+id);if(e)e.onclick=add});const conf=$("#configureCaos");if(conf)conf.onclick=()=>caosModal();const ref=$("#refreshBots");if(ref)ref.onclick=loadBots;document.querySelectorAll("[data-openbot]").forEach(b=>b.onclick=()=>openBot(b.dataset.openbot));document.querySelectorAll("[data-view]").forEach(b=>{if(!b.dataset.bound){b.dataset.bound="1";b.addEventListener("click",()=>navigate(b.dataset.view))}});const hc=$("#healthCheck");if(hc)hc.onclick=healthCheck}
+function bindView(){const add=()=>createBotModal();["addBot","heroCreate"].forEach(id=>{const e=$("#"+id);if(e)e.onclick=add});const conf=$("#configureCaos");if(conf)conf.onclick=()=>caosModal();const ref=$("#refreshBots");if(ref)ref.onclick=loadBots;document.querySelectorAll("[data-openbot]").forEach(b=>b.onclick=()=>openBot(b.dataset.openbot));document.querySelectorAll("[data-schedule]").forEach(b=>b.onclick=()=>openBot(b.dataset.schedule));document.querySelectorAll("[data-view]").forEach(b=>{if(!b.dataset.bound){b.dataset.bound="1";b.addEventListener("click",()=>navigate(b.dataset.view))}});const hc=$("#healthCheck");if(hc)hc.onclick=healthCheck}
 function openModal(content){$("#modalRoot").innerHTML='<div class="modal-wrap" id="modalWrap"><div class="modal">'+content+'</div></div>';$("#modalWrap").onclick=e=>{if(e.target.id==="modalWrap")closeModal()};const c=$("#closeModal");if(c)c.onclick=closeModal}
 function closeModal(){$("#modalRoot").innerHTML=""}
 function createBotModal(){openModal('<div class="modal-head"><h3>Criar novo bot</h3><button class="close" id="closeModal">×</button></div><form id="createBotForm"><div class="field"><label>NOME DO PROJETO</label><input name="name" value="CAOS" required maxlength="48"></div><div class="field"><label>LINGUAGEM</label><select name="runtime"><option value="python">Python</option><option value="nodejs">Node.js</option></select></div><div class="field"><label>TOKEN DO BOT DISCORD</label><input name="discordToken" type="password" autocomplete="new-password" placeholder="Cole o Bot Token da seção Bot do Discord Developer Portal" minlength="30" maxlength="256" required></div><div class="project-note"><strong>Use o Bot Token, não a Public Key.</strong><br>O token será conferido diretamente com o Discord e guardado criptografado no servidor. Não use Client ID, Client Secret ou Public Key.</div><button class="btn wide">Criar projeto e proteger token ↗</button></form>');$("#createBotForm").onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api("/bots",{method:"POST",body:JSON.stringify({name:f.get("name"),runtime:f.get("runtime"),discordToken:f.get("discordToken")})});closeModal();toast("Projeto criado e token Discord protegido.");await loadBots();navigate("bots")}catch(err){toast(err.message)}}}
@@ -598,9 +614,88 @@ function caosModal(targetId){
    catch(e){toast(e.message)}
  };
 }
-async function loadSettings(){state.hosting=false}
-function openBot(id){const b=state.bots.find(x=>x.id===id);if(!b)return;state.activeBot=id;const enabled=Object.values(b.modules||{}).filter(Boolean).length;openModal('<div class="modal-head"><h3>'+escapeHtml(b.name||"Projeto")+'</h3><button class="close" id="closeModal">×</button></div><p class="muted small">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • projeto salvo no seu workspace</p><div class="grid stats" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:15px 0"><div class="card"><div class="stat-label">STATUS</div><div class="stat-value" style="font-size:17px">Em preparação</div></div><div class="card"><div class="stat-label">MÓDULOS ATIVOS</div><div class="stat-value">'+enabled+'</div></div></div><div class="project-note"><strong>'+(b.hasDiscordToken?"Token Discord protegido no servidor.":"Token Discord ainda não informado.")+'</strong><br>O token é necessário para autenticar este bot no Discord. A execução 24 horas ainda exige um executor de processos conectado.</div><div class="hero-actions" style="margin-top:16px"><button class="btn" id="botModules">Configurar token e módulos</button><button class="btn secondary" id="botClose">Fechar</button></div>');$("#botModules").onclick=()=>caosModal(id);$("#botClose").onclick=closeModal}
-
+async function loadSettings(){
+ try{const r=await api("/hosting/status");state.hosting=!!r.connected;}
+ catch{state.hosting=false;}
+ const result=new URLSearchParams(window.location.search).get("hosting");
+ if(result){
+   const messages={connected:"Conta Bot-Hosting conectada com segurança.",cancelled:"A autorização da hospedagem foi cancelada.",expired:"A autorização expirou. Tente conectar novamente.",error:"Não consegui concluir a autorização do Bot-Hosting."};
+   toast(messages[result]||"Retorno da hospedagem recebido.");
+   window.history.replaceState({},document.title,window.location.pathname);
+ }
+}
+async function openBot(id){
+ let b=state.bots.find(x=>x.id===id);if(!b)return;
+ try{b={...b,...await api("/bots/"+encodeURIComponent(id))};}catch(e){toast(e.message);}
+ state.activeBot=id;
+ const enabled=Object.values(b.modules||{}).filter(Boolean).length;
+ const connected=!!state.hosting;
+ const botId=b.discordBotId||null;
+ const invite=botId?"https://discord.com/oauth2/authorize?client_id="+encodeURIComponent(botId)+"&permissions=288484432&scope=bot%20applications.commands":"";
+ const isRunning=b.state==="running";
+ const schedule=b.scheduleEnabled;
+ const scheduleText=schedule?(b.scheduleStart+" até "+b.scheduleEnd+" • America/Bahia"):"Sem horário limitado (conforme a disponibilidade da hospedagem)";
+ const connectPanel=connected
+   ? '<div class="project-note"><strong>Hospedagem conectada.</strong><br>O painel está autorizado a criar, iniciar e parar o servidor deste bot.</div>'
+   : '<div class="project-note"><strong>Conecte sua hospedagem para ativar os controles.</strong><br>Você será levado ao Bot-Hosting para entrar e aprovar o acesso. Não precisa copiar chave de API.</div>';
+ openModal(
+ '<div class="modal-head"><h3>'+escapeHtml(b.name||"Projeto")+'</h3><button class="close" id="closeModal">×</button></div>'+
+ '<p class="muted small">'+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token do Discord protegido":"Token do Discord pendente")+'</p>'+
+ '<div class="grid stats" style="grid-template-columns:repeat(2,minmax(0,1fr));margin:15px 0">'+
+ '<div class="card"><div class="stat-label">STATUS DO SERVIDOR</div><div class="stat-value" style="font-size:17px">'+(isRunning?"Online":(b.hostingDeploymentId?"Parado":"Não iniciado"))+'</div></div>'+
+ '<div class="card"><div class="stat-label">MÓDULOS ATIVOS</div><div class="stat-value">'+enabled+'</div></div></div>'+
+ connectPanel+
+ '<div class="hero-actions" style="margin-top:14px;flex-wrap:wrap">'+
+ (connected?'<button class="btn" id="botStart" '+(isRunning?"disabled":"")+'>▶ Iniciar</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!isRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar Bot-Hosting</button>')+
+ '<button class="btn secondary" id="botModules">Configurar token e módulos</button></div>'+
+ '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Horário de funcionamento</h3><span class="status off">'+(schedule?"Agendado":"Sem agenda")+'</span></div>'+
+ '<label class="module" style="display:flex;align-items:center;gap:12px"><input id="scheduleEnabled" type="checkbox" class="toggle" '+(schedule?"checked":"")+'><span><strong>Ativar horário diário</strong><small>O supervisor liga e desliga o processo do bot automaticamente</small></span></label>'+
+ '<div class="grid two-col" style="margin-top:12px"><div class="field"><label>FICAR ONLINE A PARTIR DE</label><input id="scheduleStart" type="time" value="'+escapeHtml(b.scheduleStart||"00:00")+'"></div><div class="field"><label>FICAR OFFLINE A PARTIR DE</label><input id="scheduleEnd" type="time" value="'+escapeHtml(b.scheduleEnd||"23:59")+'"></div></div>'+
+ '<div class="field"><label>ID DO SERVIDOR DISCORD (OPCIONAL)</label><input id="scheduleGuildId" inputmode="numeric" placeholder="Para sincronizar comandos imediatamente" value="'+escapeHtml(b.guildId||"")+'"></div>'+
+ '<div class="project-note"><strong>Fuso horário: America/Bahia.</strong><br>Sem agenda, o supervisor mantém o bot online enquanto a hospedagem estiver ativa. Com agenda, o processo do Discord só roda dentro da janela diária.</div>'+
+ '<button class="btn wide" id="saveBotSchedule">Salvar horário e servidor</button></section>'+
+ '<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
+ (invite?'<a class="btn wide" href="'+escapeHtml(invite)+'" target="_blank" rel="noopener">Adicionar bot ao servidor Discord ↗</a>':'<p class="muted small">O convite aparece depois que o servidor valida o token do Discord na primeira inicialização.</p>')+
+ '<p class="muted small" style="margin-top:12px">O CAOS sincroniza os comandos de aplicativo ao iniciar. Com o ID do servidor preenchido acima, o registro é direcionado para esse servidor e costuma aparecer mais rápido; sem ele, os comandos são globais e podem levar um tempo para propagar.</p></section>'+
+ '<div class="hero-actions" style="margin-top:14px"><button class="btn secondary" id="botClose">Fechar</button></div>'
+ );
+ const connect=$("#connectHosting");
+ if(connect)connect.onclick=async()=>{
+   connect.disabled=true;connect.textContent="Preparando autorização...";
+   try{const r=await api("/hosting/connect");window.location.assign(r.authorizationUrl);}
+   catch(e){toast(e.message);connect.disabled=false;connect.textContent="Conectar Bot-Hosting";}
+ };
+ const modules=$("#botModules");if(modules)modules.onclick=()=>caosModal(id);
+ const close=$("#botClose");if(close)close.onclick=closeModal;
+ const runPower=async(action)=>{
+   const btn=$("#bot"+(action==="start"?"Start":action==="stop"?"Stop":"Restart"));
+   if(btn){btn.disabled=true;btn.textContent=action==="start"?"Iniciando...":action==="stop"?"Parando...":"Reiniciando...";}
+   try{
+     const result=await api("/bots/"+encodeURIComponent(id)+"/power",{method:"POST",body:JSON.stringify({action})});
+     await loadBots();
+     if(action==="stop")toast("Servidor parado.");
+     else if(result.commandsSynced)toast("Bot iniciado. Comandos do Discord sincronizados.");
+     else toast("Servidor iniciado. Confira os logs enquanto o Discord registra os comandos.");
+     await openBot(id);
+   }catch(e){toast(e.message);if(btn){btn.disabled=false;btn.textContent=action==="start"?"▶ Iniciar":action==="stop"?"■ Parar":"↻ Reiniciar";}}
+ };
+ if($("#botStart"))$("#botStart").onclick=()=>runPower("start");
+ if($("#botStop"))$("#botStop").onclick=()=>runPower("stop");
+ if($("#botRestart"))$("#botRestart").onclick=()=>runPower("restart");
+ if($("#botLogs"))$("#botLogs").onclick=async()=>{
+   try{const r=await api("/bots/"+encodeURIComponent(id)+"/logs");const lines=r.lines||[];openModal('<div class="modal-head"><h3>Logs do bot</h3><button class="close" id="closeModal">×</button></div><pre class="log-line" style="max-height:55vh;overflow:auto;white-space:pre-wrap">'+escapeHtml(lines.join("\n")||"Sem saída recente.")+'</pre>');}
+   catch(e){toast(e.message)}
+ };
+ if($("#saveBotSchedule"))$("#saveBotSchedule").onclick=async()=>{
+   const enabled=$("#scheduleEnabled").checked;
+   const start=$("#scheduleStart").value,end=$("#scheduleEnd").value,guildId=$("#scheduleGuildId").value.trim();
+   const btn=$("#saveBotSchedule");btn.disabled=true;btn.textContent="Salvando...";
+   try{
+     await api("/bots/"+encodeURIComponent(id)+"/schedule",{method:"POST",body:JSON.stringify({enabled,start,end,guildId})});
+     await loadBots();toast("Horário e servidor salvos.");await openBot(id);
+   }catch(e){toast(e.message);btn.disabled=false;btn.textContent="Salvar horário e servidor";}
+ };
+}
 async function loadBots(){try{const r=await api("/bots");state.bots=Array.isArray(r.deployments)?r.deployments:[];render()}catch(err){toast(err.message)}}
 async function loadLogs(){const b=state.bots[0];if(!b)return toast("Nenhum bot encontrado.");try{const r=await api("/bots/"+encodeURIComponent(b.id)+"/logs");$("#logsArea").innerHTML=(r.lines||[]).map(l=>'<div class="log-line">'+escapeHtml(l)+'</div>').join("")||'<div class="empty">Nenhuma saída recente.</div>'}catch(e){toast(e.message)}}
 function formatBytes(n){if(!Number.isFinite(Number(n)))return "—";const v=Number(n);if(v<1024)return v+" B";if(v<1048576)return (v/1024).toFixed(1)+" KB";return (v/1048576).toFixed(1)+" MB"}
