@@ -841,32 +841,24 @@ async function loadSettingsHostingState(){
 function verificationAdminView(){
  const r=state.verificationAdmin||{},runtime=r.runtime||{},live=runtime.online===true;
  const status=live?"ONLINE":runtime.state==="not_deployed"?"NÃO IMPLANTADO":String(runtime.state||"PENDENTE").toUpperCase();
- const connection=!r.hostingConnected?"Conecte o Bot-Hosting na página Configurações usando sua conta proprietária.":(!r.configured?"Salve Client ID, Client Secret, Bot Token e o convite do servidor.":"Configuração salva e protegida.");
- return pageHead("Bot de verificação","Controle o único bot central que atende todos os usuários do Estúdio.")+
- '<div class="grid two-col">'+
+ const connection=!r.hostingConnected?"Conecte o Bot-Hosting na página Configurações usando sua conta proprietária.":(!r.configured?"Informe o Bot Token e o convite do seu servidor.":"Token e convite salvos e protegidos.");
+ return pageHead("Bot de verificação","Configure uma única vez o bot central usado por todos os usuários do Estúdio.")+
  '<section class="card"><div class="section-head"><h3>Estado do bot central</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+status+'</span></div>'+
  '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot ainda não identificado")+'</strong><br>'+escapeHtml(connection)+
  (runtime.guilds!==undefined?'<br>Servidores conectados: <b>'+Number(runtime.guilds)+'</b>':"")+
  (runtime.heartbeatAt?'<br>Último sinal: '+escapeHtml(new Date(runtime.heartbeatAt).toLocaleString("pt-BR")):"")+'</div>'+
- '<div class="hero-actions" style="margin-top:14px"><button class="btn" id="verificationStart" '+(!r.configured||!r.hostingConnected?"disabled":"")+'>▶ Iniciar / atualizar</button><button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="verificationRefresh">↻ Atualizar status</button></div>'+
- '<p class="muted small" style="margin-top:14px">A implantação é separada dos bots dos usuários e fica na hospedagem autorizada pela conta proprietária. Comandos: /verificar, /painel_verificacao e /link_servidor.</p></section>'+
- '<section class="card"><div class="section-head"><h3>Link público de verificação</h3><span class="status">Para todos</span></div><p class="muted small">O bot envia este endereço. A pessoa autoriza apenas a identificação básica no Discord e depois é encaminhada ao seu convite.</p>'+
- '<div class="field"><label>ENDEREÇO DA VERIFICAÇÃO</label><input id="verificationPublicUrl" readonly value="https://black-zone-estudio.vercel.app/api/verification/start"></div><button class="btn secondary" id="verificationCopy">Copiar link</button></section></div>'+
- '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Credenciais e destino</h3><span class="status">Somente administrador</span></div>'+
- '<p class="muted small">Use os dados da mesma aplicação no Discord Developer Portal. Client ID e Client Secret habilitam o OAuth2; Bot Token mantém o bot conectado. Os valores são enviados ao servidor e armazenados criptografados. Nunca os envie pelo chat.</p>'+
+ '<div class="hero-actions" style="margin-top:14px"><button class="btn" id="verificationStart" '+(!r.configured||!r.hostingConnected?"disabled":"")+'>▶ Iniciar / atualizar</button><button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"") +'>■ Parar</button><button class="btn secondary" id="verificationRefresh">↻ Atualizar status</button></div>'+
+ '<p class="muted small" style="margin-top:14px">O bot fica salvo na hospedagem da conta proprietária. Comandos: /verificar, /painel_verificacao e /link_servidor.</p></section>'+
+ '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Configuração do bot</h3><span class="status">Somente administrador</span></div>'+
+ '<p class="muted small">Preencha somente o Bot Token e o convite do seu servidor. O token é validado diretamente com o Discord e armazenado criptografado. Nunca envie o token pelo chat.</p>'+
  '<form id="verificationBotConfigForm" class="grid settings-grid">'+
- '<div class="field"><label>APPLICATION ID / CLIENT ID</label><input id="verificationClientId" name="clientId" inputmode="numeric" autocomplete="off" placeholder="ID numérico da aplicação" value="'+escapeHtml(r.clientId||"")+'" required></div>'+
- '<div class="field"><label>CLIENT SECRET · OAUTH2</label><input id="verificationClientSecret" name="clientSecret" type="password" autocomplete="new-password" placeholder="Cole o Client Secret"></div>'+
- '<div class="field"><label>BOT TOKEN</label><input id="verificationBotToken" name="botToken" type="password" autocomplete="new-password" placeholder="Cole o Bot Token da aplicação"></div>'+
- '<div class="field"><label>CONVITE DO SEU SERVIDOR</label><input id="verificationInviteUrl" name="inviteUrl" type="url" value="'+escapeHtml(r.inviteUrl||"https://discord.gg/2vtk5ASg4")+'" placeholder="https://discord.gg/..." required></div><div class="field"><label>REDIRECT URI · CADASTRAR NO DISCORD DEVELOPER PORTAL</label><input id="verificationRedirectUri" readonly value="https://black-zone-estudio.vercel.app/api/verification/callback"><small class="muted">Cadastre exatamente este endereço em OAuth2 → Redirects, na mesma aplicação do bot.</small><button class="btn secondary" type="button" id="verificationCopyRedirect">Copiar Redirect URI</button></div>'+
- '<div style="grid-column:1/-1"><button class="btn" id="verificationSave" type="submit">Salvar configuração segura</button></div></form>'+
- '<div class="notice" style="margin-top:14px">Os segredos nunca são exibidos novamente depois de salvos. Deixe os campos de segredo vazios para manter os valores já armazenados.</div><div class="project-note" style="margin-top:14px"><strong>Adicionar o bot ao seu servidor</strong><br>Depois de salvar a configuração, use o botão abaixo para instalar o bot com apenas as permissões de visualizar canais, enviar mensagens e enviar embeds. Não concede Administrador.</div><a class="btn secondary" style="display:inline-flex;text-decoration:none;align-items:center;margin-top:12px" id="verificationInviteBot"  href="https://discord.com/oauth2/authorize?client_id='+encodeURIComponent(r.clientId||"")+'&permissions=19456&scope=bot%20applications.commands" target="_blank" rel="noopener noreferrer">Adicionar bot ao servidor ↗</a></section>';
+ '<div class="field"><label>BOT TOKEN</label><input id="verificationBotToken" name="botToken" type="password" autocomplete="new-password" placeholder="Cole aqui o token do seu bot"></div>'+
+ '<div class="field"><label>CONVITE DO SEU SERVIDOR</label><input id="verificationInviteUrl" name="inviteUrl" type="url" value="'+escapeHtml(r.inviteUrl||"")+'" placeholder="https://discord.gg/..." required></div>'+
+ '<div style="grid-column:1/-1"><button class="btn" id="verificationSave" type="submit">Salvar token e convite</button></div></form>'+
+ '<div class="notice" style="margin-top:14px">O token nunca é exibido novamente depois de salvo. Deixe o campo Token vazio para manter o que já está armazenado.</div>'+
+ '<div class="project-note" style="margin-top:14px"><strong>Adicionar o bot ao seu servidor</strong><br>Depois de salvar, use o botão abaixo para adicionar o bot com permissões básicas de canais, mensagens e embeds, sem conceder Administrador.</div>'+
+ '<a class="btn secondary" style="display:inline-flex;text-decoration:none;align-items:center;margin-top:12px" id="verificationInviteBot" href="https://discord.com/oauth2/authorize?client_id='+encodeURIComponent(r.botId||"")+'&permissions=19456&scope=bot%20applications.commands" target="_blank" rel="noopener noreferrer">Adicionar bot ao servidor ↗</a></section>';
 }
-async function loadVerificationBotAdmin(){
- try{const r=await api("/admin/verification-bot/status");state.verificationAdmin=r;if(state.view==="verificationAdmin")render()}
- catch(error){const area=$("#verificationRuntimeInfo");if(area)area.innerHTML="<strong>Não foi possível consultar o bot central.</strong><br>"+escapeHtml(error.message)}
-}
-
 function settingsView(){
  const linked=!!state.user?.discordLinked;
  const linkedName=state.user?.discordUsername||"Conta Discord vinculada";
@@ -888,13 +880,12 @@ function bindView(){
   e.preventDefault();const button=$("#verificationSave");if(button){button.disabled=true;button.textContent="Validando e criptografando…"}
   try{
    const result=await api("/admin/verification-bot/config",{method:"POST",body:JSON.stringify({
-    clientId:$("#verificationClientId").value.trim(),clientSecret:$("#verificationClientSecret").value,
     botToken:$("#verificationBotToken").value,inviteUrl:$("#verificationInviteUrl").value.trim()
    })});
-   $("#verificationClientSecret").value="";$("#verificationBotToken").value="";
-   toast(result.message||"Configuração salva.");await loadVerificationBotAdmin();
+   $("#verificationBotToken").value="";
+   toast(result.message||"Token e convite salvos.");await loadVerificationBotAdmin();
   }catch(error){toast(error.message)}
-  finally{if(button){button.disabled=false;button.textContent="Salvar configuração segura"}}
+  finally{if(button){button.disabled=false;button.textContent="Salvar token e convite"}}
  };
  const verifyStart=$("#verificationStart");if(verifyStart)verifyStart.onclick=async()=>{
   verifyStart.disabled=true;verifyStart.textContent="Preparando hospedagem…";
@@ -908,14 +899,6 @@ function bindView(){
   catch(error){toast(error.message)}finally{if($("#verificationStop"))$("#verificationStop").disabled=false}
  };
  const verifyRefresh=$("#verificationRefresh");if(verifyRefresh)verifyRefresh.onclick=loadVerificationBotAdmin;
- const verifyCopy=$("#verificationCopy");if(verifyCopy)verifyCopy.onclick=async()=>{
-  try{await navigator.clipboard.writeText($("#verificationPublicUrl").value);toast("Link de verificação copiado.")}
-  catch{toast("Não foi possível copiar automaticamente. Selecione o link e copie.")}
- };
- const verifyCopyRedirect=$("#verificationCopyRedirect");if(verifyCopyRedirect)verifyCopyRedirect.onclick=async()=>{
-  try{await navigator.clipboard.writeText($("#verificationRedirectUri").value);toast("Redirect URI copiado.")}
-  catch{toast("Não foi possível copiar automaticamente. Selecione o endereço e copie.")}
- };
 
  const add=()=>createBotModal();
  ["addBot","heroCreate"].forEach(id=>{const e=$("#"+id);if(e)e.onclick=add});
