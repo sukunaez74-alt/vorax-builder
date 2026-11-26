@@ -4508,7 +4508,8 @@ export async function onRequest(context) {
           const archiveName = String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
-          const maxArchiveBytes = isAclCloudsTarget ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
+          const isKeritCloudTarget = String(bot.hosting_provider || "").toLowerCase() === "keritcloud" && !!bot.provider_app_id;
+          const maxArchiveBytes = (isAclCloudsTarget || isKeritCloudTarget) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
           const uploadId = String(b.uploadId || "");
           if (uploadId) {
@@ -4556,6 +4557,16 @@ export async function onRequest(context) {
 
           // Preserve projetos existentes no provedor atual. Para novos projetos,
           // use somente provedores gratuitos autorizados e com vaga real.
+          if (currentProvider === "keritcloud" && currentAppId) {
+            const token = await providerToken(user.id, "keritcloud", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+            try {
+              const deployed = await keritDeployZip(token, currentAppId, archiveBytes, archiveName, bot, b.runtime, user.id, env);
+              return reply(deployed);
+            } catch (error) {
+              return reply({ code: "kerit_upload_failed", error: error.message || "Falha ao publicar o bot no Kerit Cloud. Os arquivos anteriores foram preservados." }, 502);
+            }
+          }
           if (currentProvider === "aclclouds" && currentAppId) {
             const aclToken = await providerToken(user.id, "aclclouds", env);
             if (!aclToken) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações para atualizar este bot." }, 409);
