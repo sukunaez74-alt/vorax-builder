@@ -1229,6 +1229,37 @@ function bindView(){
   }catch(error){toast(error.message||"Não consegui vincular o servidor.");}
   finally{button.disabled=false;button.textContent="Vincular servidor ao projeto"}
  };
+ const filesAclForm=$("#filesAclConnectForm");
+ if(filesAclForm)filesAclForm.onsubmit=async e=>{
+  e.preventDefault();
+  const input=$("#filesAclApiToken"),button=$("#filesAclConnectButton"),token=(input?.value||"").trim();
+  if(!token){toast("Cole a API Key ACLClouds antes de conectar.");input?.focus();return;}
+  button.disabled=true;button.textContent="Validando API Key…";
+  try{
+   const result=await api("/hosting/aclclouds/connect",{method:"POST",body:JSON.stringify({apiToken:token})});
+   input.value="";
+   toast(result.message||"ACLClouds conectada com segurança.");
+   await loadDiscloudHostingState();
+  }catch(error){toast(error.message||"Não consegui conectar ACLClouds.");}
+  finally{button.disabled=false;button.textContent="Conectar ACLClouds ao Estúdio";}
+ };
+ const filesAclAttach=$("#filesAclAttachForm");
+ if(filesAclAttach)filesAclAttach.onsubmit=async e=>{
+  e.preventDefault();
+  const botId=$("#filesAclBotSelect")?.value,serverId=$("#filesAclServerSelect")?.value,button=$("#filesAclAttachButton");
+  if(!botId)return toast("Selecione um projeto do Black Zone.");
+  if(!serverId)return toast("Conecte a ACLClouds e selecione o servidor gratuito.");
+  button.disabled=true;button.textContent="Vinculando servidor…";
+  try{
+   const result=await api("/hosting/aclclouds/attach",{method:"POST",body:JSON.stringify({botId,serverId})});
+   state.activeBot=botId;
+   toast(result.message||"Servidor ACLClouds vinculado. Agora escolha o ZIP e informe o token do Discord.");
+   await loadBots();
+   state.activeBot=botId;
+   await loadDiscloudHostingState();
+  }catch(error){toast(error.message||"Não consegui vincular o servidor ACLClouds.");}
+  finally{if($("#filesAclAttachButton")){button.disabled=false;button.textContent="Vincular servidor ao projeto";}}
+ };
  const aclForm=$("#aclConnectForm");
  if(aclForm)aclForm.onsubmit=async e=>{
   e.preventDefault();
