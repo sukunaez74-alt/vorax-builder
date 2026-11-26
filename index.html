@@ -1040,8 +1040,8 @@ function logsView(){
  return pageHead("Terminal e registros","Consulte os logs e execute comandos no container da hospedagem.",'<button class="btn secondary" id="refreshLogs">↻ Atualizar logs</button>')+
  '<section class="dashboard-panel logs-full"><div class="field"><label>PROJETO</label><select id="logsBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div>'+
  '<div class="terminal-window"><div class="terminal-top"><i></i><i></i><i></i><span>black-zone · logs do processo</span></div><div id="logsArea" class="terminal-content"><div class="dashboard-empty">Selecione um projeto e atualize os logs.</div></div></div>'+
- ((bot.hostingProvider==="squarecloud"||bot.hostingProvider==="discloud"||bot.hostingProvider==="cubecloud"||bot.hostingProvider==="cogithost")
-  ? '<div class="project-note">'+(bot.hostingProvider==="cogithost"?'O gerenciador de arquivos e os controles de energia do Cogithost estão ligados ao Estúdio. O console ao vivo fica no painel Cogithost; a API Client não fornece terminal HTTP.':(bot.hostingProvider==="cubecloud"?'O Estúdio usa a API da Cube Hosting para arquivos (quando o plano permite), logs e controles de iniciar/parar/reiniciar. O terminal interativo não está ligado.':(bot.hostingProvider==="squarecloud"?'A API da Square Cloud não oferece terminal de comandos no painel. Você continua com acesso aos logs, navegador de arquivos, edição, download e controles de iniciar/parar/reiniciar.':'A integração Discloud mantém logs e controles de iniciar/parar. O terminal e o gerenciador de arquivos completos não estão disponíveis pela API pública no Estúdio.')))+'</div>'
+ ((bot.hostingProvider==="squarecloud"||bot.hostingProvider==="discloud"||bot.hostingProvider==="cubecloud"||bot.hostingProvider==="cogithost"||bot.hostingProvider==="sillydev")
+  ? '<div class="project-note">'+(bot.hostingProvider==="sillydev"?'O Estúdio envia ZIPs, consulta recursos e controla a energia do Silly Development. Para acompanhar o console ao vivo, abra o painel Silly Development.':(bot.hostingProvider==="cogithost"?'O gerenciador de arquivos e os controles de energia do Cogithost estão ligados ao Estúdio. O console ao vivo fica no painel Cogithost; a API Client não fornece terminal HTTP.':(bot.hostingProvider==="cubecloud"?'O Estúdio usa a API da Cube Hosting para arquivos (quando o plano permite), logs e controles de iniciar/parar/reiniciar. O terminal interativo não está ligado.':(bot.hostingProvider==="squarecloud"?'A API da Square Cloud não oferece terminal de comandos no painel. Você continua com acesso aos logs, navegador de arquivos, edição, download e controles de iniciar/parar/reiniciar.':'A integração Discloud mantém logs e controles de iniciar/parar. O terminal e o gerenciador de arquivos completos não estão disponíveis pela API pública no Estúdio.'))))+'</div>'
   : '<div class="shell-panel"><div class="dashboard-panel-head"><div><small>TERMINAL DO CONTAINER</small><h2>Executar comando</h2></div><span class="small-muted">Shell da hospedagem</span></div><div class="shell-command-row"><input id="shellCommand" spellcheck="false" placeholder="Ex.: python --version ou ls -la"><button class="btn" id="shellRun">Executar ↗</button></div><pre class="shell-output" id="shellOutput">O terminal executa comandos no container deste bot; não é o stdin do processo Discord.</pre></div>')+'</section>';
 }function backupsView(){
  const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
@@ -1310,6 +1310,7 @@ async function loadDiscloudHostingState(){
   if(node){node.innerHTML="<strong>Não consegui consultar o pool.</strong><br>"+message;node.classList.add("changes-pending")}
   if(squareNode){squareNode.innerHTML="<strong>Não consegui consultar a Square Cloud.</strong><br>"+message;squareNode.classList.add("changes-pending")}
   if(cubeNode){cubeNode.innerHTML="<strong>Não consegui consultar Cube Hosting.</strong><br>"+message;cubeNode.classList.add("changes-pending")}
+  if(sillydevNode){sillydevNode.innerHTML="<strong>Não consegui consultar Silly Development.</strong><br>"+message;sillydevNode.classList.add("changes-pending")}
   if(cogitNode){cogitNode.innerHTML="<strong>Não consegui consultar Cogithost.</strong><br>"+message;cogitNode.classList.add("changes-pending")}
   if(aclNode){aclNode.innerHTML="<strong>Não consegui consultar ACLClouds.</strong><br>"+message;aclNode.classList.add("changes-pending")}
   if(keritNode){keritNode.innerHTML="<strong>Não consegui consultar Kerit Cloud.</strong><br>"+message;keritNode.classList.add("changes-pending")}
@@ -2082,7 +2083,7 @@ async function openBot(id){
  state.activeBot=id;
  const enabled=Object.values(b.modules||{}).filter(Boolean).length;
  try{const hostStatus=await api("/hosting/status");state.hosting=!!hostStatus.connected;}catch{state.hosting=false;}
- const externalProvider=["discloud","squarecloud","cubecloud","cogithost","keritcloud","aclclouds"].includes(String(b.hostingProvider||""));
+ const externalProvider=["discloud","squarecloud","cubecloud","cogithost","sillydev","keritcloud","aclclouds"].includes(String(b.hostingProvider||""));
  const connected=externalProvider||!!state.hosting;
  const botId=b.discordBotId||null;
  const serverRunning=b.state==="running";const isRunning=b.discordOnline===true;
@@ -2593,7 +2594,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error(result.error||"O provedor alternativo não confirmou a criação da aplicação.");
- const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":(result.provider==="waifly"?"Waifly":(result.provider==="xsystems"?"X Systems Hosting":(result.provider==="torchlite"?"Torchlite":(result.provider==="daki"?"Daki Hosting":(result.provider==="unixsys"?"Unixsys":(result.provider==="consolex1"?"ConsoleX1":"Discloud")))))))))));
+ const providerName=result.provider==="sillydev"?"Silly Development":(result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":(result.provider==="waifly"?"Waifly":(result.provider==="xsystems"?"X Systems Hosting":(result.provider==="torchlite"?"Torchlite":(result.provider==="daki"?"Daki Hosting":(result.provider==="unixsys"?"Unixsys":(result.provider==="consolex1"?"ConsoleX1":"Discloud"))))))))))));
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
  state.activeBot=id;
