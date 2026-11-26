@@ -372,6 +372,108 @@ async function readVerificationBotStatus(userId, env, settings) {
     logs: Array.isArray(runtime.logs) ? runtime.logs.slice(-18) : []
   };
 }
+async function adminCaosSettings(env) {
+  return await env.DB.prepare(
+    "SELECT id,owner_user_id,bot_token_enc,bot_id,bot_name,hosting_deployment_id,package_uploaded_at,state,updated_at FROM admin_caos_settings WHERE id='main'"
+  ).first();
+}
+async function saveAdminCaosToken(user, input, env) {
+  const old = await adminCaosSettings(env);
+  if (old && String(old.owner_user_id) !== String(user.id)) throw new Error("A configuração CAOS já pertence à conta administradora principal.");
+  const token = normalizeDiscordBotToken(input.botToken);
+  if (!token) throw new Error("Cole o token do bot Discord antes de salvar.");
+  const identity = await validateDiscordBotToken(token);
+  if (!identity.valid) {
+    if (identity.unavailable) throw new Error("Não consegui validar o token com o Discord agora. Tente novamente.");
+    throw new Error("O Discord recusou o token. Confira se você copiou o Bot Token correto.");
+  }
+  const encrypted = await encryptSecret(token, env);
+  await env.DB.prepare(
+    "INSERT INTO admin_caos_settings (id,owner_user_id,bot_token_enc,bot_id,bot_name,state,updated_at) VALUES ('main',?,?,?,?, 'draft',?) ON CONFLICT (id) DO UPDATE SET bot_token_enc=EXCLUDED.bot_token_enc,bot_id=EXCLUDED.bot_id,bot_name=EXCLUDED.bot_name,state=CASE WHEN admin_caos_settings.package_uploaded_at IS NULL THEN 'draft' ELSE admin_caos_settings.state END,updated_at=EXCLUDED.updated_at"
+  ).bind(user.id, encrypted, identity.botId, identity.botName || null, Date.now()).run();
+  return { ok: true, configured: true, botId: identity.botId, botName: identity.botName || null, message: "Token validado e salvo protegido no painel." };
+}
+async function ensureAdminCaosDeployment(userId, env, settings) {
+  if (settings?.hosting_deployment_id) return String(settings.hosting_deployment_id);
+  const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(userId).first();
+  const scopes = String(hosting?.scope || "").split(/\s+/).filter(Boolean);
+  const missing = ["deployments:write","credits:spend","files:write"].filter(scope => !scopes.includes(scope));
+  if (!hosting || missing.length) {
+    throw new Error("Reconecte o Bot-Hosting pelo botão desta página e autorize criação de servidores e envio de arquivos.");
+  }
+  const name = "black-zone-caos-adm";
+  const existing = await hostRequest(userId, env, "/deployments?name=" + encodeURIComponent(name) + "&brief=true");
+  const matches = Array.isArray(existing.deployments) ? existing.deployments : [];
+  const found = matches.find(item => item && item.name === name && item.owned !== false && item.id);
+  let deploymentId = found ? String(found.id) : "";
+  if (!deploymentId) {
+    let created;
+    try {
+      created = await hostRequest(userId, env, "/deployments", "POST", {
+        name, source: "blank", runtime: "python", runtimeVersion: "3.11"
+      });
+    } catch (error) {
+      if (/HTTP 402\b/.test(String(error?.message || ""))) {
+        throw new Error("O plano gratuito do Bot-Hosting não tem uma vaga livre para criar este bot. O painel não vai contratar um plano pago nem substituir outro bot.");
+      }
+      throw error;
+    }
+    const deployment = created.deployment || created;
+    deploymentId = String(deployment.id || "");
+    if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID do servidor CAOS.");
+  }
+  await env.DB.prepare(
+    "INSERT INTO admin_caos_settings (id,owner_user_id,hosting_deployment_id,state,updated_at) VALUES ('main',?,?,'draft',?) ON CONFLICT (id) DO UPDATE SET hosting_deployment_id=EXCLUDED.hosting_deployment_id,updated_at=EXCLUDED.updated_at"
+  ).bind(userId, deploymentId, Date.now()).run();
+  return deploymentId;
+}
+async function readAdminCaosRuntime(userId, env, settings) {
+  const deploymentId = settings?.hosting_deployment_id || null;
+  if (!deploymentId) return { state: "not_deployed", online: false, deploymentId: null, logs: [] };
+  let diagnosis = {};
+  let logsResponse = {};
+  try {
+    diagnosis = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=0");
+  } catch (error) {
+    return { state: "error", online: false, deploymentId, error: error.message, logs: [] };
+  }
+  try {
+    logsResponse = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/logs?size=100&waitSeconds=0");
+  } catch {}
+  const rawLines = Array.isArray(logsResponse.logs) ? logsResponse.logs
+    : Array.isArray(logsResponse.lines) ? logsResponse.lines
+    : Array.isArray(diagnosis.logs) ? diagnosis.logs : [];
+  const lines = rawLines.map(item => typeof item === "string" ? item : String(item?.message || item?.line || JSON.stringify(item))).slice(-60);
+  const state = String(diagnosis.state || diagnosis.deployment?.state || settings.state || "unknown").toLowerCase();
+  const ready = lines.some(line => /CAOS conectado como|logged in as/i.test(line));
+  return {
+    state, online: state === "running", discordReady: ready, deploymentId,
+    botName: settings.bot_name || null, logs: lines,
+    hint: diagnosis.hint || null, error: diagnosis.error || null,
+    packageUploaded: !!settings.package_uploaded_at
+  };
+}
+async function adminCaosHostingInfo(userId, env) {
+  const hosting = await env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(userId).first();
+  const scopes = String(hosting?.scope || "").split(/\s+/).filter(Boolean);
+  const required = ["deployments:write","credits:spend","files:write"];
+  let diagnostic = { ok: false, message: hosting ? "Verificando autorização do Bot-Hosting…" : "Bot-Hosting ainda não conectado." };
+  if (hosting) {
+    try {
+      await hostRequest(userId, env, "/deployments?brief=true");
+      diagnostic = { ok: true, message: "Conexão com Bot-Hosting confirmada." };
+    } catch (error) {
+      diagnostic = { ok: false, message: error.message || "Não consegui validar a hospedagem." };
+    }
+  }
+  return {
+    hostingConnected: !!hosting,
+    hostingCanCreate: required.every(scope => scopes.includes(scope)),
+    hostingMissingScopes: required.filter(scope => !scopes.includes(scope)),
+    hostingDiagnostic: diagnostic
+  };
+}
+
 async function saveVerificationBotSettings(user, input, env) {
   const old = await verificationBotSettings(env);
   const inviteUrl = String(input.inviteUrl || old?.invite_url || "").trim();
@@ -2184,6 +2286,128 @@ export async function onRequest(context) {
     }
     const auth = await requireUser(request, env); if (auth.error) return auth.error; const user = auth.user;
 
+
+    if (path === "/admin/caos/status" && request.method === "GET") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const settings = await adminCaosSettings(env);
+      if (settings && String(settings.owner_user_id) !== String(user.id)) return reply({ error: "A configuração CAOS pertence a outra conta." }, 403);
+      const hosting = await adminCaosHostingInfo(user.id, env);
+      const runtime = await readAdminCaosRuntime(user.id, env, settings);
+      return reply({
+        configured: !!settings?.bot_token_enc,
+        hasToken: !!settings?.bot_token_enc,
+        botId: settings?.bot_id || null,
+        botName: settings?.bot_name || null,
+        deploymentId: settings?.hosting_deployment_id || null,
+        packageUploaded: !!settings?.package_uploaded_at,
+        updatedAt: settings?.updated_at || null,
+        ...hosting,
+        runtime
+      });
+    }
+    if (path === "/admin/caos/config" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      try {
+        const result = await saveAdminCaosToken(user, await body(request), env);
+        return reply(result);
+      } catch (error) {
+        return reply({ error: error.message || "Não foi possível salvar o token CAOS." }, 400);
+      }
+    }
+    if (path === "/admin/caos/upload-url" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const settings = await adminCaosSettings(env);
+      if (!settings?.bot_token_enc) return reply({ error: "Salve e valide primeiro o token do bot Discord." }, 409);
+      if (settings.package_uploaded_at) return reply({ error: "O pacote CAOS já foi instalado. Para proteger seu banco SQLite, esta instalação não será sobrescrita." }, 409);
+      try {
+        const deploymentId = await ensureAdminCaosDeployment(user.id, env, settings);
+        await waitForHostReinstall(user.id, env, deploymentId);
+        const signed = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/upload-url", "POST", { path: "/" });
+        return reply({ ...signed, deploymentId });
+      } catch (error) {
+        if (error?.code === "hosting_installing") return reply({ code: "hosting_installing", error: error.message, retryAfterMs: Number(error.retryAfterMs || 1800) }, 202);
+        return reply({ error: error.message || "Não consegui preparar o envio do pacote CAOS." }, 502);
+      }
+    }
+    if (path === "/admin/caos/install" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const settings = await adminCaosSettings(env);
+      if (!settings?.bot_token_enc) return reply({ error: "Salve primeiro o token do bot Discord." }, 409);
+      if (settings.package_uploaded_at) return reply({ error: "O pacote CAOS já foi instalado. Seu banco de dados foi protegido contra sobrescrita." }, 409);
+      const file = String((await body(request)).file || "");
+      if (!/^[A-Za-z0-9._-]{1,140}\.zip$/i.test(file) || file.includes("..")) return reply({ error: "Nome de ZIP inválido." }, 400);
+      const deploymentId = settings.hosting_deployment_id;
+      if (!deploymentId) return reply({ error: "Prepare primeiro a hospedagem para receber o pacote." }, 409);
+      try {
+        await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/decompress", "POST", {
+          root: "/", file, removeArchive: true
+        });
+        const token = await decryptSecret(settings.bot_token_enc, env);
+        if (!token) throw new Error("Não consegui abrir o token protegido. Salve novamente o token do Discord.");
+        await setHostEnv(user.id, env, deploymentId, "DISCORD_TOKEN", token, true);
+        await setHostEnv(user.id, env, deploymentId, "TOKEN", token, true);
+        await setHostEnv(user.id, env, deploymentId, "APP_URL", "https://black-zone-estudio.vercel.app", false);
+        await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
+          runtime: "python", runtimeVersion: "3.11", entryFile: "main.py", startCommand: null
+        });
+        await env.DB.prepare("UPDATE admin_caos_settings SET package_uploaded_at=?,state='starting',updated_at=? WHERE id='main' AND owner_user_id=?")
+          .bind(Date.now(), Date.now(), user.id).run();
+        let applied = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", {
+          restart: true, waitSeconds: 45
+        });
+        const currentState = String(applied.state || applied.deployment?.state || "").toLowerCase();
+        if (["offline","stopped","terminated","unknown",""].includes(currentState)) {
+          applied = { ...applied, ...(await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "start", waitSeconds: 45 })) };
+        }
+        await env.DB.prepare("UPDATE admin_caos_settings SET state='starting',updated_at=? WHERE id='main' AND owner_user_id=?")
+          .bind(Date.now(), user.id).run();
+        return reply({
+          ok: true, deploymentId, state: String(applied.state || applied.deployment?.state || "starting").toLowerCase(),
+          message: "Pacote CAOS instalado e comando de inicialização enviado. Confira os logs para confirmar a conexão com o Discord."
+        });
+      } catch (error) {
+        return reply({ error: error.message || "Falha ao instalar ou iniciar o pacote CAOS." }, 502);
+      }
+    }
+    if (path === "/admin/caos/power" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const settings = await adminCaosSettings(env);
+      if (!settings?.bot_token_enc || !settings.package_uploaded_at || !settings.hosting_deployment_id) {
+        return reply({ error: "Salve o token e instale o pacote CAOS antes de iniciar." }, 409);
+      }
+      const action = String((await body(request)).action || "").toLowerCase();
+      if (!["start","stop","restart"].includes(action)) return reply({ error: "Ação inválida." }, 400);
+      try {
+        const deploymentId = settings.hosting_deployment_id;
+        if (action === "stop") {
+          await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "stop", waitSeconds: 0 });
+          await env.DB.prepare("UPDATE admin_caos_settings SET state='offline',updated_at=? WHERE id='main' AND owner_user_id=?")
+            .bind(Date.now(), user.id).run();
+          return reply({ ok: true, state: "offline", message: "Bot CAOS parado." });
+        }
+        const token = await decryptSecret(settings.bot_token_enc, env);
+        if (!token) throw new Error("Não consegui abrir o token protegido. Salve novamente o token do Discord.");
+        const identity = await validateDiscordBotToken(token);
+        if (!identity.valid) throw new Error("O Discord não confirmou o token salvo. Atualize a credencial.");
+        await setHostEnv(user.id, env, deploymentId, "DISCORD_TOKEN", token, true);
+        await setHostEnv(user.id, env, deploymentId, "TOKEN", token, true);
+        await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
+          runtime: "python", runtimeVersion: "3.11", entryFile: "main.py", startCommand: null
+        });
+        let applied = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", {
+          restart: true, waitSeconds: 45
+        });
+        const currentState = String(applied.state || applied.deployment?.state || "").toLowerCase();
+        if (["offline","stopped","terminated","unknown",""].includes(currentState)) {
+          applied = { ...applied, ...(await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "start", waitSeconds: 45 })) };
+        }
+        await env.DB.prepare("UPDATE admin_caos_settings SET state='starting',updated_at=? WHERE id='main' AND owner_user_id=?")
+          .bind(Date.now(), user.id).run();
+        return reply({ ok: true, action, state: String(applied.state || applied.deployment?.state || "starting").toLowerCase(), message: "Comando enviado ao Bot-Hosting." });
+      } catch (error) {
+        return reply({ error: error.message || "Não foi possível iniciar o bot CAOS." }, 502);
+      }
+    }
 
     if (path === "/admin/verification-bot/status" && request.method === "GET") {
       if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
@@ -4506,6 +4730,7 @@ async function ensureSchema(db) {
         `CREATE TABLE IF NOT EXISTS discord_link_states (state TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, code_verifier TEXT, expires_at BIGINT NOT NULL)`,
         "CREATE INDEX IF NOT EXISTS idx_discord_states_expiry ON discord_states(expires_at)",
         "CREATE TABLE IF NOT EXISTS verification_bot_settings (id TEXT PRIMARY KEY,owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,bot_token_enc TEXT,bot_id TEXT,bot_name TEXT,oauth_client_id TEXT,oauth_client_secret_enc TEXT,invite_url TEXT,hosting_deployment_id TEXT,state TEXT NOT NULL DEFAULT 'draft',updated_at BIGINT NOT NULL DEFAULT 0)",
+        "CREATE TABLE IF NOT EXISTS admin_caos_settings (id TEXT PRIMARY KEY,owner_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,bot_token_enc TEXT,bot_id TEXT,bot_name TEXT,hosting_deployment_id TEXT,package_uploaded_at BIGINT,state TEXT NOT NULL DEFAULT 'draft',updated_at BIGINT NOT NULL DEFAULT 0)",
         "CREATE TABLE IF NOT EXISTS verification_states (state TEXT PRIMARY KEY,invite_url TEXT NOT NULL,expires_at BIGINT NOT NULL)",
         "CREATE INDEX IF NOT EXISTS idx_verification_states_expiry ON verification_states(expires_at)",
         "CREATE TABLE IF NOT EXISTS discord_verifications (discord_id TEXT PRIMARY KEY,discord_username TEXT NOT NULL,avatar_hash TEXT,verified_at BIGINT NOT NULL)",
