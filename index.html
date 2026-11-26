@@ -1144,8 +1144,8 @@ function verificationAdminView(){
 }
 
 async function loadDiscloudHostingState(){
- const node=$("#settingsDiscloudState"),squareNode=$("#settingsSquareState"),cubeNode=$("#settingsCubeState")||$("#filesCubeState"),cogitNode=$("#settingsCogitState"),keritNode=$("#settingsKeritState"),aclNode=$("#settingsAclState")||$("#filesAclState"),waiflyNode=$("#waiflyState"),xsystemsNode=$("#xsystemsState"),torchliteNode=$("#torchliteState"),dakiNode=$("#dakiState");
- if(!node&&!squareNode&&!cubeNode&&!cogitNode&&!keritNode&&!aclNode&&!waiflyNode&&!xsystemsNode&&!torchliteNode&&!dakiNode)return;
+ const node=$("#settingsDiscloudState"),squareNode=$("#settingsSquareState"),cubeNode=$("#settingsCubeState")||$("#filesCubeState"),cogitNode=$("#settingsCogitState"),keritNode=$("#settingsKeritState"),aclNode=$("#settingsAclState")||$("#filesAclState"),waiflyNode=$("#waiflyState"),xsystemsNode=$("#xsystemsState"),torchliteNode=$("#torchliteState"),dakiNode=$("#dakiState"),unixsysNode=$("#unixsysState"),consolex1Node=$("#consolex1State");
+ if(!node&&!squareNode&&!cubeNode&&!cogitNode&&!keritNode&&!aclNode&&!waiflyNode&&!xsystemsNode&&!torchliteNode&&!dakiNode&&!unixsysNode&&!consolex1Node)return;
  try{
   const result=await api("/hosting/pool/status");
   const providers=Array.isArray(result.providers)?result.providers:[];
@@ -1158,6 +1158,8 @@ async function loadDiscloudHostingState(){
   const xsystems=providers.find(provider=>provider.id==="xsystems")||{};
   const torchlite=providers.find(provider=>provider.id==="torchlite")||{};
   const daki=providers.find(provider=>provider.id==="daki")||{};
+  const unixsys=providers.find(provider=>provider.id==="unixsys")||{};
+  const consolex1=providers.find(provider=>provider.id==="consolex1")||{};
   const aclclouds=providers.find(provider=>provider.id==="aclclouds")||{};
   const discloud=providers.find(provider=>provider.id==="discloud")||{};
   if(cogitNode){
@@ -1232,6 +1234,22 @@ async function loadDiscloudHostingState(){
     }catch(error){select.innerHTML='<option value="">Falha ao listar servidores</option>';}
    }
   }
+  if(unixsysNode){
+   unixsysNode.innerHTML="<strong>"+(unixsys.valid?"Conectada · "+Number(unixsys.serversCount||0)+" servidor(es)":(unixsys.connected?"Chave conectada, mas não validada":"Ainda não conectada"))+"</strong><br><small>"+(unixsys.valid?(unixsys.detail||"UniFree · 256 MB RAM · servidor criado pelo Discord Unixsys."):"Free: 1 servidor por pessoa · 256 MB RAM · atividade na comunidade a cada 24 horas.")+"</small>";
+   unixsysNode.classList.toggle("changes-pending",!unixsys.valid);
+   const select=$("#unixsysServerSelect");
+   if(select&&unixsys.valid){try{const loaded=await api("/hosting/unixsys/servers"),servers=Array.isArray(loaded.servers)?loaded.servers:[];
+    select.innerHTML=servers.length?'<option value="">Selecione um servidor</option>'+servers.map(x=>'<option value="'+escapeHtml(x.id)+'">'+escapeHtml(x.name)+' · '+Number(x.memoryMb||0)+' MB · '+Number(x.diskMb||0)+' MB'+(x.suspended?" · suspenso":"")+'</option>').join(""):'<option value="">Crie seu servidor com /create-server no Discord Unixsys.</option>';
+   }catch(error){select.innerHTML='<option value="">Falha ao listar servidores</option>';}}
+  }
+  if(consolex1Node){
+   consolex1Node.innerHTML="<strong>"+(consolex1.valid?"Conectada · "+Number(consolex1.serversCount||0)+" servidor(es)":(consolex1.connected?"Chave conectada, mas não validada":"Ainda não conectada"))+"</strong><br><small>"+(consolex1.valid?(consolex1.detail||"Free · 256 MB RAM · 512 MB disco."):"Free: 1 servidor · altere um arquivo a cada 7 dias para evitar suspensão.")+"</small>";
+   consolex1Node.classList.toggle("changes-pending",!consolex1.valid);
+   const select=$("#consolex1ServerSelect");
+   if(select&&consolex1.valid){try{const loaded=await api("/hosting/consolex1/servers"),servers=Array.isArray(loaded.servers)?loaded.servers:[];
+    select.innerHTML=servers.length?'<option value="">Selecione um servidor</option>'+servers.map(x=>'<option value="'+escapeHtml(x.id)+'">'+escapeHtml(x.name)+' · '+Number(x.memoryMb||0)+" MB"+(x.suspended?" · suspenso":"")+'</option>').join(""):'<option value="">Crie seu servidor pelo Discord ConsoleX1.</option>';
+   }catch(error){select.innerHTML='<option value="">Falha ao listar servidores</option>';}}
+  }
   if(aclNode){
    const aclText=aclclouds.valid
     ? "Conectada · "+escapeHtml(aclclouds.accountLabel||"ACLClouds")+" · "+Number(aclclouds.botsCount||0)+" bot(s) Discord nesta conta"
@@ -1282,6 +1300,8 @@ async function loadDiscloudHostingState(){
   if(keritNode){keritNode.innerHTML="<strong>Não consegui consultar Kerit Cloud.</strong><br>"+message;keritNode.classList.add("changes-pending")}
   if(torchliteNode){torchliteNode.innerHTML="<strong>Não consegui consultar Torchlite.</strong><br>"+message;torchliteNode.classList.add("changes-pending")}
   if(dakiNode){dakiNode.innerHTML="<strong>Não consegui consultar Daki Hosting.</strong><br>"+message;dakiNode.classList.add("changes-pending")}
+  if(unixsysNode){unixsysNode.innerHTML="<strong>Não consegui consultar Unixsys.</strong><br>"+message;unixsysNode.classList.add("changes-pending")}
+  if(consolex1Node){consolex1Node.innerHTML="<strong>Não consegui consultar ConsoleX1.</strong><br>"+message;consolex1Node.classList.add("changes-pending")}
  }
 }
 
