@@ -2308,31 +2308,7 @@ export async function onRequest(context) {
       const token = cookieMap(request).bz_session; if (token) await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await sha(token)).run();
       return reply({ ok: true }, 200, { "set-cookie": clearCookie("bz_session") });
     }
-  if (path === "/admin/caos/sync-commands-once-b7f4d2a9" && request.method === "GET") {
-    if (!env.DB) return reply({ error: "Banco de dados indisponível." }, 503);
-    try {
-      const settings = await adminCaosSettings(env);
-      if (!settings?.hosting_deployment_id || !settings?.owner_user_id) return reply({ error: "Configuração CAOS sem hospedagem vinculada." }, 409);
-      const userId = String(settings.owner_user_id);
-      const deploymentId = String(settings.hosting_deployment_id);
-      const before = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=0");
-      const beforeState = String(before.state || before.deployment?.state || settings.state || "unknown").toLowerCase();
-      const patchScript = "from pathlib import Path\nimport py_compile\np = Path(\"main.py\")\ns = p.read_text(encoding=\"utf-8\")\nold_ready = \"\"\"@bot.event\nasync def on_ready():\n    await restore_open_recruitment_chat_permissions()\n    print(\"=\" * 55)\n    print(f\"CAOS conectado como {bot.user} ({bot.user.id})\")\n    print(f\"Servidores: {len(bot.guilds)}\")\n    print(\"Banco de dados:\", DB_PATH)\n    print(\"=\" * 55)\n\"\"\"\nnew_ready = \"\"\"# Publica os comandos por servidor para aparecerem imediatamente no Discord.\nCOMMAND_SYNCED_GUILDS: set[int] = set()\n\n\n@bot.event\nasync def on_ready():\n    for guild in bot.guilds:\n        if guild.id in COMMAND_SYNCED_GUILDS:\n            continue\n        guild_scope = discord.Object(id=guild.id)\n        try:\n            bot.tree.copy_global_to(guild=guild_scope)\n            synced = await bot.tree.sync(guild=guild_scope)\n            COMMAND_SYNCED_GUILDS.add(guild.id)\n            print(\n                f\"Comandos sincronizados no servidor {guild.name} ({guild.id}): \"\n                f\"{len(synced)} comando(s).\"\n            )\n        except (discord.HTTPException, discord.Forbidden):\n            logger.exception(\n                \"Falha ao sincronizar comandos no servidor %s (%s)\",\n                guild.name, guild.id,\n            )\n    await restore_open_recruitment_chat_permissions()\n    print(\"=\" * 55)\n    print(f\"CAOS conectado como {bot.user} ({bot.user.id})\")\n    print(f\"Servidores: {len(bot.guilds)}\")\n    print(f\"Comandos publicados por servidor: {len(COMMAND_SYNCED_GUILDS)}/{len(bot.guilds)}\")\n    print(\"Banco de dados:\", DB_PATH)\n    print(\"=\" * 55)\n\"\"\"\nif new_ready in s:\n    print(\"A sincronização por servidor já está instalada.\")\nelif old_ready in s:\n    s = s.replace(old_ready, new_ready, 1)\n    p.write_text(s, encoding=\"utf-8\")\nelse:\n    raise SystemExit(\"Não encontrei o on_ready original; nenhum arquivo foi alterado.\")\npy_compile.compile(str(p), doraise=True)\nprint(\"PATCHED main.py; compilação Python OK.\")\n";
-      const shellCommand = "python - <<'PY'\n" + patchScript + "\nPY";
-      const shell = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/shell", "POST", { command: shellCommand, timeout: 45, maxChars: 12000 });
-      const applied = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", { restart: true, waitSeconds: 35 });
-      let diagnosis = {};
-      try { diagnosis = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=35"); } catch (error) { diagnosis = { error: String(error?.message || error) }; }
-      const state = String(diagnosis.state || diagnosis.deployment?.state || applied.state || "unknown").toLowerCase();
-      const raw = Array.isArray(diagnosis.logs) ? diagnosis.logs : (Array.isArray(diagnosis.lines) ? diagnosis.lines : []);
-      const logs = raw.map(x => typeof x === "string" ? x : String(x?.message || x?.line || "")).filter(x => !/DISCORD_TOKEN|BOT_TOKEN|token=/i.test(x)).slice(-50);
-      await env.DB.prepare("UPDATE admin_caos_settings SET state=?,updated_at=? WHERE id='main' AND owner_user_id=?").bind(state === "running" ? "running" : state, Date.now(), userId).run();
-      return reply({ ok: state === "running", beforeState, patch: shell?.stdout || shell?.output || shell?.message || shell, appliedState: applied.state || applied.deployment?.state || null, state, logs });
-    } catch (error) { return reply({ error: error.message || "Falha ao sincronizar comandos CAOS." }, 502); }
-  }
-    const isTempCaosCommandSync = path === "/admin/caos/sync-commands-once-b7f4d2a9" && request.method === "GET";
-    const auth = isTempCaosCommandSync ? { user: null } : await requireUser(request, env);
-    if (!isTempCaosCommandSync && auth.error) return auth.error;
+    const auth = await requireUser(request, env); if (auth.error) return auth.error;
     const user = auth.user;
 
 
