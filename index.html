@@ -1352,7 +1352,41 @@ function bindView(){
   }catch(error){toast(error.message||"Não consegui vincular o servidor.");}
   finally{button.disabled=false;button.textContent="Vincular servidor ao projeto"}
  };
- const keritForm=$("#keritConnectForm");
+ 
+  [
+   {id:"waifly",name:"Waifly"},
+   {id:"xsystems",name:"X Systems Hosting"}
+  ].forEach(provider=>{
+   const connectForm=$("#"+provider.id+"ConnectForm");
+   if(connectForm)connectForm.onsubmit=async e=>{
+    e.preventDefault();
+    const input=$("#"+provider.id+"ApiToken"),button=$("#"+provider.id+"ConnectButton"),token=(input?.value||"").trim();
+    if(!token){toast("Cole a Client API Key de "+provider.name+".");input?.focus();return;}
+    button.disabled=true;button.textContent="Validando API Key…";
+    try{
+     const result=await api("/hosting/"+provider.id+"/connect",{method:"POST",body:JSON.stringify({apiToken:token})});
+     input.value="";toast(result.message||provider.name+" conectado com segurança.");
+     await loadDiscloudHostingState();
+    }catch(error){toast(error.message||"Não consegui conectar "+provider.name+".");}
+    finally{button.disabled=false;button.textContent="Validar e conectar "+provider.name;}
+   };
+   const attachForm=$("#"+provider.id+"AttachForm");
+   if(attachForm)attachForm.onsubmit=async e=>{
+    e.preventDefault();
+    const botId=$("#"+provider.id+"BotSelect")?.value,serverId=$("#"+provider.id+"ServerSelect")?.value,button=$("#"+provider.id+"AttachButton");
+    if(!botId){toast("Selecione um projeto do Estúdio.");return;}
+    if(!serverId){toast("Crie o servidor gratuito na conta "+provider.name+" e atualize a lista.");return;}
+    button.disabled=true;button.textContent="Vinculando servidor…";
+    try{
+     const result=await api("/hosting/"+provider.id+"/attach",{method:"POST",body:JSON.stringify({botId,serverId})});
+     state.activeBot=botId;toast(result.message||"Servidor "+provider.name+" vinculado.");
+     await loadBots();await loadDiscloudHostingState();navigate("files");
+    }catch(error){toast(error.message||"Não consegui vincular o servidor "+provider.name+".");}
+    finally{button.disabled=false;button.textContent="Vincular servidor ao projeto";}
+   };
+  });
+
+const keritForm=$("#keritConnectForm");
  if(keritForm)keritForm.onsubmit=async e=>{
   e.preventDefault();
   const input=$("#keritApiToken"),button=$("#keritConnectButton"),token=(input?.value||"").trim();
@@ -2411,18 +2445,18 @@ async function prepareFallbackArchive(file,status,maxBytes=5*1024*1024){
 async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
  const targetBot=state.bots.find(bot=>bot.id===id);
  const provider=String(targetBot?.hostingProvider||"").toLowerCase();
- const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds","keritcloud"].includes(provider);
+ const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds","keritcloud","waifly","xsystems"].includes(provider);
  const isAclClouds=existingProvider&&provider==="aclclouds";
- const isKeritCloud=existingProvider&&provider==="keritcloud";
+ const isPterodactyl=existingProvider&&["keritcloud","waifly","xsystems"].includes(provider);
  if(!existingProvider){
   throw new Error("Antes do envio, abra Hospedagem, conecte uma conta gratuita e vincule um servidor ao projeto. Se houver vaga automática Free na Cube Hosting ou Discloud, o Estúdio também poderá tentar usá-la.");
  }
- const maxZipBytes=(isAclClouds||isKeritCloud)?25*1024*1024:5*1024*1024;
+ const maxZipBytes=(isAclClouds||isPterodactyl)?25*1024*1024:5*1024*1024;
  if(status)status.textContent="Preparando uma cópia limpa do ZIP. O arquivo original no seu computador não será alterado…";
  const prepared=await prepareFallbackArchive(file,status,maxZipBytes);
  const chunkSize=256*1024;
  const totalChunks=Math.ceil(prepared.blob.size/chunkSize);
- const maxChunks=(isAclClouds||isKeritCloud)?100:20;
+ const maxChunks=(isAclClouds||isPterodactyl)?100:20;
  if(totalChunks<1||totalChunks>maxChunks)throw new Error("O ZIP limpo ultrapassa o limite de envio desta hospedagem. O arquivo original não foi alterado.");
  const randomBytes=new Uint8Array(18);
  crypto.getRandomValues(randomBytes);
@@ -2443,7 +2477,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error(result.error||"O provedor alternativo não confirmou a criação da aplicação.");
- const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":"Discloud")))));
+ const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":(result.provider==="waifly"?"Waifly":(result.provider==="xsystems"?"X Systems Hosting":"Discloud")))))));
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
  state.activeBot=id;
@@ -2493,7 +2527,7 @@ async function uploadBotFile(){
   }else if(!currentBot?.hasDiscordToken){
    throw new Error("Cole o Bot Token do Discord no campo desta tela. O Estúdio valida e criptografa o token antes de enviar o ZIP.");
   }
-  const existingProviderApp=!!currentBot?.providerAppId&&["discloud","squarecloud","cubecloud","aclclouds","keritcloud"].includes(String(currentBot.hostingProvider||"").toLowerCase());
+  const existingProviderApp=!!currentBot?.providerAppId&&["discloud","squarecloud","cubecloud","aclclouds","keritcloud","waifly","xsystems"].includes(String(currentBot.hostingProvider||"").toLowerCase());
   const newUnhostedProject=!currentBot?.providerAppId&&!currentBot?.hostingDeploymentId;
   if(existingProviderApp||newUnhostedProject){
    const fallbackResult=await uploadZipToFreeHosting(id,file,runtime,packageName,status);
