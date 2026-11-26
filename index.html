@@ -942,7 +942,7 @@ function integrationsView(){
 
 function hostingView(){
  const bots=state.bots||[];
- const providerNames={"keritcloud":"Kerit Cloud","waifly":"Waifly","xsystems":"X Systems Hosting","torchlite":"Torchlite","daki":"Daki Hosting","cogithost":"Cogithost","aclclouds":"ACLClouds","cubecloud":"Cube Hosting","discloud":"Discloud","squarecloud":"Square Cloud","bot-hosting":"Bot-Hosting"};
+ const providerNames={"keritcloud":"Kerit Cloud","waifly":"Waifly","xsystems":"X Systems Hosting","torchlite":"Torchlite","daki":"Daki Hosting","unixsys":"Unixsys","consolex1":"ConsoleX1","cogithost":"Cogithost","aclclouds":"ACLClouds","cubecloud":"Cube Hosting","discloud":"Discloud","squarecloud":"Square Cloud","bot-hosting":"Bot-Hosting"};
  return pageHead("Hospedagem","Veja suas vagas gratuitas, conecte provedores e acompanhe onde cada bot está funcionando.",'<button class="btn secondary" id="hostingRefresh">↻ Atualizar vagas</button>')+
  '<section class="dashboard-panel"><div class="dashboard-panel-head"><div><small>CAPACIDADE DA SUA CONTA</small><h2>Provedores e vagas gratuitas</h2></div><span class="status">SEM PLANO PAGO</span></div><p class="muted small">O Estúdio consulta somente as contas conectadas por cada membro. Uma conta própria pode ser necessária; não criamos contas em massa nem prometemos vagas que o provedor não confirmou.</p><div id="hostingPoolCards" class="fleet-provider-grid"><div class="dashboard-empty">Consultando as contas conectadas…</div></div><div class="hero-actions" style="margin-top:14px"><button class="btn" data-view="settings">Conectar contas e vincular servidores ↗</button><button class="btn secondary" data-view="integrations">Ver catálogo gratuito</button></div></section>'+
  '<section class="dashboard-panel" style="margin-top:16px"><div class="dashboard-panel-head"><div><small>SEUS PROJETOS</small><h2>Hospedagem de cada bot</h2></div><span class="small-muted">'+bots.length+' projeto(s)</span></div>'+
@@ -954,7 +954,7 @@ async function loadHostingPoolOverview(){
  root.innerHTML='<div class="dashboard-empty">Consultando as contas conectadas…</div>';
  try{
   const result=await api("/hosting/pool/status");
-  const providers=(Array.isArray(result.providers)?result.providers:[]).filter(p=>["keritcloud","waifly","xsystems","cogithost","aclclouds","cubecloud","discloud","fadehost","quaxly","torchlite","fpsms","daki"].includes(p.id));
+  const providers=(Array.isArray(result.providers)?result.providers:[]).filter(p=>["keritcloud","waifly","xsystems","cogithost","aclclouds","cubecloud","discloud","fadehost","quaxly","torchlite","fpsms","daki","unixsys","consolex1"].includes(p.id));
   const cards=providers.map(p=>{
    const manual=p.deploymentMode==="manual",connected=!!p.connected,valid=p.valid!==false&&connected;
    let status=manual?"Deploy gratuito pelo painel externo":(!connected?"Não conectada":!valid?"Conexão precisa de revisão":p.canCreate?"Vaga gratuita confirmada":p.canAttach?"Servidor encontrado na conta":"Conta conectada · sem nova vaga confirmada");
@@ -966,6 +966,8 @@ async function loadHostingPoolOverview(){
     if(p.id==="xsystems")detail=(p.serversCount||0)+" servidor(es) · 1 Free de 4 GB; extras usam créditos gratuitos";
    if(p.id==="cogithost")detail=(p.serversCount||0)+" servidor(es) acessíveis · verificação periódica no Free";
    if(p.id==="aclclouds")detail=(p.botsCount||0)+" bot(s) Discord · renovação a cada 4 dias";
+    if(p.id==="unixsys")detail=(p.serversCount||0)+" servidor(es) · UniFree 256 MB · atividade diária na comunidade";
+    if(p.id==="consolex1")detail=(p.serversCount||0)+" servidor(es) · Free 256 MB · atividade de arquivo a cada 7 dias";
    return '<article class="fleet-provider-card"><div class="fleet-provider-top"><strong>'+escapeHtml(p.name||p.id)+'</strong><span class="fleet-provider-dot '+(p.canCreate||p.canAttach?"is-ready":(connected?"is-waiting":""))+'"></span></div><b>'+escapeHtml(status)+'</b><small>'+escapeHtml(detail)+'</small></article>';
   }).join("");
   root.innerHTML=cards||'<div class="dashboard-empty">Nenhum provedor gratuito disponível para consulta.</div>';
@@ -2531,9 +2533,9 @@ async function prepareFallbackArchive(file,status,maxBytes=5*1024*1024){
 async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
  const targetBot=state.bots.find(bot=>bot.id===id);
  const provider=String(targetBot?.hostingProvider||"").toLowerCase();
- const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds","keritcloud","waifly","xsystems","torchlite","daki"].includes(provider);
+ const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(provider);
  const isAclClouds=existingProvider&&provider==="aclclouds";
- const isPterodactyl=existingProvider&&["keritcloud","waifly","xsystems","torchlite","daki"].includes(provider);
+ const isPterodactyl=existingProvider&&["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(provider);
  if(!existingProvider){
   throw new Error("Antes do envio, abra Hospedagem, conecte uma conta gratuita e vincule um servidor ao projeto. Se houver vaga automática Free na Cube Hosting ou Discloud, o Estúdio também poderá tentar usá-la.");
  }
@@ -2563,7 +2565,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error(result.error||"O provedor alternativo não confirmou a criação da aplicação.");
- const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":(result.provider==="waifly"?"Waifly":(result.provider==="xsystems"?"X Systems Hosting":(result.provider==="torchlite"?"Torchlite":(result.provider==="daki"?"Daki Hosting":"Discloud")))))))));
+ const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":(result.provider==="waifly"?"Waifly":(result.provider==="xsystems"?"X Systems Hosting":(result.provider==="torchlite"?"Torchlite":(result.provider==="daki"?"Daki Hosting":(result.provider==="unixsys"?"Unixsys":(result.provider==="consolex1"?"ConsoleX1":"Discloud")))))))))));
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
  state.activeBot=id;
@@ -2613,7 +2615,7 @@ async function uploadBotFile(){
   }else if(!currentBot?.hasDiscordToken){
    throw new Error("Cole o Bot Token do Discord no campo desta tela. O Estúdio valida e criptografa o token antes de enviar o ZIP.");
   }
-  const existingProviderApp=!!currentBot?.providerAppId&&["discloud","squarecloud","cubecloud","aclclouds","keritcloud","waifly","xsystems","torchlite","daki"].includes(String(currentBot.hostingProvider||"").toLowerCase());
+  const existingProviderApp=!!currentBot?.providerAppId&&["discloud","squarecloud","cubecloud","aclclouds","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(String(currentBot.hostingProvider||"").toLowerCase());
   const newUnhostedProject=!currentBot?.providerAppId&&!currentBot?.hostingDeploymentId;
   if(existingProviderApp||newUnhostedProject){
    const fallbackResult=await uploadZipToFreeHosting(id,file,runtime,packageName,status);
