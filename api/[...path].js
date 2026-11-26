@@ -1221,14 +1221,22 @@ async function torchliteRequest(token, path = "", method = "GET", payload = null
 async function dakiRequest(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
   return pterodactylRequest("daki", token, path, method, payload, rawBody, form);
 }
+async function unixsysRequest(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
+  return pterodactylRequest("unixsys", token, path, method, payload, rawBody, form);
+}
+async function consolex1Request(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
+  return pterodactylRequest("consolex1", token, path, method, payload, rawBody, form);
+}
 async function pterodactylRequest(provider, token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
   const panels = {
     waifly: "https://panel.waifly.com",
     xsystems: "https://panel.xsystemshosting.com",
     torchlite: "https://game.torchlite.host",
-    daki: "https://portal.daki.cc"
+    daki: "https://portal.daki.cc",
+    unixsys: "https://panel.unixsys.tech",
+    consolex1: "https://panel.consolex1.com"
   };
-  const labels = { waifly: "Waifly", xsystems: "X Systems Hosting", torchlite: "Torchlite", daki: "Daki Hosting" };
+  const labels = { waifly: "Waifly", xsystems: "X Systems Hosting", torchlite: "Torchlite", daki: "Daki Hosting", unixsys: "Unixsys", consolex1: "ConsoleX1" };
   const base = panels[provider];
   if (!base) throw new Error("Provedor Pterodactyl não reconhecido.");
   const suffix = path ? (path.startsWith("?") ? path : (path.startsWith("/") ? path : "/" + path)) : "";
@@ -3110,7 +3118,7 @@ export async function onRequest(context) {
     }
 
 
-    const pteroProviderRoute = path.match(/^\/hosting\/(waifly|xsystems|torchlite|daki)\/(connect|disconnect|servers|attach)$/);
+    const pteroProviderRoute = path.match(/^\/hosting\/(waifly|xsystems|torchlite|daki|unixsys|consolex1)\/(connect|disconnect|servers|attach)$/);
     if (pteroProviderRoute) {
       const providerId = pteroProviderRoute[1];
       const routeAction = pteroProviderRoute[2];
@@ -3118,7 +3126,9 @@ export async function onRequest(context) {
         waifly: { name: "Waifly", plan: "Free · 300 MB RAM · 1 GB · 1 servidor", request: waiflyRequest },
         xsystems: { name: "X Systems Hosting", plan: "1 servidor Free · 4 GB RAM · extras por créditos", request: xsystemsRequest },
         torchlite: { name: "Torchlite", plan: "Free Bot · 512 MB RAM · 3 GB disco · renovação a cada 24 horas", request: torchliteRequest },
-        daki: { name: "Daki Hosting", plan: "Free Tier · 512 MB RAM · 1 GB disco · novas vagas podem estar fechadas", request: dakiRequest }
+        daki: { name: "Daki Hosting", plan: "Free Tier · 512 MB RAM · 1 GB disco · novas vagas podem estar fechadas", request: dakiRequest },
+        unixsys: { name: "Unixsys", plan: "UniFree · 256 MB RAM · 512 MB disco · 1 servidor", request: unixsysRequest },
+        consolex1: { name: "ConsoleX1", plan: "Free · 256 MB RAM · 512 MB disco · 40% CPU · 1 servidor", request: consolex1Request }
       };
       const config = configs[providerId];
       if (routeAction === "connect" && request.method === "POST") {
@@ -3387,7 +3397,7 @@ export async function onRequest(context) {
     }
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
-      const [discloudRow, squareRow, cubeRow, cogitRow, keritRow, aclRow, waiflyRow, xsystemsRow, torchliteRow, dakiRow, hostingRow] = await Promise.all([
+      const [discloudRow, squareRow, cubeRow, cogitRow, keritRow, aclRow, waiflyRow, xsystemsRow, torchliteRow, dakiRow, unixsysRow, consolex1Row, hostingRow] = await Promise.all([
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cubecloud'").bind(user.id).first(),
@@ -3398,6 +3408,8 @@ export async function onRequest(context) {
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='xsystems'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='torchlite'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='daki'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='unixsys'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='consolex1'").bind(user.id).first(),
         env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(user.id).first()
       ]);
       let discloud = { connected: false, provider: "discloud" };
@@ -3573,6 +3585,44 @@ export async function onRequest(context) {
         } catch (error) { daki = { connected: true, valid: false, provider: "daki", error: error.message || "Falha de validação Daki." }; }
       }
 
+      let unixsys = { connected: false, provider: "unixsys" };
+      if (unixsysRow) {
+        try {
+          const token = await providerToken(user.id, "unixsys", env);
+          const result = token ? await unixsysRequest(token, "") : null;
+          const servers = Array.isArray(result?.data?.data) ? result.data.data : [];
+          unixsys = {
+            connected: true, valid: !!token, provider: "unixsys",
+            accountLabel: unixsysRow.account_label || "Unixsys",
+            plan: "UniFree · 1 servidor · 256 MB RAM · até 512 MB com indicações",
+            serversCount: servers.length,
+            totalRamMb: servers.reduce((sum,item)=>sum+Number(item?.attributes?.limits?.memory||0),0),
+            canCreate: false, canAttach: servers.length > 0,
+            detail: servers.length
+              ? "Servidor encontrado. Unixsys avisa que a máquina pode ser removida se a conta ficar 24h sem retornar à comunidade."
+              : "Conta conectada. Crie o servidor com /create-server no Discord Unixsys e depois volte para vincular."
+          };
+        } catch (error) { unixsys = { connected: true, valid: false, provider: "unixsys", error: error.message || "Falha ao validar Unixsys." }; }
+      }
+      let consolex1 = { connected: false, provider: "consolex1" };
+      if (consolex1Row) {
+        try {
+          const token = await providerToken(user.id, "consolex1", env);
+          const result = token ? await consolex1Request(token, "") : null;
+          const servers = Array.isArray(result?.data?.data) ? result.data.data : [];
+          consolex1 = {
+            connected: true, valid: !!token, provider: "consolex1",
+            accountLabel: consolex1Row.account_label || "ConsoleX1",
+            plan: "Free · 1 servidor · 256 MB RAM · 512 MB disco",
+            serversCount: servers.length,
+            totalRamMb: servers.reduce((sum,item)=>sum+Number(item?.attributes?.limits?.memory||0),0),
+            canCreate: false, canAttach: servers.length > 0,
+            detail: servers.length
+              ? "Servidor encontrado. No Free, altere um arquivo pelo menos a cada 7 dias para evitar suspensão."
+              : "Conta conectada. Crie o servidor pelo Discord ConsoleX1 e depois volte para vincular."
+          };
+        } catch (error) { consolex1 = { connected: true, valid: false, provider: "consolex1", error: error.message || "Falha ao validar ConsoleX1." }; }
+      }
       let aclclouds = { connected: false, provider: "aclclouds" };
       if (aclRow) {
         try {
@@ -3602,6 +3652,8 @@ export async function onRequest(context) {
           { id: "xsystems", name: "X Systems Hosting", role: "servidor-conectado", ...xsystems, canCreate: false, canAttach: !!xsystems.valid && !!xsystems.canAttach },
           { id: "torchlite", name: "Torchlite", role: "servidor-conectado", ...torchlite, canCreate: false, canAttach: !!torchlite.valid && !!torchlite.canAttach },
           { id: "daki", name: "Daki Hosting", role: "servidor-conectado", ...daki, canCreate: false, canAttach: !!daki.valid && !!daki.canAttach },
+          { id: "unixsys", name: "Unixsys", role: "servidor-conectado", ...unixsys, canCreate: false, canAttach: !!unixsys.valid && !!unixsys.canAttach },
+          { id: "consolex1", name: "ConsoleX1", role: "servidor-conectado", ...consolex1, canCreate: false, canAttach: !!consolex1.valid && !!consolex1.canAttach },
           { id: "aclclouds", name: "ACLClouds", role: "servidor-conectado", ...aclclouds, canCreate: false, canAttach: !!aclclouds.valid && !!aclclouds.canAttach },
           { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
           { id: "squarecloud", name: "Square Cloud", role: "paga-fora-do-pool", ...square, canCreate: false },
@@ -3873,11 +3925,11 @@ export async function onRequest(context) {
       if (!action && request.method === "DELETE") {
         let deploymentDeleted = false;
         let externalServerRetained = false;
-        if (["keritcloud","waifly","xsystems","torchlite","daki"].includes(bot.hosting_provider) && bot.provider_app_id) {
+        if (["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
           try {
             const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
-            const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : dakiRequest)));
-            const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : (providerId === "xsystems" ? "X Systems Hosting" : (providerId === "torchlite" ? "Torchlite" : "Daki Hosting")));
+            const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : (providerId === "daki" ? dakiRequest : (providerId === "unixsys" ? unixsysRequest : consolex1Request)))));
+            const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : (providerId === "xsystems" ? "X Systems Hosting" : (providerId === "torchlite" ? "Torchlite" : (providerId === "daki" ? "Daki Hosting" : (providerId === "unixsys" ? "Unixsys" : "ConsoleX1")))));
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " antes de remover este projeto para que o Estúdio consiga parar o servidor." }, 409);
             await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/power", "POST", { signal: "stop" });
             externalServerRetained = true;
@@ -3996,10 +4048,10 @@ export async function onRequest(context) {
             const current = String(runtimeInfo.current_state || "").toLowerCase();
             state = current === "running" ? "running" : (current === "starting" ? "starting" : "stopped");
           } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar Cogithost." }; }
-        } else if (["keritcloud","waifly","xsystems","torchlite","daki"].includes(bot.hosting_provider) && bot.provider_app_id) {
+        } else if (["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
           try {
             const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
-            const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : dakiRequest)));
+            const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : (providerId === "daki" ? dakiRequest : (providerId === "unixsys" ? unixsysRequest : consolex1Request)))));
             if (!token) throw new Error("Conta de hospedagem desconectada.");
             const result = await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/resources");
             runtimeInfo = result.data?.attributes || result.data;
@@ -4142,11 +4194,11 @@ export async function onRequest(context) {
               hint: signal === "stop" ? "Servidor parado no Cogithost." : "Comando enviado. Confira o console do painel Cogithost para confirmar a inicialização." });
           } catch (error) { return reply({ ok: false, error: error.message || "Falha ao controlar o servidor Cogithost." }, 502); }
         }
-        if (["keritcloud","waifly","xsystems","torchlite","daki"].includes(bot.hosting_provider) && bot.provider_app_id) {
+        if (["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
           try {
             const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
-            const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : dakiRequest)));
-            const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : (providerId === "xsystems" ? "X Systems Hosting" : (providerId === "torchlite" ? "Torchlite" : "Daki Hosting")));
+            const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : (providerId === "daki" ? dakiRequest : (providerId === "unixsys" ? unixsysRequest : consolex1Request)))));
+            const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : (providerId === "xsystems" ? "X Systems Hosting" : (providerId === "torchlite" ? "Torchlite" : (providerId === "daki" ? "Daki Hosting" : (providerId === "unixsys" ? "Unixsys" : "ConsoleX1")))));
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " nas Configurações." }, 409);
             const serverId = keritIdentifier(bot.provider_app_id);
             await requestFn(token, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
@@ -4454,11 +4506,11 @@ export async function onRequest(context) {
           } });
         } catch (error) { return reply({ error: error.message || "Não consegui consultar o Cogithost." }, 502); }
       }
-      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && ["keritcloud","waifly","xsystems","torchlite","daki"].includes(bot.hosting_provider) && bot.provider_app_id) {
+      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && ["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
         try {
           const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
-          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : dakiRequest)));
-          const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : (providerId === "xsystems" ? "X Systems Hosting" : (providerId === "torchlite" ? "Torchlite" : "Daki Hosting")));
+          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : (providerId === "daki" ? dakiRequest : (providerId === "unixsys" ? unixsysRequest : consolex1Request)))));
+          const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : (providerId === "xsystems" ? "X Systems Hosting" : (providerId === "torchlite" ? "Torchlite" : (providerId === "daki" ? "Daki Hosting" : (providerId === "unixsys" ? "Unixsys" : "ConsoleX1")))));
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " nas Configurações." }, 409);
           const serverId = keritIdentifier(bot.provider_app_id);
           if (action === "logs") return reply({ provider: providerId, lines: [], note: "O console ao vivo usa WebSocket. Abra o Console no painel " + providerName + " para acompanhar a saída." });
@@ -4536,10 +4588,10 @@ export async function onRequest(context) {
         }
       }
 
-      if (action === "files" && ["keritcloud","waifly","xsystems","torchlite","daki"].includes(bot.hosting_provider) && bot.provider_app_id) {
+      if (action === "files" && ["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
         try {
           const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
-          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : dakiRequest)));
+          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : (providerId === "daki" ? dakiRequest : (providerId === "unixsys" ? unixsysRequest : consolex1Request)))));
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a hospedagem nas Configurações." }, 409);
           const serverId = keritIdentifier(bot.provider_app_id);
           const base = "/servers/" + encodeURIComponent(serverId) + "/files";
@@ -4947,7 +4999,7 @@ export async function onRequest(context) {
           const archiveName = String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
-          const isPterodactylTarget = ["keritcloud","waifly","xsystems","torchlite","daki"].includes(String(bot.hosting_provider || "").toLowerCase()) && !!bot.provider_app_id;
+          const isPterodactylTarget = ["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(String(bot.hosting_provider || "").toLowerCase()) && !!bot.provider_app_id;
           const maxArchiveBytes = (isAclCloudsTarget || isPterodactylTarget) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
           const uploadId = String(b.uploadId || "");
@@ -4996,7 +5048,7 @@ export async function onRequest(context) {
 
           // Preserve projetos existentes no provedor atual. Para novos projetos,
           // use somente provedores gratuitos autorizados e com vaga real.
-          if (["keritcloud","waifly","xsystems","torchlite","daki"].includes(currentProvider) && currentAppId) {
+          if (["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(currentProvider) && currentAppId) {
             const token = await providerToken(user.id, currentProvider, env);
             const providerConfig = currentProvider === "keritcloud"
               ? { name: "Kerit Cloud", request: keritRequest }
@@ -5308,10 +5360,10 @@ export async function onRequest(context) {
           return reply({ url: target.href, field: "files", path: directory, provider: "aclclouds" });
         } catch (error) { return reply({ error: error.message || "Falha ao preparar upload ACLClouds." }, 502); }
       }
-      if (action === "upload-url" && request.method === "POST" && ["keritcloud","waifly","xsystems","torchlite","daki"].includes(bot.hosting_provider) && bot.provider_app_id) {
+      if (action === "upload-url" && request.method === "POST" && ["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
         try {
           const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
-          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : dakiRequest)));
+          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : (providerId === "daki" ? dakiRequest : (providerId === "unixsys" ? unixsysRequest : consolex1Request)))));
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte sua hospedagem nas Configurações." }, 409);
           const b = await body(request), directory = safeVolumePath(b.path || "/");
           const result = await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/files/upload");
@@ -5423,12 +5475,12 @@ export async function onRequest(context) {
           return reply({ ...(result.data || {}), provider: "aclclouds" });
         } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP na ACLClouds." }, 502); }
       }
-      if (action === "extract" && request.method === "POST" && ["keritcloud","waifly","xsystems","torchlite","daki"].includes(bot.hosting_provider) && bot.provider_app_id) {
+      if (action === "extract" && request.method === "POST" && ["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
         const b = await body(request), file = String(b.file || "");
         if (!/^[A-Za-z0-9._-]{1,140}\\.zip$/i.test(file) || file.includes("..")) return reply({ error: "Nome de ZIP inválido." }, 400);
         try {
           const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
-          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : dakiRequest)));
+          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : (providerId === "xsystems" ? xsystemsRequest : (providerId === "torchlite" ? torchliteRequest : (providerId === "daki" ? dakiRequest : (providerId === "unixsys" ? unixsysRequest : consolex1Request)))));
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte sua hospedagem nas Configurações." }, 409);
           const result = await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/files/decompress", "POST", { root: safeVolumePath(b.path || "/"), file });
           return reply({ provider: providerId, status: result.status });
