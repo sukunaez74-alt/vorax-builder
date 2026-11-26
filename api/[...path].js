@@ -1381,6 +1381,21 @@ async function pterodactylDeployZip(apiKey, serverIdValue, archiveBytes, archive
     else zip.remove(".env");
   }
 
+  const launcherFile = runtime === "nodejs" ? "blackzone_launcher.cjs" : "main.py";
+  const startupFileVariables = ["MAIN_FILE","BOT_FILE","APP_FILE","ENTRY_FILE","START_FILE","PY_FILE","JS_FILE"];
+  const startupFileVariable = variables.find(item =>
+    item?.attributes?.is_editable &&
+    startupFileVariables.includes(String(item.attributes.env_variable || "").toUpperCase())
+  );
+  let startupFileConfigured = false;
+  if (startupFileVariable?.attributes?.env_variable) {
+    await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/startup/variable", "PUT", {
+      key: String(startupFileVariable.attributes.env_variable),
+      value: launcherFile
+    });
+    startupFileConfigured = true;
+  }
+
   if (runtime === "nodejs") {
     const pkgFile = zip.file("package.json");
     let packageJson = {};
@@ -1449,7 +1464,9 @@ async function pterodactylDeployZip(apiKey, serverIdValue, archiveBytes, archive
     providerName,
     deployedAt: Date.now(),
     tokenConfigured,
-    tokenStoredInEnvFile: !!discordToken && !tokenConfigured
+    tokenStoredInEnvFile: !!discordToken && !tokenConfigured,
+    startupFile: launcherFile,
+    startupFileConfigured
   };
   await env.DB.prepare("UPDATE bots SET hosting_provider=?,provider_app_id=?,hosting_deployment_id=NULL,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?")
     .bind(providerId, serverId, runtime, JSON.stringify(customProject), Date.now(), bot.id, userId).run();
