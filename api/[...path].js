@@ -3566,6 +3566,15 @@ export async function onRequest(context) {
             const current = String(runtimeInfo.current_state || "").toLowerCase();
             state = current === "running" ? "running" : (current === "starting" ? "starting" : "stopped");
           } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar Cogithost." }; }
+        } else if (bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "keritcloud", env);
+            if (!token) throw new Error("Conta Kerit Cloud desconectada.");
+            const result = await keritRequest(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/resources");
+            runtimeInfo = result.data?.attributes || result.data;
+            const current = String(runtimeInfo.current_state || "").toLowerCase();
+            state = current === "running" ? "running" : (current === "starting" ? "starting" : "stopped");
+          } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar Kerit Cloud." }; }
         } else if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
           try {
             const token = await providerToken(user.id, "cubecloud", env);
@@ -3701,6 +3710,21 @@ export async function onRequest(context) {
               resources: resource.data?.attributes?.resources || null,
               hint: signal === "stop" ? "Servidor parado no Cogithost." : "Comando enviado. Confira o console do painel Cogithost para confirmar a inicialização." });
           } catch (error) { return reply({ ok: false, error: error.message || "Falha ao controlar o servidor Cogithost." }, 502); }
+        }
+        if (bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "keritcloud", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+            const serverId = keritIdentifier(bot.provider_app_id);
+            await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
+            const resource = await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+            const current = String(resource.data?.attributes?.current_state || "").toLowerCase();
+            const state = signal === "stop" ? "stopped" : (current === "running" ? "running" : "starting");
+            await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?").bind(state, Date.now(), id, user.id).run();
+            return reply({ ok: true, action: signal, state, provider: "keritcloud", providerAppId: serverId, discordOnline: false,
+              resources: resource.data?.attributes?.resources || null,
+              hint: signal === "stop" ? "Servidor parado no Kerit Cloud." : "Comando enviado. Confira o console Kerit Cloud para confirmar a inicialização." });
+          } catch (error) { return reply({ ok: false, error: error.message || "Falha ao controlar o servidor Kerit Cloud." }, 502); }
         }
         if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
           try {
