@@ -1142,8 +1142,8 @@ function verificationAdminView(){
 }
 
 async function loadDiscloudHostingState(){
- const node=$("#settingsDiscloudState"),squareNode=$("#settingsSquareState"),cubeNode=$("#settingsCubeState")||$("#filesCubeState"),cogitNode=$("#settingsCogitState"),keritNode=$("#settingsKeritState"),aclNode=$("#settingsAclState")||$("#filesAclState"),waiflyNode=$("#waiflyState"),xsystemsNode=$("#xsystemsState");
- if(!node&&!squareNode&&!cubeNode&&!cogitNode&&!keritNode&&!aclNode&&!waiflyNode&&!xsystemsNode)return;
+ const node=$("#settingsDiscloudState"),squareNode=$("#settingsSquareState"),cubeNode=$("#settingsCubeState")||$("#filesCubeState"),cogitNode=$("#settingsCogitState"),keritNode=$("#settingsKeritState"),aclNode=$("#settingsAclState")||$("#filesAclState"),waiflyNode=$("#waiflyState"),xsystemsNode=$("#xsystemsState"),torchliteNode=$("#torchliteState"),dakiNode=$("#dakiState");
+ if(!node&&!squareNode&&!cubeNode&&!cogitNode&&!keritNode&&!aclNode&&!waiflyNode&&!xsystemsNode&&!torchliteNode&&!dakiNode)return;
  try{
   const result=await api("/hosting/pool/status");
   const providers=Array.isArray(result.providers)?result.providers:[];
@@ -1154,6 +1154,8 @@ async function loadDiscloudHostingState(){
   const keritcloud=providers.find(provider=>provider.id==="keritcloud")||{};
   const waifly=providers.find(provider=>provider.id==="waifly")||{};
   const xsystems=providers.find(provider=>provider.id==="xsystems")||{};
+  const torchlite=providers.find(provider=>provider.id==="torchlite")||{};
+  const daki=providers.find(provider=>provider.id==="daki")||{};
   const aclclouds=providers.find(provider=>provider.id==="aclclouds")||{};
   const discloud=providers.find(provider=>provider.id==="discloud")||{};
   if(cogitNode){
@@ -1208,6 +1210,26 @@ async function loadDiscloudHostingState(){
    }
   }
 
+  if(torchliteNode){
+   torchliteNode.innerHTML="<strong>"+(torchlite.valid?"Conectada · "+Number(torchlite.serversCount||0)+" servidor(es)":(torchlite.connected?"Chave conectada, mas não validada":"Ainda não conectada"))+"</strong><br><small>"+(torchlite.valid?(torchlite.detail||"Plano Bot grátis · 512 MB RAM · renovação a cada 24 horas."):"Plano Bot grátis: 512 MB RAM, 3 GB disco e 0,5 CPU. Renove a cada 24 horas e entre no painel ao menos a cada 5 dias.")+"</small>";
+   torchliteNode.classList.toggle("changes-pending",!torchlite.valid);
+   const select=$("#torchliteServerSelect");
+   if(select&&torchlite.valid){
+    try{const loaded=await api("/hosting/torchlite/servers"),servers=Array.isArray(loaded.servers)?loaded.servers:[];
+     select.innerHTML=servers.length?'<option value="">Selecione um servidor</option>'+servers.map(x=>'<option value="'+escapeHtml(x.id)+'">'+escapeHtml(x.name)+' · '+Number(x.memoryMb||0)+' MB · '+Number(x.diskMb||0)+' MB'+(x.suspended?" · suspenso":"")+'</option>').join(""):'<option value="">Nenhum servidor. Crie um plano Discord Bot no painel Torchlite.</option>';
+    }catch(error){select.innerHTML='<option value="">Falha ao listar servidores</option>';}
+   }
+  }
+  if(dakiNode){
+   dakiNode.innerHTML="<strong>"+(daki.valid?"Conectada · "+Number(daki.serversCount||0)+" servidor(es)":(daki.connected?"Chave conectada, mas não validada":"Ainda não conectada"))+"</strong><br><small>"+(daki.valid?(daki.detail||"Daki Hosting Free."):"A Daki informa que os nós grátis estão sem novas vagas neste momento. Conecte somente se já tiver um servidor ativo.")+"</small>";
+   dakiNode.classList.toggle("changes-pending",!daki.valid);
+   const select=$("#dakiServerSelect");
+   if(select&&daki.valid){
+    try{const loaded=await api("/hosting/daki/servers"),servers=Array.isArray(loaded.servers)?loaded.servers:[];
+     select.innerHTML=servers.length?'<option value="">Selecione um servidor</option>'+servers.map(x=>'<option value="'+escapeHtml(x.id)+'">'+escapeHtml(x.name)+' · '+Number(x.memoryMb||0)+' MB · '+Number(x.diskMb||0)+' MB'+(x.suspended?" · suspenso":"")+'</option>').join(""):'<option value="">Nenhum servidor Free ativo nesta conta</option>';
+    }catch(error){select.innerHTML='<option value="">Falha ao listar servidores</option>';}
+   }
+  }
   if(aclNode){
    const aclText=aclclouds.valid
     ? "Conectada · "+escapeHtml(aclclouds.accountLabel||"ACLClouds")+" · "+Number(aclclouds.botsCount||0)+" bot(s) Discord nesta conta"
@@ -1256,6 +1278,8 @@ async function loadDiscloudHostingState(){
   if(cogitNode){cogitNode.innerHTML="<strong>Não consegui consultar Cogithost.</strong><br>"+message;cogitNode.classList.add("changes-pending")}
   if(aclNode){aclNode.innerHTML="<strong>Não consegui consultar ACLClouds.</strong><br>"+message;aclNode.classList.add("changes-pending")}
   if(keritNode){keritNode.innerHTML="<strong>Não consegui consultar Kerit Cloud.</strong><br>"+message;keritNode.classList.add("changes-pending")}
+  if(torchliteNode){torchliteNode.innerHTML="<strong>Não consegui consultar Torchlite.</strong><br>"+message;torchliteNode.classList.add("changes-pending")}
+  if(dakiNode){dakiNode.innerHTML="<strong>Não consegui consultar Daki Hosting.</strong><br>"+message;dakiNode.classList.add("changes-pending")}
  }
 }
 
@@ -1270,6 +1294,16 @@ function pterodactylConnectCard(providerId){
    name:"X Systems Hosting",plan:"1 servidor Free · 4 GB RAM · 10 GB disco · 200% CPU · 20 backups",
    description:"A primeira vaga Free da conta tem 4 GB e não consome créditos diários. Servidores adicionais usam créditos ganhos no site; o servidor básico extra custa 3 créditos por dia. Crie primeiro o servidor no painel e depois conecte a Client API Key.",
    dashboard:"https://xsystemshosting.com/dashboard",panel:"https://panel.xsystemshosting.com",api:"https://panel.xsystemshosting.com/account/api"
+  },
+  torchlite:{
+   name:"Torchlite",plan:"Free Bot · 512 MB RAM · 3 GB disco · 0,5 CPU · 1 MySQL",
+   description:"Plano específico para Discord bots em Node.js ou Python. Cada conta pode ter até 2 servidores; o Bot precisa de renovação gratuita a cada 24 horas e o dono deve entrar no painel pelo menos a cada 5 dias. A renovação exige abrir o painel e assistir ao anúncio quando solicitado; não é 24/7 sem manutenção.",
+   dashboard:"https://torchlite.host/games/discord-bots",panel:"https://game.torchlite.host",api:"https://game.torchlite.host/account/api"
+  },
+  daki:{
+   name:"Daki Hosting",plan:"Free Tier · 512 MB RAM · 1 GB disco · 50% CPU",
+   description:"A Daki está sem vagas gratuitas novas no momento. Conecte somente se já tiver um servidor Free ativo na sua conta. O tempo é estendido assistindo anúncios; o Estúdio gerencia o servidor depois que você o vincular.",
+   dashboard:"https://free.daki.cc",panel:"https://portal.daki.cc",api:"https://portal.daki.cc/account/api"
   }
  };
  const config=configs[providerId];if(!config)return "";
@@ -1299,6 +1333,8 @@ function settingsView(){
 '<section class="card"><div class="section-head"><h3>Kerit Cloud · servidor grátis 24/7</h3><span class="status">PTERODACTYL API</span></div><p class="muted small">Plano Free permanente: 1 servidor por pessoa, 256 MB RAM, 2 GB NVMe e sem cartão. Para reivindicar, crie a conta, confirme o e-mail, vincule Discord, entre na comunidade e clique em Deploy na área Free Hosting. Servidores ativos permanecem online; servidores parados e sem uso por um período prolongado podem ser reclamados após aviso. Depois, crie uma Client API Key em Account → API Credentials. O Estúdio valida a chave, lista o servidor e envia ZIP, extrai arquivos e controla energia. A vaga inicial precisa ser criada no painel Kerit; a API de cliente não cria o servidor.</p><div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0"><a class="btn secondary" href="https://billing.kerit.cloud" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Criar conta / reivindicar Free ↗</a><a class="btn secondary" href="https://panel.kerit.cloud/account/api" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Abrir API Credentials ↗</a><a class="btn secondary" href="https://panel.kerit.cloud" target="_blank" rel="noopener noreferrer" style="text-decoration:none">Abrir painel Pterodactyl ↗</a></div><div id="settingsKeritState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando a conta Kerit Cloud.</div><form id="keritConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>KERIT CLOUD · CLIENT API KEY</label><input id="keritApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole a Client API Key do panel.kerit.cloud" minlength="20" maxlength="512"></div><div style="grid-column:1/-1"><button class="btn" id="keritConnectButton" type="submit">Validar e conectar Kerit Cloud</button></div></form><form id="keritAttachForm" class="settings-grid" style="margin-top:14px"><div class="field"><label>PROJETO NO ESTÚDIO</label><select id="keritBotSelect"><option value="">Selecione um projeto</option>'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'">'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="field"><label>SERVIDOR KERIT CLOUD</label><select id="keritServerSelect"><option value="">Conecte a conta primeiro</option></select></div><div style="grid-column:1/-1"><button class="btn secondary" id="keritAttachButton" type="submit">Vincular servidor ao projeto</button></div></form><p class="muted small">Cada membro deve usar a própria conta e servidor gratuito. A chave da API é criptografada no Estúdio. O plano Free tem 256 MB: bots de música, grandes servidores ou bots pesados podem ultrapassar esse limite.</p></section>'+
 pterodactylConnectCard("waifly")+
 pterodactylConnectCard("xsystems")+
+pterodactylConnectCard("torchlite")+
+pterodactylConnectCard("daki")+
   '<section class="card"><div class="section-head"><h3>ACLClouds · vaga grátis por conta</h3><span class="status">API OFICIAL</span></div><p class="muted small">O plano grátis anuncia 1 bot Discord por conta, com 315 MB RAM e 715 MB SSD. Não exige cartão, mas precisa renovar manualmente a cada 4 dias. Crie primeiro o servidor Discord na ACLClouds; depois conecte a API Key para controlar o servidor pelo Estúdio.</p><div id="settingsAclState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando a conta ACLClouds.</div><form id="aclConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>ACLCLOUDS API KEY</label><input id="aclApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole a API Key da ACLClouds" minlength="20" maxlength="1024"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="aclConnectButton" type="submit">Validar e conectar ACLClouds</button><a class="btn secondary" href="https://aclclouds.com" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir ACLClouds ↗</a><a class="btn secondary" href="https://github.com/ACL-Cloud/aclclouds-cli" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Documentação da API ↗</a></div></form><form id="aclAttachForm" class="settings-grid" style="margin-top:14px"><div class="field"><label>PROJETO NO ESTÚDIO</label><select id="aclBotSelect"><option value="">Selecione um projeto</option>'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'">'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="field"><label>SERVIDOR DISCORD ACLCLOUDS</label><select id="aclServerSelect"><option value="">Conecte a conta primeiro</option></select></div><div style="grid-column:1/-1"><button class="btn secondary" id="aclAttachButton" type="submit">Vincular servidor ao projeto</button></div></form><p class="muted small">Cada pessoa deve criar a própria conta, servidor e API Key. O Estúdio guarda a chave criptografada. Depois de vincular, envie o ZIP e confira o comando Startup e a variável DISCORD_TOKEN no painel ACLClouds.</p></section><section class="card"><div class="section-head"><h3>Cube Hosting · vaga gratuita</h3><span class="status">API INTEGRADA</span></div><p class="muted small">O plano Free oficial permite <b>1 bot por conta, 100 MB de RAM, 0,25 vCPU e ZIP de até 5 MB</b>. A vaga não é liberada automaticamente: entre na sua conta Cube, vincule o Discord e use <b>/free</b> no canal <b>🔧・commands</b> do Discord oficial. A conta Discord precisa ter mais de 30 dias; para manter a vaga, são necessárias 5 mensagens válidas por dia em 4 dos 7 dias, na semana de Brasília. A vaga é de uso único por conta Cube e por Discord; se perder por não cumprir a meta, não consegue resgatar outra pela mesma conta.</p><div class="project-note"><strong>Passo 1 · Resgate sua vaga</strong><br><small>Crie/acesse sua conta Cube, vincule o Discord em Integrações e execute /free no canal de comandos.</small></div><div id="settingsCubeState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando plano, vaga e memória da Cube Hosting.</div><form id="cubeConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>CUBE HOSTING API KEY</label><input id="cubeApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua chave cube_..." minlength="17" maxlength="1024"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="cubeConnectButton" type="submit">Validar e conectar Cube Hosting</button><a class="btn secondary" href="https://app.cubehosting.com.br/signup" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Criar / abrir conta Cube ↗</a><a class="btn secondary" href="https://docs.cubehosting.com.br/api-keys" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Como criar API Key ↗</a><a class="btn secondary" href="https://discord.gg/pv6D9tUsDV" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Discord /free ↗</a><a class="btn secondary" href="https://cubehosting.com.br/planos" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Ver planos pagos ↗</a></div></form><div class="project-note"><strong>Passo 2 · Crie a API Key</strong><br><small>No painel Cube, abra Chaves de API → Nova chave e selecione o modelo <b>Ler e escrever</b>. Ele dá as permissões necessárias ao Estúdio sem liberar exclusão de projetos nem credenciais de bancos. A chave aparece uma única vez; guarde-a e cole somente no campo acima. Não a envie no chat.</small></div></section>'+'<section class="card"><div class="section-head"><h3>Square Cloud · somente projetos existentes</h3><span class="status">PAGA · FORA DO POOL</span></div><p class="muted small">O Estúdio não vai conectar nem selecionar a Square Cloud para novos bots, pois exige assinatura. Projetos que já estejam hospedados nela continuam preservados e podem ser gerenciados pela integração existente. Para novos bots, a seleção prioriza somente hospedagens gratuitas.</p></section>'+
 '<section class="card"><div class="section-head"><h3>Discloud · vaga Free automática</h3><span class="status">FREE · API INTEGRADA</span></div><p class="muted small">O plano Free oficial oferece 1 bot e 100 MB de RAM por conta. Quando a vaga está livre, o Estúdio pode criar a aplicação, enviar o ZIP e solicitar a inicialização automaticamente. Se Cube Hosting não tiver vaga, a Discloud entra como alternativa. Apps do plano gratuito podem ser suspensos quando considerados inativos, então não há garantia de uptime 24/7 permanente. O Estúdio nunca seleciona plano pago.</p><div id="settingsDiscloudState" class="project-note"><strong>Consultando conexão…</strong><br>Verificando a conta Discloud.</div><form id="discloudConnectForm" class="settings-grid"><div class="field" style="grid-column:1/-1"><label>DISCLOUD API KEY</label><input id="discloudApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="Cole sua API Key da Discloud" minlength="16" maxlength="512"></div><div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="discloudConnectButton" type="submit">Validar e conectar Discloud</button><a class="btn secondary" href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir Dashboard Discloud ↗</a></div></form><p class="muted small" style="margin-top:10px">No Dashboard da Discloud, abra Ferramentas → Chaves de API e gere sua chave. O plano Free oficial informa limite de 1 bot e 100 MB de RAM; o Estúdio respeitará a capacidade real da conta.</p></section>'+
 '<section class="card"><div class="section-head"><h3>Conta e segurança</h3></div><p class="muted small">Conta: <b>'+escapeHtml(state.user?.email||"")+'</b></p><p class="muted small">As sessões usam cookies HttpOnly. Os Bot Tokens são criptografados no servidor e nunca são devolvidos ao navegador em texto aberto.</p></section>'+
@@ -1355,7 +1391,9 @@ function bindView(){
  
   [
    {id:"waifly",name:"Waifly"},
-   {id:"xsystems",name:"X Systems Hosting"}
+   {id:"xsystems",name:"X Systems Hosting"},
+   {id:"torchlite",name:"Torchlite"},
+   {id:"daki",name:"Daki Hosting"}
   ].forEach(provider=>{
    const connectForm=$("#"+provider.id+"ConnectForm");
    if(connectForm)connectForm.onsubmit=async e=>{
@@ -2445,9 +2483,9 @@ async function prepareFallbackArchive(file,status,maxBytes=5*1024*1024){
 async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
  const targetBot=state.bots.find(bot=>bot.id===id);
  const provider=String(targetBot?.hostingProvider||"").toLowerCase();
- const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds","keritcloud","waifly","xsystems"].includes(provider);
+ const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds","keritcloud","waifly","xsystems","torchlite","daki"].includes(provider);
  const isAclClouds=existingProvider&&provider==="aclclouds";
- const isPterodactyl=existingProvider&&["keritcloud","waifly","xsystems"].includes(provider);
+ const isPterodactyl=existingProvider&&["keritcloud","waifly","xsystems","torchlite","daki"].includes(provider);
  if(!existingProvider){
   throw new Error("Antes do envio, abra Hospedagem, conecte uma conta gratuita e vincule um servidor ao projeto. Se houver vaga automática Free na Cube Hosting ou Discloud, o Estúdio também poderá tentar usá-la.");
  }
@@ -2477,7 +2515,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error(result.error||"O provedor alternativo não confirmou a criação da aplicação.");
- const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":(result.provider==="waifly"?"Waifly":(result.provider==="xsystems"?"X Systems Hosting":"Discloud")))))));
+ const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":(result.provider==="waifly"?"Waifly":(result.provider==="xsystems"?"X Systems Hosting":(result.provider==="torchlite"?"Torchlite":(result.provider==="daki"?"Daki Hosting":"Discloud")))))))));
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
  state.activeBot=id;
