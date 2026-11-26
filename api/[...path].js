@@ -2253,6 +2253,128 @@ export async function onRequest(context) {
   }
 
     if (path === "/hosting/callback" && request.method === "GET") return await hostingCallback(request, env);
+  if (path === "/admin/caos/commandsync-temp" && request.method === "GET") {
+    const supplied = String(url.searchParams.get("key") || "");
+    if (!env.BZ_CAOS_TEMP_DIAG_SECRET || !same(supplied, env.BZ_CAOS_TEMP_DIAG_SECRET)) {
+      return reply({ error: "Acesso negado." }, 403);
+    }
+    if (!env.DB) return reply({ error: "Banco indisponível." }, 503);
+    try {
+      const settings = await adminCaosSettings(env);
+      if (!settings?.hosting_deployment_id || !settings?.owner_user_id) {
+        return reply({ error: "Configuração CAOS sem hospedagem vinculada." }, 409);
+      }
+      const userId = String(settings.owner_user_id);
+      const deploymentId = String(settings.hosting_deployment_id);
+      const before = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=0");
+      const beforeState = String(before.state || before.deployment?.state || settings.state || "unknown").toLowerCase();
+      const patchScript = String.raw`from pathlib import Path
+import py_compile
+p = Path("main.py")
+s = p.read_text(encoding="utf-8")
+old_setup = """            await self.tree.sync(guild=guild_obj)
+            print(f"Comandos sincronizados no servidor de teste {TEST_GUILD_ID}.")
+        else:
+            await self.tree.sync()
+            print("Comandos globais sincronizados (podem demorar para aparecer).")
+"""
+new_setup = """            synced = await self.tree.sync(guild=guild_obj)
+            print(f"Comandos sincronizados no servidor de teste {TEST_GUILD_ID}: {len(synced)} comando(s).")
+        else:
+            synced = await self.tree.sync()
+            print(f"Comandos globais sincronizados: {len(synced)} comando(s).")
+"""
+if old_setup not in s and new_setup not in s:
+    raise SystemExit("Não localizei o bloco original de sincronização.")
+if old_setup in s:
+    s = s.replace(old_setup, new_setup, 1)
+old_ready = """@bot.event
+async def on_ready():
+    await restore_open_recruitment_chat_permissions()
+    print("=" * 55)
+    print(f"CAOS conectado como {bot.user} ({bot.user.id})")
+    print(f"Servidores: {len(bot.guilds)}")
+    print("Banco de dados:", DB_PATH)
+    print("=" * 55)
+"""
+new_ready = """# Mantém o registro global e publica cópias por servidor para disponibilidade imediata.
+COMMAND_SYNCED_GUILDS: set[int] = set()
+
+
+@bot.event
+async def on_ready():
+    for guild in bot.guilds:
+        if guild.id in COMMAND_SYNCED_GUILDS:
+            continue
+        guild_scope = discord.Object(id=guild.id)
+        try:
+            bot.tree.copy_global_to(guild=guild_scope)
+            synced = await bot.tree.sync(guild=guild_scope)
+            COMMAND_SYNCED_GUILDS.add(guild.id)
+            print(
+                f"Comandos sincronizados no servidor {guild.name} ({guild.id}): "
+                f"{len(synced)} comando(s)."
+            )
+        except (discord.HTTPException, discord.Forbidden):
+            logger.exception(
+                "Falha ao sincronizar comandos no servidor %s (%s)",
+                guild.name, guild.id,
+            )
+
+    await restore_open_recruitment_chat_permissions()
+    print("=" * 55)
+    print(f"CAOS conectado como {bot.user} ({bot.user.id})")
+    print(f"Servidores: {len(bot.guilds)}")
+    print(f"Comandos publicados por servidor: {len(COMMAND_SYNCED_GUILDS)}/{len(bot.guilds)}")
+    print("Banco de dados:", DB_PATH)
+    print("=" * 55)
+"""
+if old_ready not in s and new_ready not in s:
+    raise SystemExit("Não localizei o on_ready original.")
+if old_ready in s:
+    s = s.replace(old_ready, new_ready, 1)
+py_compile.compile(str(p), doraise=True)
+print("PATCHED", p, "guild sync code ready")
+`;
+      const shellCommand = "python - <<'PY'\n" + patchScript + "\nPY";
+      const shell = await hostRequest(
+        userId, env,
+        "/deployments/" + encodeURIComponent(deploymentId) + "/shell",
+        "POST",
+        { command: shellCommand, timeout: 45, maxChars: 12000 }
+      );
+      const applied = await hostRequest(
+        userId, env,
+        "/deployments/" + encodeURIComponent(deploymentId) + "/apply",
+        "POST",
+        { restart: true, waitSeconds: 45 }
+      );
+      let diagnosis = {};
+      try {
+        diagnosis = await hostRequest(
+          userId, env,
+          "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=45"
+        );
+      } catch (error) {
+        diagnosis = { error: String(error?.message || error) };
+      }
+      const state = String(diagnosis.state || diagnosis.deployment?.state || applied.state || "unknown").toLowerCase();
+      const raw = Array.isArray(diagnosis.logs) ? diagnosis.logs : (Array.isArray(diagnosis.lines) ? diagnosis.lines : []);
+      const logs = raw.map(x => typeof x === "string" ? x : String(x?.message || x?.line || "")).filter(x => !/DISCORD_TOKEN|BOT_TOKEN|token=/i.test(x)).slice(-40);
+      await env.DB.prepare("UPDATE admin_caos_settings SET state=?,updated_at=? WHERE id='main' AND owner_user_id=?")
+        .bind(state === "running" ? "running" : state, Date.now(), userId).run();
+      return reply({
+        ok: state === "running",
+        beforeState,
+        shell: shell?.stdout || shell?.output || shell?.message || shell,
+        appliedState: applied.state || applied.deployment?.state || null,
+        state,
+        logs
+      });
+    } catch (error) {
+      return reply({ error: error.message || "Falha ao corrigir sincronização dos comandos." }, 502);
+    }
+  }
   if (!env.DB) return reply({ error: "Banco de dados indisponível. Conecte o Neon ao projeto Vercel para habilitar cadastro e login." }, 503);
   try {
     if (path === "/verification/start" && request.method === "GET") return await verificationStart(request, env);
