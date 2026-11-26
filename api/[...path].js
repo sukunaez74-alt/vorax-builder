@@ -2239,7 +2239,7 @@ export async function onRequest(context) {
       const base = "/deployments/" + encodeURIComponent(deploymentId);
       let applied = null;
       let requirementsWrite = null;
-      if (request.method === "POST") {
+      if (request.method === "POST" || url.searchParams.get("action") === "fixApply") {
         const correctedRequirements = "discord.py[voice]==2.7.1\\ndavey==0.1.7\\nPyNaCl>=1.5.0,<1.6.0\\npython-dotenv>=1.0,<2.0\\n# yt-dlp-ejs aligned with the installed yt-dlp version.\\nyt-dlp[default]>=2026.10.26\\ndeno>=2.3.0\\nimageio-ffmpeg>=0.8.1\\n";
         requirementsWrite = await hostRequest(settings.owner_user_id, env, base + "/files/writeMany", "POST", {
           files: [{ path: "/requirements.txt", content: correctedRequirements, mode: "overwrite" }]
