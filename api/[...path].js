@@ -1202,6 +1202,29 @@ async function cogitRequest(token, path, method = "GET", payload = null, rawBody
   }
   return { data, raw, status: response.status };
 }
+async function sillydevRequest(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
+  const suffix = path ? (path.startsWith("?") ? path : (path.startsWith("/") ? path : "/" + path)) : "";
+  const headers = { Authorization: "Bearer " + token, Accept: "application/json" };
+  if (payload !== null && !rawBody && !form) headers["Content-Type"] = "application/json";
+  if (rawBody) headers["Content-Type"] = "text/plain";
+  const response = await fetch("https://sillydev.co.uk/panel/api/client" + suffix, {
+    method, headers,
+    body: form || (payload === null ? undefined : (rawBody ? String(payload) : JSON.stringify(payload))),
+    signal: AbortSignal.timeout(60000)
+  });
+  const raw = await response.text();
+  let data = {};
+  if (raw) { try { data = JSON.parse(raw); } catch { data = { text: raw }; } }
+  if (!response.ok) {
+    const detail = data?.errors?.[0]?.detail || data?.message || data?.error || raw;
+    const reason = externalErrorText(detail) || ("HTTP " + response.status);
+    const error = new Error("Silly Development · " + method + " " + suffix + " · HTTP " + response.status + ": " + reason);
+    error.status = response.status;
+    error.code = data?.errors?.[0]?.code || data?.code || "";
+    throw error;
+  }
+  return { data, raw, status: response.status };
+}
 async function cogitConfig(userId, env) {
   const row = await env.DB.prepare("SELECT encrypted_token FROM provider_connections WHERE user_id=? AND provider='cogithost'").bind(userId).first();
   if (!row?.encrypted_token) return null;
@@ -3118,11 +3141,12 @@ export async function onRequest(context) {
     }
 
 
-    const pteroProviderRoute = path.match(/^\/hosting\/(waifly|xsystems|torchlite|daki|unixsys|consolex1)\/(connect|disconnect|servers|attach)$/);
+    const pteroProviderRoute = path.match(/^\/hosting\/(sillydev|waifly|xsystems|torchlite|daki|unixsys|consolex1)\/(connect|disconnect|servers|attach)$/);
     if (pteroProviderRoute) {
       const providerId = pteroProviderRoute[1];
       const routeAction = pteroProviderRoute[2];
       const configs = {
+        sillydev: { name: "Silly Development", plan: "Free · até 2 servidores · 256 MB RAM cada · 512 MB disco", request: sillydevRequest },
         waifly: { name: "Waifly", plan: "Free · 300 MB RAM · 1 GB · 1 servidor", request: waiflyRequest },
         xsystems: { name: "X Systems Hosting", plan: "1 servidor Free · 4 GB RAM · extras por créditos", request: xsystemsRequest },
         torchlite: { name: "Torchlite", plan: "Free Bot · 512 MB RAM · 3 GB disco · renovação a cada 24 horas", request: torchliteRequest },
@@ -3137,10 +3161,17 @@ export async function onRequest(context) {
         try {
           const result = await config.request(token, "");
           const servers = Array.isArray(result.data?.data) ? result.data.data : [];
+          let plan = config.plan;
+          if (providerId === "sillydev") {
+            const allowance = await config.request(token, "/server-creation");
+            const a = allowance.data?.attributes || {};
+            if (!Array.isArray(a.runtimes) || !a.runtimes.length) throw new Error("A chave precisa ter a permissão servers.create e o plano precisa estar com criação Free habilitada.");
+            plan = "Free · " + Number(a.limit || 2) + " servidores · 256 MB RAM cada · 512 MB disco";
+          }
           const encrypted = await encryptSecret(token, env);
           await env.DB.prepare("INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at")
-            .bind(user.id, providerId, encrypted, config.name, config.plan, Date.now()).run();
-          return reply({ ok: true, connected: true, provider: providerId, serversCount: servers.length, message: "Client API Key de " + config.name + " validada e salva com criptografia." });
+            .bind(user.id, providerId, encrypted, config.name, plan, Date.now()).run();
+          return reply({ ok: true, connected: true, provider: providerId, serversCount: servers.length, message: providerId === "sillydev" ? "Silly Development conectado. A chave foi validada e criptografada; o Estúdio poderá consultar e criar servidores Free quando houver vagas." : "Client API Key de " + config.name + " validada e salva com criptografia." });
         } catch (error) { return reply({ error: error.message || "Não consegui validar a Client API Key de " + config.name + "." }, 401); }
       }
       if (routeAction === "disconnect" && request.method === "POST") {
