@@ -940,7 +940,7 @@ function integrationsView(){
 
 function hostingView(){
  const bots=state.bots||[];
- const providerNames={"keritcloud":"Kerit Cloud","waifly":"Waifly","xsystems":"X Systems Hosting","cogithost":"Cogithost","aclclouds":"ACLClouds","cubecloud":"Cube Hosting","discloud":"Discloud","squarecloud":"Square Cloud","bot-hosting":"Bot-Hosting"};
+ const providerNames={"keritcloud":"Kerit Cloud","waifly":"Waifly","xsystems":"X Systems Hosting","torchlite":"Torchlite","daki":"Daki Hosting","cogithost":"Cogithost","aclclouds":"ACLClouds","cubecloud":"Cube Hosting","discloud":"Discloud","squarecloud":"Square Cloud","bot-hosting":"Bot-Hosting"};
  return pageHead("Hospedagem","Veja suas vagas gratuitas, conecte provedores e acompanhe onde cada bot está funcionando.",'<button class="btn secondary" id="hostingRefresh">↻ Atualizar vagas</button>')+
  '<section class="dashboard-panel"><div class="dashboard-panel-head"><div><small>CAPACIDADE DA SUA CONTA</small><h2>Provedores e vagas gratuitas</h2></div><span class="status">SEM PLANO PAGO</span></div><p class="muted small">O Estúdio consulta somente as contas conectadas por cada membro. Uma conta própria pode ser necessária; não criamos contas em massa nem prometemos vagas que o provedor não confirmou.</p><div id="hostingPoolCards" class="fleet-provider-grid"><div class="dashboard-empty">Consultando as contas conectadas…</div></div><div class="hero-actions" style="margin-top:14px"><button class="btn" data-view="settings">Conectar contas e vincular servidores ↗</button><button class="btn secondary" data-view="integrations">Ver catálogo gratuito</button></div></section>'+
  '<section class="dashboard-panel" style="margin-top:16px"><div class="dashboard-panel-head"><div><small>SEUS PROJETOS</small><h2>Hospedagem de cada bot</h2></div><span class="small-muted">'+bots.length+' projeto(s)</span></div>'+
@@ -2565,7 +2565,7 @@ async function uploadBotFile(){
   }else if(!currentBot?.hasDiscordToken){
    throw new Error("Cole o Bot Token do Discord no campo desta tela. O Estúdio valida e criptografa o token antes de enviar o ZIP.");
   }
-  const existingProviderApp=!!currentBot?.providerAppId&&["discloud","squarecloud","cubecloud","aclclouds","keritcloud","waifly","xsystems"].includes(String(currentBot.hostingProvider||"").toLowerCase());
+  const existingProviderApp=!!currentBot?.providerAppId&&["discloud","squarecloud","cubecloud","aclclouds","keritcloud","waifly","xsystems","torchlite","daki"].includes(String(currentBot.hostingProvider||"").toLowerCase());
   const newUnhostedProject=!currentBot?.providerAppId&&!currentBot?.hostingDeploymentId;
   if(existingProviderApp||newUnhostedProject){
    const fallbackResult=await uploadZipToFreeHosting(id,file,runtime,packageName,status);
