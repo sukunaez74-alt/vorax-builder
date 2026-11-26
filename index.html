@@ -2127,6 +2127,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   }
   const freePlan=String(cube.planId||"").toLowerCase()==="free"||String(cube.plan||"").toLowerCase()==="free";
   if(!freePlan)throw new Error("O Estúdio só usa o plano Free da Cube Hosting para novos bots. Nenhum plano pago será selecionado.");
+  if(cube.canCreate===false)throw new Error("A conta Cube não tem uma vaga Free disponível agora. Confira o limite de 1 bot e 100 MB e resgate a vaga com /free no Discord da Cube.");
  }
 
  if(status)status.textContent="Preparando uma cópia limpa do ZIP. O arquivo original no seu computador não será alterado…";
