@@ -1249,7 +1249,25 @@ async function keritDeployZip(apiKey, serverIdValue, archiveBytes, archiveName, 
     if (!String(packageJson.scripts.start || "").trim()) packageJson.scripts.start = "node blackzone_launcher.cjs";
     zip.file("package.json", JSON.stringify(packageJson, null, 2) + "\n");
   } else if (runtime === "python" && prepared.entryFile !== "main.py") {
-    zip.file("main.py", "from runpy import run_path\nrun_path(" + JSON.stringify(prepared.entryFile) + ", run_name='__main__')\n");
+    zip.file("main.py", [
+      "from pathlib import Path",
+      "import os",
+      "from runpy import run_path",
+      "env_file = Path('.env')",
+      "if env_file.exists():",
+      "    for raw in env_file.read_text(encoding='utf-8').splitlines():",
+      "        line = raw.strip()",
+      "        if not line or line.startswith('#') or '=' not in line:",
+      "            continue",
+      "        key, value = line.split('=', 1)",
+      "        key, value = key.strip(), value.strip()",
+      "        if len(value) >= 2 and value[0] == value[-1] and value[0] in (chr(34), chr(39)):",
+      "            value = value[1:-1]",
+      "        if key:",
+      "            os.environ[key] = value",
+      "run_path(" + JSON.stringify(prepared.entryFile) + ", run_name='__main__')",
+      ""
+    ].join("\n"));
   }
 
   const bytes = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
