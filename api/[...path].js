@@ -397,31 +397,55 @@ async function ensureAdminCaosDeployment(userId, env, settings) {
   if (settings?.hosting_deployment_id) return String(settings.hosting_deployment_id);
   const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(userId).first();
   const scopes = String(hosting?.scope || "").split(/\s+/).filter(Boolean);
-  const missing = ["deployments:write","credits:spend","files:write"].filter(scope => !scopes.includes(scope));
+  const missing = ["files:write","deployments:power"].filter(scope => !scopes.includes(scope));
   if (!hosting || missing.length) {
-    throw new Error("Reconecte o Bot-Hosting pelo botão desta página e autorize criação de servidores e envio de arquivos.");
+    throw new Error("Reconecte o Bot-Hosting pelo botão desta página e autorize envio de arquivos e controle do servidor.");
   }
-  const name = "black-zone-caos-adm";
-  const existing = await hostRequest(userId, env, "/deployments?name=" + encodeURIComponent(name) + "&brief=true");
-  const matches = Array.isArray(existing.deployments) ? existing.deployments : [];
-  const found = matches.find(item => item && item.name === name && item.owned !== false && item.id);
-  let deploymentId = found ? String(found.id) : "";
-  if (!deploymentId) {
-    let created;
-    try {
-      created = await hostRequest(userId, env, "/deployments", "POST", {
-        name, source: "blank", runtime: "python", runtimeVersion: "3.11"
-      });
-    } catch (error) {
-      if (/HTTP 402\b/.test(String(error?.message || ""))) {
-        throw new Error("O plano gratuito do Bot-Hosting não tem uma vaga livre para criar este bot. O painel não vai contratar um plano pago nem substituir outro bot.");
-      }
-      throw error;
-    }
-    const deployment = created.deployment || created;
-    deploymentId = String(deployment.id || "");
-    if (!deploymentId) throw new Error("O Bot-Hosting não retornou o ID do servidor CAOS.");
+
+  // Reaproveita a vaga do ADM antigo somente se ela pertence ao mesmo administrador.
+  // O usuário autorizou expressamente substituir esse bot pelo CAOS.
+  const oldAdmin = await env.DB.prepare(
+    "SELECT owner_user_id,hosting_deployment_id FROM verification_bot_settings WHERE id='main'"
+  ).first();
+  const deploymentId = String(oldAdmin?.hosting_deployment_id || "");
+  if (!deploymentId || String(oldAdmin?.owner_user_id || "") !== String(userId)) {
+    throw new Error("Não encontrei a vaga do antigo ADM vinculada a esta conta. Nenhum outro bot foi alterado.");
   }
+
+  const collision = await env.DB.prepare(
+    "SELECT id,name FROM bots WHERE user_id=? AND hosting_deployment_id=? LIMIT 1"
+  ).bind(userId, deploymentId).first();
+  if (collision) {
+    throw new Error("A vaga antiga também está vinculada ao bot \"" + String(collision.name || collision.id) + "\". Para proteger esse bot, a instalação foi bloqueada.");
+  }
+
+  // Confirma que a hospedagem é acessível e consulta seu estado antes de parar o ADM.
+  const diagnosis = await hostRequest(
+    userId, env,
+    "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=2"
+  );
+  let currentState = String(diagnosis.state || diagnosis.deployment?.state || "").toLowerCase();
+  if (!currentState) {
+    const current = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId));
+    currentState = String(current.state || current.deployment?.state || "").toLowerCase();
+  }
+  if (!currentState) {
+    throw new Error("Encontrei a vaga do ADM, mas não consegui confirmar o estado dela. Nenhum arquivo foi alterado.");
+  }
+  if (!["offline","stopped","terminated"].includes(currentState)) {
+    await hostRequest(
+      userId, env,
+      "/deployments/" + encodeURIComponent(deploymentId) + "/power",
+      "POST",
+      { action: "stop", waitSeconds: 20 }
+    );
+  }
+
+  // Desvincula somente o painel antigo; mantém token e histórico para referência.
+  await env.DB.prepare(
+    "UPDATE verification_bot_settings SET hosting_deployment_id=NULL,state='replaced',updated_at=? WHERE id='main' AND owner_user_id=? AND hosting_deployment_id=?"
+  ).bind(Date.now(), userId, deploymentId).run();
+
   await env.DB.prepare(
     "INSERT INTO admin_caos_settings (id,owner_user_id,hosting_deployment_id,state,updated_at) VALUES ('main',?,?,'draft',?) ON CONFLICT (id) DO UPDATE SET hosting_deployment_id=EXCLUDED.hosting_deployment_id,updated_at=EXCLUDED.updated_at"
   ).bind(userId, deploymentId, Date.now()).run();
