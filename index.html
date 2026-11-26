@@ -823,6 +823,9 @@ async function loadFleetProviders(){
    }else if(p.id==="cogithost"){
     capacity=Number(p.serversCount||0)+" servidores acessíveis";
     detail="Vincule servidores criados no painel Cogithost";
+   }else if(p.id==="keritcloud"){
+    capacity=Number(p.serversCount||0)+" servidor(es) acessível(is)";
+    detail="Free: 1 servidor por pessoa · 256 MB RAM · 2 GB NVMe · sem expiração";
    }else if(p.id==="aclclouds"){
     capacity=Number(p.botsCount||0)+" bot(s) Discord na conta";
     detail="Free: 1 bot por conta · renovação manual a cada 4 dias";
@@ -1833,7 +1836,7 @@ async function openBot(id){
  state.activeBot=id;
  const enabled=Object.values(b.modules||{}).filter(Boolean).length;
  try{const hostStatus=await api("/hosting/status");state.hosting=!!hostStatus.connected;}catch{state.hosting=false;}
- const externalProvider=["discloud","squarecloud","cubecloud","cogithost","aclclouds"].includes(String(b.hostingProvider||""));
+ const externalProvider=["discloud","squarecloud","cubecloud","cogithost","keritcloud","aclclouds"].includes(String(b.hostingProvider||""));
  const connected=externalProvider||!!state.hosting;
  const botId=b.discordBotId||null;
  const serverRunning=b.state==="running";const isRunning=b.discordOnline===true;
