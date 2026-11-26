@@ -4864,6 +4864,19 @@ export async function onRequest(context) {
           return reply({ url: target.href, field: "files", path: directory, provider: "aclclouds" });
         } catch (error) { return reply({ error: error.message || "Falha ao preparar upload ACLClouds." }, 502); }
       }
+      if (action === "upload-url" && request.method === "POST" && bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "keritcloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+          const b = await body(request), directory = safeVolumePath(b.path || "/");
+          const result = await keritRequest(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/files/upload");
+          const url = String(result.data?.attributes?.url || result.data?.url || "");
+          if (!url.startsWith("https://")) return reply({ error: "O Kerit Cloud não retornou URL de upload válida." }, 502);
+          const target = new URL(url);
+          target.searchParams.set("directory", directory);
+          return reply({ url: target.href, field: "files", path: directory, provider: "keritcloud" });
+        } catch (error) { return reply({ error: error.message || "Falha ao preparar upload Kerit Cloud." }, 502); }
+      }
       if (action === "upload-url" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         try {
           const config = await cogitConfig(user.id, env);
@@ -4964,6 +4977,16 @@ export async function onRequest(context) {
           });
           return reply({ ...(result.data || {}), provider: "aclclouds" });
         } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP na ACLClouds." }, 502); }
+      }
+      if (action === "extract" && request.method === "POST" && bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+        const b = await body(request), file = String(b.file || "");
+        if (!/^[A-Za-z0-9._-]{1,140}\\.zip$/i.test(file) || file.includes("..")) return reply({ error: "Nome de ZIP inválido." }, 400);
+        try {
+          const token = await providerToken(user.id, "keritcloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+          const result = await keritRequest(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/files/decompress", "POST", { root: safeVolumePath(b.path || "/"), file });
+          return reply({ provider: "keritcloud", status: result.status });
+        } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP Kerit Cloud." }, 502); }
       }
       if (action === "extract" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         const b = await body(request), file = String(b.file || "");
