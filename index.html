@@ -558,9 +558,10 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
    <button class="nav-btn active" data-view="overview"><span>⌂</span> Painel</button>
    <button class="nav-btn" data-view="bots"><span>◈</span> Meus Bots</button>
    <button class="nav-btn" data-view="fleet"><span>▦</span> Frota em lote</button>
+   <button class="nav-btn" data-view="hosting"><span>⌁</span> Hospedagem</button>
    <button class="nav-btn" data-view="files"><span>▤</span> Arquivos</button>
    <button class="nav-btn" data-view="logs"><span>›_</span> Terminal / Logs</button>
-   <button class="nav-btn" data-view="settings"><span>▤</span> Banco de Dados</button>
+   <button class="nav-btn" data-view="settings"><span>⚙</span> Configurações</button>
    <button class="nav-btn owner-only hidden" data-view="verificationAdmin"><span>⌁</span> CAOS · ADM</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Gerenciamento</div>
@@ -648,9 +649,9 @@ $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#regi
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){if(state.adminPortal&&view!=="verificationAdmin")return;if(!state.adminPortal&&view==="verificationAdmin")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"CAOS · ADM"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){if(state.adminPortal&&view!=="verificationAdmin")return;if(!state.adminPortal&&view==="verificationAdmin")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Provedores",hosting:"Hospedagem",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"CAOS · ADM"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
-function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
+function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,hosting:hostingView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 
 const DECORATION_OPTIONS=[
  {id:"sakura",name:"Sakura Neon",tag:"🌸 · LUA VIOLETA",description:"Templo japonês, lua gigante, sakuras e cidade iluminada.",symbol:"🌸",scene:"decor-scene-sakura",wallpaper:"/themes/sakura.svg",emojis:"🌸 🌙 ⛩️ ✨"},
@@ -708,7 +709,7 @@ function overviewView(){
   '<section class="cosmic-hero"><div class="cosmic-hero-copy"><div class="cosmic-kicker"><i></i> CENTRAL DE CONTROLE · BLACK ZONE</div><p>Bem-vindo(a) de volta,</p><h1>BLACK ZONE <em>ESTÚDIO</em></h1><div class="cosmic-subtitle">Sua central de hospedagem e gerenciamento de bots</div>'+
   '<div class="cosmic-badges"><span><b>◈</b>'+online+' online</span><span><b>⚡</b>'+bots.length+' projetos</span><span><b>✧</b>'+activeModules+' módulos ativos</span><span><b>⬡</b>'+(state.hosting?"Hospedagem conectada":"Hospedagem pendente")+'</span></div><div class="theme-emoji-line" id="themeEmojiLine">🌸 🌙 ⛩️ ✨</div></div><div class="cosmic-planet"><div class="planet-ring"></div><div class="planet-core"></div><div class="cosmic-astronaut">◉</div><div class="planet-spark spark-a">✦</div><div class="planet-spark spark-b">✧</div></div></section>'+
   '<section class="dashboard-panel quick-panel"><div class="dashboard-panel-head"><div><small>ATALHOS</small><h2>Ações rápidas</h2></div></div><div class="quick-action-grid">'+
-   '<button data-action="create-bot" class="quick-action quick-purple"><span>＋</span>Novo bot</button><button data-view="files" class="quick-action quick-blue"><span>⇧</span>Arquivos</button><button data-view="logs" class="quick-action quick-cyan"><span>›_</span>Terminal / logs</button><button data-view="schedules" class="quick-action quick-orange"><span>▦</span>Agendamentos</button><button data-view="integrations" class="quick-action quick-violet"><span>⌘</span>Hospedagem</button>'+
+   '<button data-action="create-bot" class="quick-action quick-purple"><span>＋</span>Novo bot</button><button data-view="files" class="quick-action quick-blue"><span>⇧</span>Arquivos</button><button data-view="logs" class="quick-action quick-cyan"><span>›_</span>Terminal / logs</button><button data-view="schedules" class="quick-action quick-orange"><span>▦</span>Agendamentos</button><button data-view="hosting" class="quick-action quick-violet"><span>⌘</span>Hospedagem</button>'+
   '</div></section>'+
   '<section class="dashboard-panel bots-panel"><div class="dashboard-panel-head"><div><small>SEUS PROJETOS</small><h2>Meus bots</h2></div><div class="panel-head-actions"><span class="small-muted">'+bots.length+' cadastrados</span><button class="icon-button" id="refreshBots">↻</button></div></div>'+
    (bots.length?'<div class="dashboard-bot-list">'+bots.map(botCard).join("")+'</div>':'<div class="dashboard-empty empty-create"><span>◈</span><b>Seu universo começa aqui</b><p>Crie seu primeiro bot para configurar o token, selecionar módulos e conectar a hospedagem.</p><button class="btn btn-bright" id="addBot">＋ Criar primeiro bot</button></div>')+
@@ -916,7 +917,7 @@ function docsView(){
  '<div class="docs-layout"><aside class="docs-index"><div class="nav-title caps">Guias</div>'+docs.map((d,i)=>'<a href="#guide-'+i+'">'+d[0]+' · '+d[1]+'</a>').join("")+'</aside><div class="docs-content">'+docs.map((d,i)=>'<article class="doc-step" id="guide-'+i+'"><div class="doc-step-head"><span>'+d[0]+'</span><h3>'+d[1]+'</h3></div><p>'+d[2]+'</p><div class="doc-tip">'+d[3]+'</div></article>').join("")+'</div></div>';
 }
 function integrationsView(){
- return pageHead("Integrações","Provedores gratuitos de hospedagem para bots Discord.")+
+ return pageHead("Provedores gratuitos","Catálogo de hospedagens sem assinatura. Para conectar contas e vincular servidores, use a área Hospedagem.")+
  '<div class="integration-card"><div class="integration-logo">BH</div><div class="integration-copy"><div class="section-kicker">PROVEDOR PRINCIPAL</div><h3>Bot-Hosting</h3><p>Autorize o acesso do Estúdio para preparar servidores e controlar a execução. A única vaga atual continua reservada ao bot ADM e não será usada por outros projetos.</p><span class="resource-state '+(state.hosting&&state.hostingCanCreate?"is-on":"")+'">'+(state.hosting?(state.hostingCanCreate?"Conta conectada · criação liberada":"Conexão parcial · falta permissão para criar"):"Sem vaga adicional no plano atual")+'</span></div><button class="btn '+(state.hosting&&state.hostingCanCreate?"secondary":"btn-bright")+'" id="hostingConnectPage">'+(state.hosting&&state.hostingCanCreate?"Reconectar conta":"Ver autorização ↗")+'</button></div>'+
  '<section class="card free-host-directory"><div class="section-head"><div><div class="caps">SEM ASSINATURA · SEM CARTÃO</div><h3>Hospedagens gratuitas</h3></div><span class="status">FREE ONLY</span></div>'+
  '<div class="free-host-grid">'+
@@ -930,6 +931,37 @@ function integrationsView(){
  '<article class="free-host-card free-host-featured"><div class="free-host-top"><b>Kerit Cloud</b><span>1 servidor grátis por pessoa</span></div><strong>256 MB RAM · 2 GB NVMe · 30% CPU</strong><p>Plano Free permanente, sem cartão e sem modo de suspensão por inatividade. Exige verificar e-mail, vincular Discord, entrar na comunidade e reivindicar o servidor no painel da Kerit. Servidores ativos ficam online; servidores parados e sem uso por muito tempo podem ser reclamados após aviso.</p><small>API Pterodactyl integrada · depois de criar o servidor, conecte a Client API Key para enviar ZIP, editar arquivos e ligar/desligar pelo Estúdio</small><button class="text-action" data-view="settings">Conectar no Estúdio ↗</button><a href="https://billing.kerit.cloud" target="_blank" rel="noopener noreferrer">Criar conta e reivindicar servidor ↗</a> · <a href="https://discord.gg/7x9MQgFrCT" target="_blank" rel="noopener noreferrer">Comunidade Kerit ↗</a></article>'+
  '</div><div class="integration-explainer"><b>Como o Estúdio conta as vagas</b><p>Limite anunciado não é vaga disponível. O pool só conta contas conectadas e capacidade confirmada pelo próprio provedor. Cada hospedagem aplica seus limites e regras de permanência. Não vamos usar planos pagos nem criar contas em massa.</p></div></section>';
 }
+
+function hostingView(){
+ const bots=state.bots||[];
+ const providerNames={"keritcloud":"Kerit Cloud","cogithost":"Cogithost","aclclouds":"ACLClouds","cubecloud":"Cube Hosting","discloud":"Discloud","squarecloud":"Square Cloud","bot-hosting":"Bot-Hosting"};
+ return pageHead("Hospedagem","Veja suas vagas gratuitas, conecte provedores e acompanhe onde cada bot está funcionando.",'<button class="btn secondary" id="hostingRefresh">↻ Atualizar vagas</button>')+
+ '<section class="dashboard-panel"><div class="dashboard-panel-head"><div><small>CAPACIDADE DA SUA CONTA</small><h2>Provedores e vagas gratuitas</h2></div><span class="status">SEM PLANO PAGO</span></div><p class="muted small">O Estúdio consulta somente as contas conectadas por cada membro. Uma conta própria pode ser necessária; não criamos contas em massa nem prometemos vagas que o provedor não confirmou.</p><div id="hostingPoolCards" class="fleet-provider-grid"><div class="dashboard-empty">Consultando as contas conectadas…</div></div><div class="hero-actions" style="margin-top:14px"><button class="btn" data-view="settings">Conectar contas e vincular servidores ↗</button><button class="btn secondary" data-view="integrations">Ver catálogo gratuito</button></div></section>'+
+ '<section class="dashboard-panel" style="margin-top:16px"><div class="dashboard-panel-head"><div><small>SEUS PROJETOS</small><h2>Hospedagem de cada bot</h2></div><span class="small-muted">'+bots.length+' projeto(s)</span></div>'+
+ (bots.length?'<div class="fleet-project-list">'+bots.map(bot=>{const provider=providerNames[String(bot.hostingProvider||"")]||(bot.hostingDeploymentId?"Bot-Hosting":"Ainda sem hospedagem");const linked=!!(bot.providerAppId||bot.hostingDeploymentId);const status=bot.discordOnline?"ONLINE":(bot.state==="running"?"PROCESSO ATIVO":(linked?"VINCULADO · VERIFICAR STATUS":"AGUARDANDO HOSPEDAGEM"));return '<div class="fleet-project-row"><span class="fleet-project-main"><strong>'+escapeHtml(bot.name||"Meu bot")+'</strong><small>'+escapeHtml(provider)+' · '+(linked?"Servidor vinculado":"Nenhum servidor vinculado")+'</small></span><span class="fleet-project-status '+(bot.discordOnline?"is-online":"")+'">'+status+'</span><button class="btn secondary" data-hosting-files="'+escapeHtml(bot.id)+'">Abrir projeto</button></div>'}).join("")+'</div>':'<div class="dashboard-empty">Você ainda não criou nenhum bot. Crie o projeto e conecte uma hospedagem gratuita para enviar o ZIP.</div>')+
+ '<div class="project-note" style="margin-top:14px"><strong>Fluxo no Estúdio</strong><br>Conecte a conta gratuita em Configurações, vincule o servidor no seu projeto e envie o ZIP em Arquivos. Depois use os controles de iniciar, parar, reiniciar e os recursos que o provedor disponibilizar.</div></section>';
+}
+async function loadHostingPoolOverview(){
+ const root=$("#hostingPoolCards");if(!root)return;
+ root.innerHTML='<div class="dashboard-empty">Consultando as contas conectadas…</div>';
+ try{
+  const result=await api("/hosting/pool/status");
+  const providers=(Array.isArray(result.providers)?result.providers:[]).filter(p=>["keritcloud","cogithost","aclclouds","cubecloud","discloud","fadehost","quaxly"].includes(p.id));
+  const cards=providers.map(p=>{
+   const manual=p.deploymentMode==="manual",connected=!!p.connected,valid=p.valid!==false&&connected;
+   let status=manual?"Deploy gratuito pelo painel externo":(!connected?"Não conectada":!valid?"Conexão precisa de revisão":p.canCreate?"Vaga gratuita confirmada":p.canAttach?"Servidor encontrado na conta":"Conta conectada · sem nova vaga confirmada");
+   let detail=p.error||p.detail||p.plan||"Conecte a conta para consultar a capacidade.";
+   if(p.id==="cubecloud")detail=(p.projectsCount??"—")+" / "+(p.maxBots||"limite não informado")+" bots · "+(p.memoryAvailableMb??"—")+" MB livres"+(p.zipMaxMb?" · ZIP até "+p.zipMaxMb+" MB":"");
+   if(p.id==="discloud")detail=(p.appsCount==null?"Apps não informados":p.appsCount+" app(s)")+" · "+(p.totalRamMb?Math.max(0,Number(p.totalRamMb)-Number(p.ramUsedMb||0))+" MB RAM livres":"RAM não informada");
+   if(p.id==="keritcloud")detail=(p.serversCount||0)+" servidor(es) na conta · Free de 256 MB RAM";
+   if(p.id==="cogithost")detail=(p.serversCount||0)+" servidor(es) acessíveis · verificação periódica no Free";
+   if(p.id==="aclclouds")detail=(p.botsCount||0)+" bot(s) Discord · renovação a cada 4 dias";
+   return '<article class="fleet-provider-card"><div class="fleet-provider-top"><strong>'+escapeHtml(p.name||p.id)+'</strong><span class="fleet-provider-dot '+(p.canCreate||p.canAttach?"is-ready":(connected?"is-waiting":""))+'"></span></div><b>'+escapeHtml(status)+'</b><small>'+escapeHtml(detail)+'</small></article>';
+  }).join("");
+  root.innerHTML=cards||'<div class="dashboard-empty">Nenhum provedor gratuito disponível para consulta.</div>';
+ }catch(error){root.innerHTML='<div class="dashboard-empty">'+escapeHtml(error.message||"Não foi possível consultar as vagas.")+'</div>';}
+}
+
 function aclFilesConnectCard(customBots){
  const bots=Array.isArray(customBots)?customBots:[];
  const hasBots=bots.length>0;
@@ -1216,6 +1248,7 @@ function bindView(){
  if(state.view==="settings"){loadSettingsHostingState();loadDiscloudHostingState();}
  if(state.view==="files")loadDiscloudHostingState();
  if(state.view==="fleet")loadFleetProviders();
+  if(state.view==="hosting")loadHostingPoolOverview();
  const discloudForm=$("#discloudConnectForm");
  if(discloudForm)discloudForm.onsubmit=async e=>{
   e.preventDefault();
@@ -1529,6 +1562,8 @@ function bindView(){
  });
  document.querySelectorAll("[data-fleet-power]").forEach(button=>button.onclick=()=>runFleetPower(button.dataset.fleetPower));
  const fleetRefresh=$("#fleetRefreshPool");if(fleetRefresh)fleetRefresh.onclick=loadFleetProviders;
+  const hostingRefresh=$("#hostingRefresh");if(hostingRefresh)hostingRefresh.onclick=loadHostingPoolOverview;
+  document.querySelectorAll("[data-hosting-files]").forEach(button=>button.onclick=()=>{state.activeBot=button.dataset.hostingFiles;navigate("files")});
  const select=$("#resourceBotSelect");if(select)select.onchange=()=>{state.activeBot=select.value;render()};
  const openResources=$("#openResourceModules");if(openResources)openResources.onclick=()=>caosModal(activeBotForResources()?.id);
  const hc=$("#healthCheck");if(hc)hc.onclick=healthCheck;
@@ -1594,7 +1629,7 @@ function createBotModal(){
   '<div class="modal-head"><h3>Novo bot</h3><button class="close" id="closeModal">×</button></div>'+
   '<form id="createBotForm">'+
   '<div class="field"><label>NOME DO BOT</label><input name="name" value="Meu bot" required maxlength="48" placeholder="Dê um nome ao bot"></div>'+
-  '<div class="project-note"><strong>ZIP ou bot já criado</strong><br>Importe o projeto que você já tem. Depois de criar, aparecerá apenas um botão para escolher o arquivo ZIP do bot.</div>'+
+  '<div class="project-note"><strong>ZIP ou bot já criado</strong><br>Importe o projeto que você já tem. Depois, abra Hospedagem para conectar uma conta Free e vincular o servidor ao projeto.</div>'+
   '<button class="btn wide" id="createBotSubmit" type="submit">ZIP ou bot já criado ↗</button></form>'
  );
  const form=$("#createBotForm");
@@ -2316,17 +2351,18 @@ async function prepareFallbackArchive(file,status,maxBytes=5*1024*1024){
 async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
  const targetBot=state.bots.find(bot=>bot.id===id);
  const provider=String(targetBot?.hostingProvider||"").toLowerCase();
- const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds"].includes(provider);
+ const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds","keritcloud"].includes(provider);
  const isAclClouds=existingProvider&&provider==="aclclouds";
+ const isKeritCloud=existingProvider&&provider==="keritcloud";
  if(!existingProvider){
-  throw new Error("Antes do envio, crie um servidor Discord no plano Free da ACLClouds, conecte a API Key e vincule o servidor no cartão desta tela. Depois disso, o Estúdio envia o ZIP e inicia o bot.");
+  throw new Error("Antes do envio, abra Hospedagem, conecte uma conta gratuita e vincule um servidor ao projeto. Se houver vaga automática Free na Cube Hosting ou Discloud, o Estúdio também poderá tentar usá-la.");
  }
- const maxZipBytes=isAclClouds?25*1024*1024:5*1024*1024;
+ const maxZipBytes=(isAclClouds||isKeritCloud)?25*1024*1024:5*1024*1024;
  if(status)status.textContent="Preparando uma cópia limpa do ZIP. O arquivo original no seu computador não será alterado…";
  const prepared=await prepareFallbackArchive(file,status,maxZipBytes);
  const chunkSize=256*1024;
  const totalChunks=Math.ceil(prepared.blob.size/chunkSize);
- const maxChunks=isAclClouds?100:20;
+ const maxChunks=(isAclClouds||isKeritCloud)?100:20;
  if(totalChunks<1||totalChunks>maxChunks)throw new Error("O ZIP limpo ultrapassa o limite de envio desta hospedagem. O arquivo original não foi alterado.");
  const randomBytes=new Uint8Array(18);
  crypto.getRandomValues(randomBytes);
@@ -2347,7 +2383,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error(result.error||"O provedor alternativo não confirmou a criação da aplicação.");
- const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":"Discloud"))));
+ const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":"Discloud")))));
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
  state.activeBot=id;
@@ -2397,7 +2433,7 @@ async function uploadBotFile(){
   }else if(!currentBot?.hasDiscordToken){
    throw new Error("Cole o Bot Token do Discord no campo desta tela. O Estúdio valida e criptografa o token antes de enviar o ZIP.");
   }
-  const existingProviderApp=!!currentBot?.providerAppId&&["discloud","squarecloud","cubecloud","aclclouds"].includes(String(currentBot.hostingProvider||"").toLowerCase());
+  const existingProviderApp=!!currentBot?.providerAppId&&["discloud","squarecloud","cubecloud","aclclouds","keritcloud"].includes(String(currentBot.hostingProvider||"").toLowerCase());
   const newUnhostedProject=!currentBot?.providerAppId&&!currentBot?.hostingDeploymentId;
   if(existingProviderApp||newUnhostedProject){
    const fallbackResult=await uploadZipToFreeHosting(id,file,runtime,packageName,status);
