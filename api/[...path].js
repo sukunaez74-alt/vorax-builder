@@ -1412,17 +1412,17 @@ async function pterodactylDeployZip(apiKey, serverIdValue, archiveBytes, archive
   }
 
   const bytes = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
-  if (!bytes.byteLength || bytes.byteLength > 25 * 1024 * 1024) throw new Error("O ZIP preparado ultrapassa 25 MB, limite de segurança do Estúdio para ' + providerName + '.");
+  if (!bytes.byteLength || bytes.byteLength > 25 * 1024 * 1024) throw new Error("O ZIP preparado ultrapassa 25 MB, limite de segurança do Estúdio para " + providerName + ".");
   const uploadName = String(archiveName || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").replace(/\.zip$/i, "") + "-black-zone.zip";
   const uploadInfo = await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/files/upload");
   const signedUrl = String(uploadInfo.data?.attributes?.url || uploadInfo.data?.url || "");
-  if (!signedUrl.startsWith("https://")) throw new Error("' + providerName + ' não retornou uma URL HTTPS de upload.");
+  if (!signedUrl.startsWith("https://")) throw new Error(providerName + " não retornou uma URL HTTPS de upload.");
   const target = new URL(signedUrl);
   target.searchParams.set("directory", "/");
   const form = new FormData();
   form.append("files", new Blob([bytes], { type: "application/zip" }), uploadName);
   const uploaded = await fetch(target.href, { method: "POST", body: form, signal: AbortSignal.timeout(90000) });
-  if (!uploaded.ok) throw new Error("O envio do ZIP à ' + providerName + ' falhou: HTTP " + uploaded.status + ".");
+  if (!uploaded.ok) throw new Error("O envio do ZIP à " + providerName + " falhou: HTTP " + uploaded.status + ".");
   await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/files/decompress", "POST", { root: "/", file: uploadName });
   try {
     await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/files/delete", "POST", { root: "/", files: [uploadName] });
@@ -1444,7 +1444,7 @@ async function pterodactylDeployZip(apiKey, serverIdValue, archiveBytes, archive
     .bind(providerId, serverId, runtime, JSON.stringify(customProject), Date.now(), bot.id, userId).run();
   return {
     ok: true, provider: providerId, providerAppId: serverId, runtime, customProject,
-    message: "ZIP enviado, extraído e comando de " + (signal === "restart" ? "reinício" : "início") + " solicitado à ' + providerName + '. " +
+    message: "ZIP enviado, extraído e comando de " + (signal === "restart" ? "reinício" : "início") + " solicitado à " + providerName + ". " +
       (tokenConfigured ? "O token foi guardado na variável privada do servidor." : (discordToken ? "O token permanece no arquivo .env privado do servidor; a chave não foi exposta a outros membros." : "Configure o token do Discord nas variáveis de ambiente do servidor."))
   };
 }
@@ -4384,10 +4384,10 @@ export async function onRequest(context) {
           const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : "X Systems Hosting");
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " nas Configurações." }, 409);
           const serverId = keritIdentifier(bot.provider_app_id);
-          if (action === "logs") return reply({ provider: "keritcloud", lines: [], note: "O console ao vivo do Kerit usa WebSocket. Abra o console pelo painel hospedagem Pterodactyl." });
+          if (action === "logs") return reply({ provider: providerId, lines: [], note: "O console ao vivo usa WebSocket. Abra o Console no painel " + providerName + " para acompanhar a saída." });
           const result = await requestFn(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
           const data = result.data?.attributes || {};
-          if (action === "diagnose") return reply({ provider: "keritcloud", currentState: data.current_state || null, resources: data.resources || null });
+          if (action === "diagnose") return reply({ provider: providerId, currentState: data.current_state || null, resources: data.resources || null });
           return reply({ provider: providerId, resources: {
             currentState: data.current_state || null,
             cpu: data.resources?.cpu_absolute ?? null,
@@ -4463,7 +4463,7 @@ export async function onRequest(context) {
         try {
           const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
           const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : xsystemsRequest);
-          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o hospedagem nas Configurações." }, 409);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a hospedagem nas Configurações." }, 409);
           const serverId = keritIdentifier(bot.provider_app_id);
           const base = "/servers/" + encodeURIComponent(serverId) + "/files";
           if (!subPath && request.method === "GET") {
@@ -4480,7 +4480,7 @@ export async function onRequest(context) {
             const filePath = safeVolumePath(url.searchParams.get("path") || "/");
             const result = await requestFn(token, base + "/download?file=" + encodeURIComponent(filePath));
             const downloadUrl = String(result.data?.attributes?.url || result.data?.url || "");
-            if (!downloadUrl.startsWith("https://")) return reply({ error: "hospedagem não retornou link HTTPS para download." }, 502);
+            if (!downloadUrl.startsWith("https://")) return reply({ error: "A hospedagem não retornou link HTTPS para download." }, 502);
             return reply({ provider: providerId, url: downloadUrl, filename: filePath.split("/").pop() || "download.bin" });
           }
           if (subPath === "content" && request.method === "GET") {
@@ -4511,11 +4511,11 @@ export async function onRequest(context) {
             }
             const result = await requestFn(token, base + "/compress", "POST", { root, files: items });
             const archive = String(result.data?.attributes?.name || result.data?.name || "");
-            if (!archive) return reply({ error: "hospedagem não retornou o nome do ZIP criado." }, 502);
+            if (!archive) return reply({ error: "A hospedagem não retornou o nome do ZIP criado." }, 502);
             return reply({ provider: providerId, archive, filesCount: items.length });
           }
         } catch (error) {
-          return reply({ error: error.message || "Falha ao acessar os arquivos do hospedagem." }, 502);
+          return reply({ error: error.message || "Falha ao acessar os arquivos da hospedagem." }, 502);
         }
       }
 
