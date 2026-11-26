@@ -5077,7 +5077,8 @@ export async function onRequest(context) {
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
           const isPterodactylTarget = ["cogithost","sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(String(bot.hosting_provider || "").toLowerCase()) && !!bot.provider_app_id;
-          const maxArchiveBytes = (isAclCloudsTarget || isPterodactylTarget) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
+          const sillydevConnection = await env.DB.prepare("SELECT id FROM provider_connections WHERE user_id=? AND provider='sillydev'").bind(user.id).first();
+          const maxArchiveBytes = (isAclCloudsTarget || isPterodactylTarget || !!sillydevConnection) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
           const uploadId = String(b.uploadId || "");
           if (uploadId) {
@@ -5113,7 +5114,7 @@ export async function onRequest(context) {
           if (archiveBytes.byteLength > maxArchiveBytes) {
             return reply({
               code: "fallback_zip_too_large",
-              error: "O ZIP limpo passa do limite de 5 MB da rota alternativa. O arquivo original continua intacto."
+              error: "O ZIP limpo passa do limite de " + Math.round(maxArchiveBytes / (1024 * 1024)) + " MB desta rota gratuita. O arquivo original continua intacto."
             }, 413);
           }
 
