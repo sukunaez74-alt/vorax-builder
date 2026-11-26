@@ -2091,7 +2091,7 @@ function fileToBase64(file){
   return btoa(binary);
  });
 }
-async function prepareFallbackArchive(file,status){
+async function prepareFallbackArchive(file,status,maxBytes=5*1024*1024){
  if(!window.JSZip)throw new Error("O compactador de ZIP não carregou. Atualize a página e tente novamente.");
  if(status)status.textContent="Limpando o ZIP no navegador: removendo node_modules, venv, caches e arquivos temporários…";
  const source=await window.JSZip.loadAsync(file);
@@ -2113,28 +2113,24 @@ async function prepareFallbackArchive(file,status){
  }
  if(!kept)throw new Error("Não encontrei arquivos de projeto depois de remover dependências e caches. O ZIP original não foi alterado.");
  const blob=await cleaned.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:6}});
- if(blob.size>5*1024*1024)throw new Error("Mesmo após remover "+removed+" itens desnecessários, o pacote limpo passa de 5 MB ("+(blob.size/1024/1024).toFixed(2)+" MB). Reduza apenas arquivos grandes que não sejam necessários ao bot. O ZIP original não foi alterado.");
+ if(blob.size>maxBytes)throw new Error("Mesmo após remover "+removed+" itens desnecessários, o pacote limpo ultrapassa o limite gratuito de "+Math.round(maxBytes/1024/1024)+" MB ("+(blob.size/1024/1024).toFixed(2)+" MB). Reduza apenas arquivos grandes que não sejam necessários ao bot. O ZIP original não foi alterado.");
  return {blob,removed,kept};
 }
 async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
  const targetBot=state.bots.find(bot=>bot.id===id);
- const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds"].includes(String(targetBot.hostingProvider||"").toLowerCase());
+ const provider=String(targetBot?.hostingProvider||"").toLowerCase();
+ const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds"].includes(provider);
+ const isAclClouds=existingProvider&&provider==="aclclouds";
  if(!existingProvider){
-  const pool=await api("/hosting/pool/status");
-  const cube=(Array.isArray(pool.providers)?pool.providers:[]).find(provider=>provider.id==="cubecloud");
-  if(!cube?.connected||!cube?.valid){
-   throw new Error("Conecte a Cube Hosting no cartão desta tela antes de importar o ZIP. A Discloud não será usada para novos bots.");
-  }
-  const freePlan=String(cube.planId||"").toLowerCase()==="free"||String(cube.plan||"").toLowerCase()==="free";
-  if(!freePlan)throw new Error("O Estúdio só usa o plano Free da Cube Hosting para novos bots. Nenhum plano pago será selecionado.");
-  if(cube.canCreate===false)throw new Error("A conta Cube não tem uma vaga Free disponível agora. Confira o limite de 1 bot e 100 MB e resgate a vaga com /free no Discord da Cube.");
+  throw new Error("Antes do envio, crie um servidor Discord no plano Free da ACLClouds, conecte a API Key e vincule o servidor no cartão desta tela. Depois disso, o Estúdio envia o ZIP e inicia o bot.");
  }
-
+ const maxZipBytes=isAclClouds?25*1024*1024:5*1024*1024;
  if(status)status.textContent="Preparando uma cópia limpa do ZIP. O arquivo original no seu computador não será alterado…";
- const prepared=await prepareFallbackArchive(file,status);
+ const prepared=await prepareFallbackArchive(file,status,maxZipBytes);
  const chunkSize=256*1024;
  const totalChunks=Math.ceil(prepared.blob.size/chunkSize);
- if(totalChunks<1||totalChunks>20)throw new Error("O ZIP limpo precisa ter até 5 MB para o envio alternativo. O arquivo original não foi alterado.");
+ const maxChunks=isAclClouds?100:20;
+ if(totalChunks<1||totalChunks>maxChunks)throw new Error("O ZIP limpo ultrapassa o limite de envio desta hospedagem. O arquivo original não foi alterado.");
  const randomBytes=new Uint8Array(18);
  crypto.getRandomValues(randomBytes);
  const uploadId=Array.from(randomBytes,value=>value.toString(16).padStart(2,"0")).join("");
@@ -2148,7 +2144,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   });
   if(status)status.textContent="Enviando ZIP em partes: "+Math.round((index+1)/totalChunks*100)+"% ("+(index+1)+"/"+totalChunks+") · "+(prepared.blob.size/1024/1024).toFixed(2)+" MB";
  }
- if(status)status.textContent="Todas as partes chegaram. Enviando o ZIP à Cube Hosting Free…";
+ if(status)status.textContent="Todas as partes chegaram. Enviando o ZIP à "+(isAclClouds?"ACLClouds Free":"hospedagem conectada")+"…";
  const result=await api("/bots/"+encodeURIComponent(id)+"/auto-upload",{
   method:"POST",
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
@@ -2190,6 +2186,20 @@ async function uploadBotFile(){
   if(currentBot?.customProject&&
     !window.confirm("Este projeto já tem um pacote importado. Os arquivos com o mesmo nome poderão ser substituídos. Continuar?"))return;
   if(button)button.textContent="Enviando ZIP…";
+  const tokenInput=$("#filesDiscordToken");
+  const discordToken=String(tokenInput?.value||"").trim();
+  if(discordToken){
+   const saved=await api("/bot-token",{method:"POST",body:JSON.stringify({botId:id,discordToken})});
+   if(tokenInput)tokenInput.value="";
+   if(currentBot){
+    currentBot.hasDiscordToken=true;
+    currentBot.discordBotId=saved.discordBotId||currentBot.discordBotId||null;
+    currentBot.discordBotName=saved.discordBotName||currentBot.discordBotName||null;
+   }
+   if(status)status.textContent="Token do Discord validado e criptografado. Preparando o envio do ZIP…";
+  }else if(!currentBot?.hasDiscordToken){
+   throw new Error("Cole o Bot Token do Discord no campo desta tela. O Estúdio valida e criptografa o token antes de enviar o ZIP.");
+  }
   const existingProviderApp=!!currentBot?.providerAppId&&["discloud","squarecloud","cubecloud","aclclouds"].includes(String(currentBot.hostingProvider||"").toLowerCase());
   const newUnhostedProject=!currentBot?.providerAppId&&!currentBot?.hostingDeploymentId;
   if(existingProviderApp||newUnhostedProject){
