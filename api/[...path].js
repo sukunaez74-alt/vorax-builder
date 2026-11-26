@@ -4999,7 +4999,7 @@ export async function onRequest(context) {
           const archiveName = String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
-          const isPterodactylTarget = ["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(String(bot.hosting_provider || "").toLowerCase()) && !!bot.provider_app_id;
+          const isPterodactylTarget = ["cogithost","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(String(bot.hosting_provider || "").toLowerCase()) && !!bot.provider_app_id;
           const maxArchiveBytes = (isAclCloudsTarget || isPterodactylTarget) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
           const uploadId = String(b.uploadId || "");
@@ -5048,11 +5048,20 @@ export async function onRequest(context) {
 
           // Preserve projetos existentes no provedor atual. Para novos projetos,
           // use somente provedores gratuitos autorizados e com vaga real.
-          if (["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(currentProvider) && currentAppId) {
-            const token = await providerToken(user.id, currentProvider, env);
-            const providerConfig = currentProvider === "keritcloud"
-              ? { name: "Kerit Cloud", request: keritRequest }
-              : (currentProvider === "waifly" ? { name: "Waifly", request: waiflyRequest } : (currentProvider === "xsystems" ? { name: "X Systems Hosting", request: xsystemsRequest } : (currentProvider === "torchlite" ? { name: "Torchlite", request: torchliteRequest } : { name: "Daki Hosting", request: dakiRequest })));
+          if (["cogithost","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(currentProvider) && currentAppId) {
+            const providerConfigs = {
+              cogithost: { name: "Cogithost", request: cogitRequest },
+              keritcloud: { name: "Kerit Cloud", request: keritRequest },
+              waifly: { name: "Waifly", request: waiflyRequest },
+              xsystems: { name: "X Systems Hosting", request: xsystemsRequest },
+              torchlite: { name: "Torchlite", request: torchliteRequest },
+              daki: { name: "Daki Hosting", request: dakiRequest },
+              unixsys: { name: "Unixsys", request: unixsysRequest },
+              consolex1: { name: "ConsoleX1", request: consolex1Request }
+            };
+            const providerConfig = providerConfigs[currentProvider];
+            const cogit = currentProvider === "cogithost" ? await cogitConfig(user.id, env) : null;
+            const token = currentProvider === "cogithost" ? (cogit?.token || null) : await providerToken(user.id, currentProvider, env);
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerConfig.name + " nas Configurações." }, 409);
             try {
               const deployed = currentProvider === "keritcloud"
