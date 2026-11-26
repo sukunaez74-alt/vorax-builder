@@ -3553,7 +3553,7 @@ export async function onRequest(context) {
           const token = await providerToken(user.id, "sillydev", env);
           const allowanceResult = token ? await sillydevRequest(token, "/server-creation") : null;
           const allowance = allowanceResult?.data?.attributes || {};
-          const serverResult = token ? await sillydevRequest(token, "?type=owner&per_page=100") : null;
+          const serverResult = token ? await sillydevRequest(token, "") : null;
           const servers = Array.isArray(serverResult?.data?.data) ? serverResult.data.data : [];
           const limit = Number(allowance.limit || 2);
           const owned = Number(allowance.servers_owned ?? servers.length);
@@ -5144,6 +5144,16 @@ export async function onRequest(context) {
             const token = currentProvider === "cogithost" ? (cogit?.token || null) : await providerToken(user.id, currentProvider, env);
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerConfig.name + " nas Configurações." }, 409);
             try {
+              if (currentProvider === "sillydev") {
+                const serverResult = await sillydevRequest(token, "/servers/" + encodeURIComponent(keritIdentifier(currentAppId)));
+                const serverState = serverResult.data?.attributes || {};
+                if (serverState.status === "install_failed" || serverState.status === "reinstall_failed") {
+                  return reply({ code: "sillydev_install_failed", error: "A instalação inicial do servidor Silly Development falhou. O servidor continua vinculado; abra o painel Silly Development, reinstale o runtime e depois envie o ZIP novamente." }, 409);
+                }
+                if (serverState.status === "installing" || serverState.status === "restoring_backup" || serverState.is_transferring || serverState.is_installing) {
+                  return reply({ code: "sillydev_server_installing", error: "O servidor Silly Development ainda está instalando ou sendo movido. Aguarde terminar e envie o mesmo ZIP novamente; o Estúdio manterá a mesma vaga." }, 409);
+                }
+              }
               const deployed = currentProvider === "keritcloud"
                 ? await keritDeployZip(token, currentAppId, archiveBytes, archiveName, bot, b.runtime, user.id, env)
                 : await pterodactylDeployZip(token, currentAppId, archiveBytes, archiveName, bot, b.runtime, user.id, env, currentProvider, providerConfig.name, providerConfig.request);
