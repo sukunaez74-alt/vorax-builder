@@ -4450,41 +4450,33 @@ export async function onRequest(context) {
             });
           }
 
-          if (!cubeToken) {
-            return reply({
-              code: "cube_connection_required",
-              error: "Para novos bots, o Estúdio agora usa somente a Cube Hosting no plano Free. Abra a área Arquivos, conecte sua API Key Cube uma vez e reimporte o ZIP. Bots que já estão na Discloud continuam funcionando por lá."
-            }, 409);
-          }
-          let cubeCapacityMessage = "";
-          {
+          let cubeCapacityMessage = cubeToken
+            ? ""
+            : "Cube Hosting não conectada nesta conta.";
+          if (cubeToken) {
             try {
               const usage = await cubeCloudRequest(cubeToken, "/account/usage");
               const plan = usage.plan || {};
               const planId = String(plan.id || "").trim().toLowerCase();
               const planName = String(plan.name || "").trim().toLowerCase();
-              if (planId !== "free" && planName !== "free") {
-                return reply({
-                  code: "free_plan_required",
-                  error: "O Estúdio só cria novos bots na Cube Hosting usando o plano Free. Nenhum projeto foi criado em plano pago."
-                }, 409);
-              }
               const projects = usage.projects || {};
               const maxBots = Number(plan.maxBots || 0);
-              const minMemory = Number(plan.minMemoryMb?.bot || (String(plan.id).toLowerCase() === "free" ? 100 : 256));
+              const minMemory = Number(plan.minMemoryMb?.bot || (planId === "free" ? 100 : 256));
               const freeMb = Number(usage.memory?.freeMb || 0);
-              const canCreate = (maxBots <= 0 || Number(projects.total || 0) < maxBots) && freeMb >= minMemory;
+              const isFree = planId === "free" || planName === "free";
+              const canCreate = isFree && (maxBots <= 0 || Number(projects.total || 0) < maxBots) && freeMb >= minMemory;
               if (canCreate) {
                 const prepared = await prepareCubeCloudProject(archiveBytes, bot, b.runtime, env);
-                const zipLimitMb = Number(plan.zipMaxMb || (String(plan.id).toLowerCase() === "free" ? 5 : 10));
+                const zipLimitMb = Number(plan.zipMaxMb || 5);
                 if (zipLimitMb > 0 && prepared.bytes.byteLength > zipLimitMb * 1024 * 1024) {
                   const sizeMb = (prepared.bytes.byteLength / 1024 / 1024).toFixed(2).replace(".", ",");
-                  const error = new Error("Depois da limpeza automática, o ZIP ficou com " + sizeMb + " MB, acima do limite de " + zipLimitMb + " MB do plano " + String(plan.name || "Cube") + ". Remova arquivos pesados, vídeos, backups ou bibliotecas incluídas no ZIP e tente novamente.");
+                  const error = new Error("Depois da limpeza automática, o ZIP ficou com " + sizeMb + " MB, acima do limite de " + zipLimitMb + " MB do plano Cube Free. Remova arquivos pesados, vídeos, backups ou bibliotecas incluídas no ZIP e tente novamente.");
                   error.code = "cube_zip_limit_reached";
                   throw error;
                 }
                 const form = new FormData();
-                form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), archiveName.replace(/\.zip$/i, "-black-zone.zip"));
+                const uploadName = archiveName.replace(/\.zip$/i, "-black-zone.zip");
+                form.append("file", new Blob([prepared.bytes], { type: "application/zip" }), uploadName);
                 form.append("start", "true");
                 form.append("variables", JSON.stringify(Object.entries(prepared.envs).map(([name, value]) => ({ name, value }))));
                 const created = await cubeCloudRequest(cubeToken, "/projects", "POST", null, form);
@@ -4500,27 +4492,116 @@ export async function onRequest(context) {
                   message: "Projeto criado na Cube Hosting. A instalação e a inicialização foram solicitadas."
                 });
               }
-              cubeCapacityMessage = "Cube Hosting: " + Number(projects.total || 0) + "/" + (maxBots || "sem limite informado") + " projetos e " + freeMb + " MB livres; o plano não tem espaço para outro bot agora.";
+              cubeCapacityMessage = !isFree
+                ? "Cube Hosting ignorada: esta conta não está no plano Free; o Estúdio não iniciará cobrança."
+                : "Cube Hosting: " + Number(projects.total || 0) + "/" + (maxBots || "sem limite informado") + " projetos e " + freeMb + " MB livres; sem capacidade para outro bot agora.";
             } catch (error) {
               const capacityCodes = new Set(["project_limit_reached","insufficient_memory","free_slot_required","free_slot_lost","plan_limit_reached"]);
               if (String(error?.code || "") === "cube_zip_limit_reached") {
                 cubeCapacityMessage = error.message;
-              } else {
-                if (!capacityCodes.has(String(error?.code || "")) && !/free_slot_required|project_limit_reached|insufficient_memory|plan_limit_reached/i.test(String(error?.message || ""))) throw error;
+              } else if (capacityCodes.has(String(error?.code || "")) || /free_slot_required|project_limit_reached|insufficient_memory|plan_limit_reached/i.test(String(error?.message || ""))) {
                 cubeCapacityMessage = error.message || "Cube Hosting não tem uma vaga disponível. No plano Free, resgate a vaga com /free no Discord da Cube.";
+              } else {
+                cubeCapacityMessage = "Cube Hosting não confirmou a vaga: " + String(error?.message || "falha na consulta.");
               }
             }
           }
 
-          const squareCapacityMessage = "";
+          let discloudCapacityMessage = discloudToken
+            ? ""
+            : "Discloud não conectada nesta conta.";
+          if (discloudToken) {
+            try {
+              const account = (await discloudRequest(discloudToken, "/user"))?.user || null;
+              if (!account) throw new Error("A Discloud não retornou os dados da conta.");
+              const planName = String(account.plan || "");
+              const apps = Array.isArray(account.apps) ? account.apps.map(value => String(value || "")).filter(Boolean) : null;
+              const freeRam = Number(account.totalRamMb || 0) - Number(account.ramUsedMb || 0);
+              if (!/\bfree\b/i.test(planName)) {
+                discloudCapacityMessage = "Discloud ignorada: esta conta não está no plano Free; o Estúdio não iniciará cobrança.";
+              } else if (!apps) {
+                discloudCapacityMessage = "A Discloud não informou a lista de aplicativos; não vou arriscar criar um bot duplicado.";
+              } else if (apps.length > 0) {
+                discloudCapacityMessage = "Discloud: a vaga Free desta conta já está ocupada (" + apps.length + " aplicativo(s)).";
+              } else if (freeRam < 100) {
+                discloudCapacityMessage = "Discloud: a conta não confirmou 100 MB livres para outro bot.";
+              } else {
+                const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
+                if (prepared.bytes.byteLength > 5 * 1024 * 1024) {
+                  throw new Error("O ZIP preparado ultrapassa 5 MB, limite de envio do Estúdio para esta hospedagem. O arquivo original continua preservado.");
+                }
+                const expectedName = discloudExpectedProjectName(bot);
+                const expectedMainFile = discloudLauncherForRuntime(prepared.runtime);
+                const uploadName = archiveName.replace(/\.zip$/i, "-black-zone.zip");
+                const pendingProject = {
+                  ...prepared.customProject,
+                  runtime: prepared.runtime,
+                  discloudUploadPending: {
+                    baselineAppIds: apps,
+                    expectedName,
+                    expectedMainFile,
+                    startedAt: Date.now()
+                  }
+                };
+                await env.DB.prepare(
+                  "UPDATE bots SET hosting_provider='bot-hosting',custom_project=?::jsonb,state='installing',updated_at=? WHERE id=? AND user_id=?"
+                ).bind(JSON.stringify(pendingProject), Date.now(), id, user.id).run();
+
+                const form = new FormData();
+                form.append(uploadName, new Blob([prepared.bytes], { type: "application/zip" }), uploadName);
+                const uploaded = await discloudRequest(discloudToken, "/upload", "POST", form);
+                const app = uploaded.app || uploaded.apps || null;
+                const appId = String(app?.id || "");
+                if (!appId) {
+                  throw new Error("A Discloud recebeu a solicitação, mas não retornou o ID do aplicativo. O Estúdio guardou a tentativa e verificará antes de repetir o envio.");
+                }
+                const customProject = {
+                  ...prepared.customProject,
+                  runtime: prepared.runtime,
+                  provider: "discloud",
+                  providerName: "Discloud",
+                  deployedAt: Date.now()
+                };
+                await env.DB.prepare(
+                  "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='discloud',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?"
+                ).bind(appId, prepared.runtime, JSON.stringify(customProject), Date.now(), id, user.id).run();
+                let startNote = "O upload foi concluído; a inicialização foi solicitada.";
+                try {
+                  await discloudRequest(discloudToken, "/app/" + encodeURIComponent(appId) + "/start", "PUT");
+                } catch (startError) {
+                  if (!/already|online|running|process|in process|409/i.test(String(startError?.message || ""))) {
+                    startNote = "O upload foi concluído, mas a Discloud não confirmou o início: " + String(startError?.message || "falha ao iniciar");
+                  }
+                }
+                return reply({
+                  ok: true, provider: "discloud", providerAppId: appId,
+                  runtime: prepared.runtime, customProject, app,
+                  message: "Bot criado na Discloud Free (100 MB). " + startNote
+                });
+              }
+            } catch (error) {
+              const message = String(error?.message || "Falha ao criar aplicação na Discloud.");
+              if (/HTTP 402|capacity|limit|ram|quota|application.*limit|maximum|free.*slot/i.test(message)) {
+                discloudCapacityMessage = "Discloud: " + message;
+              } else {
+                return reply({
+                  ok: false,
+                  code: "discloud_upload_failed",
+                  error: message + " A tentativa foi registrada para evitar duplicidade se o provedor tiver recebido o ZIP."
+                }, 502);
+              }
+            }
+          }
+
           // Square Cloud exige assinatura e fica fora da seleção automática de novos bots.
-          const providerIssues = [cubeCapacityMessage].filter(Boolean);
+          const providerIssues = [cubeCapacityMessage, discloudCapacityMessage].filter(Boolean);
+          const anyFreeProviderConnected = !!cubeToken || !!discloudToken;
           return reply({
-            code: providerIssues.length ? "provider_capacity_full" : "provider_not_connected",
-            error: providerIssues.length
-              ? providerIssues.join(" ") + " Nenhum bot existente foi alterado."
-              : "A Cube Hosting não confirmou uma vaga gratuita para receber este ZIP. O Estúdio não tentará a Discloud nem qualquer plano pago. Seu projeto e os outros bots continuam preservados."
-          }, providerIssues.length ? 402 : 409);
+            code: anyFreeProviderConnected ? "provider_capacity_full" : "provider_not_connected",
+            error: anyFreeProviderConnected
+              ? providerIssues.join(" ") + " Nenhum bot existente foi substituído. Conecte outro provedor gratuito ou libere uma vaga na conta."
+              : "Conecte pelo menos um provedor gratuito: Cube Hosting ou Discloud. Depois de validar a API Key uma vez, o Estúdio tentará a primeira vaga livre automaticamente. Nenhum plano pago será iniciado."
+          }, anyFreeProviderConnected ? 402 : 409);
         } catch (error) {
           const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
           const code = String(error?.code || "");
