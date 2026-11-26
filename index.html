@@ -2294,7 +2294,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error(result.error||"O provedor alternativo não confirmou a criação da aplicação.");
- const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":"Discloud")));
+ const providerName=result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":"Discloud"))));
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
  state.activeBot=id;
