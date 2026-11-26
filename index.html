@@ -1372,33 +1372,31 @@ function bindView(){
   caosUploadButton.disabled=true;caosUploadButton.textContent="Preparando instalação…";
   try{
    const archiveName="caos-paineis-azuis.zip";
-   let uploaded=false,lastUploadError=null;
-   for(let attempt=1;attempt<=3&&!uploaded;attempt++){
-    const deadline=Date.now()+75000;let signed=null;
-    while(Date.now()<deadline){
-     try{signed=await api("/admin/caos/upload-url",{method:"POST",body:JSON.stringify({path:"/"})});break}
-     catch(error){
-      if(error.code!=="hosting_installing")throw error;
-      if(status)status.textContent="A hospedagem está preparando o ambiente Python 3.11…";
-      await new Promise(resolve=>setTimeout(resolve,Math.max(1000,Number(error.retryAfterMs||1800))));
-     }
-    }
-    if(!signed?.url)throw new Error("A hospedagem demorou demais para preparar o upload. Tente novamente.");
-    caosUploadButton.textContent=attempt===1?"Enviando ZIP…":"Tentativa de envio "+attempt+"/3…";
+   let uploaded=false,lastUploadError=null,attempt=0;
+   const deadline=Date.now()+90000;
+   while(!uploaded&&Date.now()<deadline&&attempt<4){
     try{
-     await uploadSignedFiles(signed.url,signed.field||"files",[{file,name:archiveName}],(loaded,total)=>{
-      if(status)status.textContent="Enviando pacote CAOS: "+Math.round(loaded/total*100)+"%"+(attempt>1?" · tentativa "+attempt+"/3":"");
+     caosUploadButton.textContent="Enviando pelo painel…";
+     const result=await uploadCaosViaPanel(file,(loaded,total)=>{
+      if(status)status.textContent="Transferindo CAOS com conexão protegida: "+Math.round(loaded/total*100)+"%";
      });
+     if(result.code==="hosting_installing"){
+      if(status)status.textContent="A hospedagem está preparando o ambiente Python 3.11…";
+      await new Promise(resolve=>setTimeout(resolve,Math.max(1200,Number(result.retryAfterMs||1800))));
+      continue;
+     }
+     if(!result.uploaded)throw new Error(result.error||"A hospedagem não confirmou o recebimento do ZIP.");
      uploaded=true;
     }catch(error){
      lastUploadError=error;
      const retryable=["UPLOAD_NETWORK","UPLOAD_TIMEOUT"].includes(error.code)||(Number(error.status)>=500);
-     if(!retryable||attempt===3)throw error;
-     if(status)status.textContent="A conexão interrompeu o envio. Renovando o endereço e tentando novamente ("+attempt+"/3)…";
-     await new Promise(resolve=>setTimeout(resolve,1200*attempt));
+     attempt++;
+     if(!retryable||attempt>=4)throw error;
+     if(status)status.textContent="A transferência foi interrompida. Reconectando automaticamente ("+attempt+"/3)…";
+     await new Promise(resolve=>setTimeout(resolve,1000*attempt));
     }
    }
-   if(!uploaded)throw lastUploadError||new Error("Não foi possível concluir o envio do ZIP.");
+   if(!uploaded)throw lastUploadError||new Error("A hospedagem não ficou pronta para receber o ZIP a tempo.");
    if(status)status.textContent="ZIP enviado. Extraindo arquivos e preparando o início do bot…";
    caosUploadButton.textContent="Instalando e iniciando…";
    const installed=await api("/admin/caos/install",{method:"POST",body:JSON.stringify({file:archiveName})});
@@ -2061,6 +2059,28 @@ function uploadSignedFiles(url,field,files,onProgress){
   };
   xhr.onerror=()=>{const error=new Error("A conexão caiu durante o envio.");error.code="UPLOAD_NETWORK";reject(error)};
   xhr.ontimeout=()=>{const error=new Error("O envio excedeu o tempo limite de 3 minutos.");error.code="UPLOAD_TIMEOUT";reject(error)};
+  xhr.onabort=()=>reject(new Error("O envio foi cancelado."));
+  xhr.send(form);
+ });
+}
+function uploadCaosViaPanel(file,onProgress){
+ return new Promise((resolve,reject)=>{
+  const form=new FormData();
+  form.append("file",file,"caos-paineis-azuis.zip");
+  const xhr=new XMLHttpRequest();
+  xhr.open("POST","/api/admin/caos/upload-proxy",true);
+  xhr.withCredentials=true;
+  xhr.timeout=240000;
+  xhr.upload.onprogress=event=>{if(event.lengthComputable&&onProgress)onProgress(event.loaded,event.total)};
+  xhr.onload=()=>{
+   let payload={};
+   try{payload=JSON.parse(String(xhr.responseText||"{}"))}catch{}
+   if(xhr.status>=200&&xhr.status<300)return resolve(payload);
+   const error=new Error(payload.error||("Falha no envio pelo painel (HTTP "+xhr.status+")."));
+   error.status=xhr.status;error.code=payload.code||"UPLOAD_HTTP";reject(error);
+  };
+  xhr.onerror=()=>{const error=new Error("A conexão com o painel foi interrompida.");error.code="UPLOAD_NETWORK";reject(error)};
+  xhr.ontimeout=()=>{const error=new Error("O painel demorou mais de 4 minutos para encaminhar o ZIP.");error.code="UPLOAD_TIMEOUT";reject(error)};
   xhr.onabort=()=>reject(new Error("O envio foi cancelado."));
   xhr.send(form);
  });
