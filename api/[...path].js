@@ -2360,7 +2360,7 @@ export async function onRequest(context) {
         }
         const backupScript = "from pathlib import Path\nimport shutil, sqlite3\nsource = Path(\"/home/container/caos.sqlite3\")\nbackup = Path(\"/home/container/.blackzone-caos.sqlite3.backup\")\nif not source.is_file():\n    raise SystemExit(\"BANCO_NAO_ENCONTRADO: /home/container/caos.sqlite3\")\ncon = sqlite3.connect(str(source), timeout=10)\ncon.execute(\"PRAGMA wal_checkpoint(FULL)\")\ncon.close()\nshutil.copy2(source, backup)\nif not backup.is_file() or backup.stat().st_size != source.stat().st_size:\n    raise SystemExit(\"FALHA_VERIFICACAO_BACKUP_SQLITE\")\nprint(\"BLACKZONE_SQLITE_BACKUP_OK bytes=\" + str(backup.stat().st_size))";
         const backupResult = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/shell", "POST", {
-          command: "python - <<'PY'\\n" + backupScript + "\\nPY", timeout: 35, maxChars: 5000
+          command: "python - <<'PY'\n" + backupScript + "\nPY", timeout: 35, maxChars: 5000
         });
         const backupText = String(backupResult?.stdout || backupResult?.output || backupResult?.message || JSON.stringify(backupResult));
         if (!backupText.includes("BLACKZONE_SQLITE_BACKUP_OK")) {
@@ -2456,7 +2456,7 @@ export async function onRequest(context) {
         if (replacingInstalledPackage) {
           const restoreScript = "from pathlib import Path\nimport shutil\nbackup = Path(\"/home/container/.blackzone-caos.sqlite3.backup\")\ndatabase = Path(\"/home/container/caos.sqlite3\")\nif not backup.is_file():\n    raise SystemExit(\"BACKUP_SQLITE_NAO_ENCONTRADO: não vou iniciar sem proteger o banco anterior.\")\nshutil.copy2(backup, database)\nif not database.is_file() or database.stat().st_size != backup.stat().st_size:\n    raise SystemExit(\"FALHA_RESTAURAR_SQLITE: o banco antigo não foi restaurado.\")\nbackup.unlink()\nprint(\"BLACKZONE_SQLITE_RESTORE_OK bytes=\" + str(database.stat().st_size))";
           const restoreResult = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/shell", "POST", {
-            command: "python - <<'PY'\\n" + restoreScript + "\\nPY", timeout: 35, maxChars: 5000
+            command: "python - <<'PY'\n" + restoreScript + "\nPY", timeout: 35, maxChars: 5000
           });
           const restoreText = String(restoreResult?.stdout || restoreResult?.output || restoreResult?.message || JSON.stringify(restoreResult));
           if (!restoreText.includes("BLACKZONE_SQLITE_RESTORE_OK")) {
