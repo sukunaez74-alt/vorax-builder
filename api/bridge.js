@@ -1,4 +1,5 @@
 import apiHandler from "./[...path].js";
+import caosAiHandler from "./caos-ai.js";
 
 /**
  * Fixed Vercel entrypoint.
@@ -14,6 +15,7 @@ export default async function handler(req, res) {
       ? fromQuery.join("/")
       : (fromQuery || incoming.searchParams.get("__path") || "");
     const routePath = String(original).replace(/^\/+/, "");
+    if (routePath === "caos-ai") return await caosAiHandler(req, res);
     if (!routePath) {
       res.statusCode = 400;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
