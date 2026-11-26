@@ -1215,9 +1215,20 @@ async function waiflyRequest(token, path = "", method = "GET", payload = null, r
 async function xsystemsRequest(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
   return pterodactylRequest("xsystems", token, path, method, payload, rawBody, form);
 }
+async function torchliteRequest(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
+  return pterodactylRequest("torchlite", token, path, method, payload, rawBody, form);
+}
+async function dakiRequest(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
+  return pterodactylRequest("daki", token, path, method, payload, rawBody, form);
+}
 async function pterodactylRequest(provider, token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
-  const panels = { waifly: "https://panel.waifly.com", xsystems: "https://panel.xsystemshosting.com" };
-  const labels = { waifly: "Waifly", xsystems: "X Systems Hosting" };
+  const panels = {
+    waifly: "https://panel.waifly.com",
+    xsystems: "https://panel.xsystemshosting.com",
+    torchlite: "https://game.torchlite.host",
+    daki: "https://portal.daki.cc"
+  };
+  const labels = { waifly: "Waifly", xsystems: "X Systems Hosting", torchlite: "Torchlite", daki: "Daki Hosting" };
   const base = panels[provider];
   if (!base) throw new Error("Provedor Pterodactyl não reconhecido.");
   const suffix = path ? (path.startsWith("?") ? path : (path.startsWith("/") ? path : "/" + path)) : "";
@@ -3081,13 +3092,17 @@ export async function onRequest(context) {
     }
 
 
-    const pteroProviderRoute = path.match(/^\/hosting\/(waifly|xsystems)\/(connect|disconnect|servers|attach)$/);
+    const pteroProviderRoute = path.match(/^\/hosting\/(waifly|xsystems|torchlite|daki)\/(connect|disconnect|servers|attach)$/);
     if (pteroProviderRoute) {
       const providerId = pteroProviderRoute[1];
       const routeAction = pteroProviderRoute[2];
-      const config = providerId === "waifly"
-        ? { name: "Waifly", plan: "Free · 300 MB RAM · 1 GB · 1 servidor", request: waiflyRequest }
-        : { name: "X Systems Hosting", plan: "1 servidor Free · 4 GB RAM · extras por créditos", request: xsystemsRequest };
+      const configs = {
+        waifly: { name: "Waifly", plan: "Free · 300 MB RAM · 1 GB · 1 servidor", request: waiflyRequest },
+        xsystems: { name: "X Systems Hosting", plan: "1 servidor Free · 4 GB RAM · extras por créditos", request: xsystemsRequest },
+        torchlite: { name: "Torchlite", plan: "Free Bot · 512 MB RAM · 3 GB disco · renovação a cada 24 horas", request: torchliteRequest },
+        daki: { name: "Daki Hosting", plan: "Free Tier · 512 MB RAM · 1 GB disco · novas vagas podem estar fechadas", request: dakiRequest }
+      };
+      const config = configs[providerId];
       if (routeAction === "connect" && request.method === "POST") {
         const b = await body(request), token = String(b.apiToken || "").trim();
         if (token.length < 20 || token.length > 512 || /\s/.test(token)) return reply({ error: "Informe uma Client API Key válida de " + config.name + "." }, 400);
@@ -3354,7 +3369,7 @@ export async function onRequest(context) {
     }
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
-      const [discloudRow, squareRow, cubeRow, cogitRow, keritRow, aclRow, waiflyRow, xsystemsRow, hostingRow] = await Promise.all([
+      const [discloudRow, squareRow, cubeRow, cogitRow, keritRow, aclRow, waiflyRow, xsystemsRow, torchliteRow, dakiRow, hostingRow] = await Promise.all([
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cubecloud'").bind(user.id).first(),
@@ -3363,6 +3378,8 @@ export async function onRequest(context) {
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='aclclouds'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='waifly'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='xsystems'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='torchlite'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='daki'").bind(user.id).first(),
         env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(user.id).first()
       ]);
       let discloud = { connected: false, provider: "discloud" };
