@@ -1473,7 +1473,8 @@ async function pterodactylDeployZip(apiKey, serverIdValue, archiveBytes, archive
   return {
     ok: true, provider: providerId, providerAppId: serverId, runtime, customProject,
     message: "ZIP enviado, extraído e comando de " + (signal === "restart" ? "reinício" : "início") + " solicitado à " + providerName + ". " +
-      (tokenConfigured ? "O token foi guardado na variável privada do servidor." : (discordToken ? "O token permanece no arquivo .env privado do servidor; a chave não foi exposta a outros membros." : "Configure o token do Discord nas variáveis de ambiente do servidor."))
+      (tokenConfigured ? "O token foi guardado na variável privada do servidor." : (discordToken ? "O token permanece no arquivo .env privado do servidor; a chave não foi exposta a outros membros." : "Configure o token do Discord nas variáveis de ambiente do servidor.")) +
+      (startupFileConfigured ? " O arquivo principal foi configurado automaticamente." : " Se o provedor não iniciar automaticamente, ajuste o campo Main File/Startup para " + launcherFile + " no painel dele.")
   };
 }
 
