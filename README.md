@@ -43,6 +43,16 @@ A conexão com Bot-Hosting é por OAuth/PKCE. Os tokens de acesso e renovação 
 
 A execução contínua depende dos limites, disponibilidade, quota e política de renovação do plano Bot-Hosting. O painel não promete 24/7 quando o plano do provedor não garante isso.
 
+## Provedores gratuitos adicionais
+
+- **Cube Hosting Free**: a conta precisa reivindicar a vaga com `/free`; o Estúdio consulta quota/memória antes de criar um projeto por API.
+- **Discloud Free**: a API é usada como alternativa quando a Cube não tem capacidade. A conta precisa estar no Free, sem aplicação existente e com RAM confirmada; o Estúdio não escolhe planos pagos.
+- **Kerit Cloud Free**: cada membro reivindica o próprio servidor no painel Kerit (verificação de e-mail, vinculação do Discord e entrada na comunidade). Depois conecta uma Client API Key Pterodactyl; o Estúdio lista servidores, vincula o projeto, envia ZIP/arquivos, extrai, controla energia e lê métricas. A API de cliente não cria o primeiro servidor. O console ao vivo fica no painel externo. O Free anuncia 256 MB RAM e 2 GB NVMe; bots de música ou com uso alto de memória podem não caber.
+- **Cogithost e ACLClouds** continuam como integrações de servidores que o membro cria no painel do provedor antes de vincular ao Estúdio.
+- **FadeHost e Quaxly** continuam opções de publicação pelo painel externo, sem fluxo automático de ZIP por API documentado nesta versão.
+
+Cada pessoa deve usar sua própria conta e chave de API. Credenciais são armazenadas criptografadas e não devem ser incluídas em arquivos públicos. Vagas, disponibilidade, cotas e termos são definidos pelos provedores; não há criação de contas em massa nem contorno de limites.
+
 ## Recursos do painel
 
 - Criar e excluir projetos (com tentativa de parar e remover a implantação antes de excluir).
