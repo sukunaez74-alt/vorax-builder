@@ -55,12 +55,20 @@ A execução contínua depende dos limites, disponibilidade, quota e política d
 - **X Systems Hosting**: a primeira vaga gratuita da conta anuncia 4 GB RAM, 10 GB de disco e 20 backups. Servidores adicionais usam créditos conquistados no próprio serviço. O membro cria o servidor e conecta a Client API Key ao Estúdio.
 - **Torchlite Free Bot**: plano específico para bots Discord, com 512 MB RAM, 3 GB de disco, 0,5 CPU e 1 banco MySQL. Cada conta permite 1 servidor de jogo e 1 servidor de bot/TeamSpeak. O servidor de bot exige renovação manual gratuita a cada 24 horas (o botão abre 6 horas antes e pede 2 anúncios); também é preciso fazer uma ação no servidor a cada 5 dias. O Estúdio lista o servidor, envia ZIP, configura variável de token/startup quando o egg permite, gerencia arquivos e controla energia. A renovação diária continua manual.
 - **Daki Hosting**: integração de Client API para vincular e gerenciar servidores existentes. O provedor informa que as novas vagas Free estão fechadas no momento; não conte com uma vaga nova até a disponibilidade reabrir.
+- **Unixsys UniFree**: 1 servidor por usuário, 256 MB RAM e 512 MB disco no plano base, sem cartão. O servidor é criado no Discord Unixsys com `/create-server`; depois o membro conecta uma Client API Key do painel Pterodactyl. A regra do provedor informa que a conta pode perder o servidor se o usuário não retornar à comunidade em 24 horas. O Estúdio gerencia ZIP, arquivos, energia e status após o vínculo.
+- **ConsoleX1 Free**: 1 servidor, 256 MB RAM, 512 MB disco e 40% CPU, sem cartão. A criação acontece pelo fluxo de Discord do provedor; depois o membro conecta uma Client API Key Pterodactyl. Para manter o Free, é necessário alterar um arquivo ao menos a cada 7 dias; servidor suspenso pode ser removido após mais 7 dias. Não há banco de dados nem backup automático no Free.
 - **Cogithost e ACLClouds**: integrações para servidores que o membro cria no painel do provedor antes de vincular ao Estúdio.
 
 ### Publicação pelo painel externo
 - **FadeHost e Quaxly** continuam como opções de publicação pelo painel externo, sem fluxo automático de ZIP por API documentado nesta versão.
 
 Cada membro deve usar sua própria conta e chave de API. Credenciais são armazenadas criptografadas e não devem ser incluídas em arquivos públicos. Vagas, disponibilidade, cotas, renovações e termos são definidos pelos provedores; não há criação de contas em massa, contorno de limites ou garantia de hospedagem infinita.
+
+## Capacidade de projetos e vagas
+
+O Estúdio permite organizar vários projetos por membro, mas cada implantação precisa de uma vaga ou servidor disponível em um provedor. O Estúdio não cria recursos de infraestrutura por conta própria e não pode prometer hospedagem infinita. O objetivo é consultar todos os provedores conectados e usar a vaga gratuita que o próprio provedor confirmar, sem iniciar planos pagos automaticamente.
+
+O Estúdio não impõe um limite artificial fixo de quantidade de projetos por membro; a capacidade de bots realmente executáveis é determinada pelo número de servidores que cada pessoa pode reivindicar nos provedores conectados. Em regra, cada conta de hospedagem só libera uma vaga Free, salvo serviços que explicitamente permitem mais (por exemplo, recursos extras do X Systems por créditos ou o segundo tipo de servidor do Torchlite). Não crie contas duplicadas para contornar limites: cada pessoa deve respeitar os termos de cada provedor.
 
 ## Recursos do painel
 
