@@ -5323,6 +5323,95 @@ export async function onRequest(context) {
             }
           }
 
+          let sillydevCapacityMessage = sillydevToken
+            ? ""
+            : "Silly Development não conectada nesta conta.";
+          if (sillydevToken) {
+            let createdServerId = "";
+            try {
+              const allowanceResult = await sillydevRequest(sillydevToken, "/server-creation");
+              const allowance = allowanceResult.data?.attributes || {};
+              const limit = Number(allowance.limit || 2);
+              const owned = Number(allowance.servers_owned || 0);
+              if (!allowance.can_create) {
+                sillydevCapacityMessage = "Silly Development: " + owned + "/" + limit + " servidores Free usados; não há outra vaga gratuita disponível nesta conta.";
+              } else {
+                const preparedForSilly = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
+                if (preparedForSilly.bytes.byteLength > 25 * 1024 * 1024) {
+                  throw new Error("O ZIP preparado ultrapassa 25 MB, limite de segurança para essa hospedagem.");
+                }
+                const serverName = String(bot.name || "Discord Bot").replace(/[^A-Za-z0-9 _.-]/g, "").trim().slice(0, 48) || "Discord Bot";
+                const runtimeKey = preparedForSilly.runtime === "nodejs" ? "nodejs" : (preparedForSilly.runtime === "bun" ? "bun" : "python");
+                const created = await sillydevRequest(sillydevToken, "/server-creation", "POST", {
+                  name: serverName,
+                  description: "Bot gerenciado pelo Black Zone Estúdio",
+                  runtime: runtimeKey
+                });
+                const server = created.data?.attributes || {};
+                createdServerId = String(server.identifier || "");
+                if (!createdServerId) throw new Error("A API criou a solicitação, mas não retornou o identificador do servidor. Atualize a conexão e confira o painel Silly Development antes de tentar criar outro.");
+                const pendingProject = {
+                  ...preparedForSilly.customProject,
+                  runtime: preparedForSilly.runtime,
+                  provider: "sillydev",
+                  providerName: "Silly Development",
+                  serverCreationPending: true,
+                  createdAt: Date.now()
+                };
+                await env.DB.prepare(
+                  "UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='sillydev',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='installing',updated_at=? WHERE id=? AND user_id=?"
+                ).bind(createdServerId, preparedForSilly.runtime, JSON.stringify(pendingProject), Date.now(), id, user.id).run();
+
+                let latest = server;
+                let ready = latest.status !== "installing" && !latest.is_installing && !latest.is_transferring;
+                for (let attempt = 0; !ready && attempt < 15; attempt++) {
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                  const statusResult = await sillydevRequest(sillydevToken, "/servers/" + encodeURIComponent(createdServerId));
+                  latest = statusResult.data?.attributes || {};
+                  if (latest.status === "install_failed") {
+                    throw new Error("A Silly Development informou falha na instalação inicial do servidor. O servidor continua vinculado ao projeto; verifique o painel e tente reinstalar antes de reenviar o ZIP.");
+                  }
+                  ready = latest.status !== "installing" && !latest.is_installing && !latest.is_transferring;
+                }
+                if (!ready) {
+                  return reply({
+                    ok: false,
+                    code: "sillydev_server_installing",
+                    provider: "sillydev",
+                    providerAppId: createdServerId,
+                    error: "O servidor gratuito foi criado e vinculado ao projeto, mas a instalação ainda não terminou. Aguarde um pouco e envie o mesmo ZIP novamente. Não crie outro servidor: esta vaga já está reservada para este bot."
+                  }, 409);
+                }
+                const deployed = await pterodactylDeployZip(
+                  sillydevToken, createdServerId, archiveBytes, archiveName, bot,
+                  preparedForSilly.runtime, user.id, env, "sillydev", "Silly Development", sillydevRequest
+                );
+                return reply({
+                  ...deployed,
+                  message: "Servidor gratuito criado pelo Estúdio e bot enviado à Silly Development. " + String(deployed.message || "")
+                });
+              }
+            } catch (error) {
+              const message = String(error?.message || "Falha ao consultar ou criar um servidor Silly Development.");
+              if (createdServerId) {
+                return reply({
+                  ok: false,
+                  code: "sillydev_created_upload_failed",
+                  provider: "sillydev",
+                  providerAppId: createdServerId,
+                  error: "O servidor gratuito já foi criado e vinculado ao projeto, mas o envio não terminou: " + message + " Reenvie o ZIP para continuar no mesmo servidor, sem consumir outra vaga."
+                }, 502);
+              }
+              if (Number(error?.status || 0) === 409 || Number(error?.status || 0) === 503 || /no capacity|no node has room|free server limit|already have a server/i.test(message)) {
+                sillydevCapacityMessage = "Silly Development sem vaga no momento: " + message;
+              } else if (Number(error?.status || 0) === 403) {
+                sillydevCapacityMessage = "Silly Development: a chave não tem todas as permissões necessárias. Gere outra com servers.create, leitura/edição de arquivos, startup e controle de energia.";
+              } else {
+                sillydevCapacityMessage = "Silly Development não confirmou uma vaga: " + message;
+              }
+            }
+          }
+
           let discloudCapacityMessage = discloudToken
             ? ""
             : "Discloud não conectada nesta conta.";
@@ -5410,13 +5499,13 @@ export async function onRequest(context) {
           }
 
           // Square Cloud exige assinatura e fica fora da seleção automática de novos bots.
-          const providerIssues = [cubeCapacityMessage, discloudCapacityMessage].filter(Boolean);
-          const anyFreeProviderConnected = !!cubeToken || !!discloudToken;
+          const providerIssues = [cubeCapacityMessage, sillydevCapacityMessage, discloudCapacityMessage].filter(Boolean);
+          const anyFreeProviderConnected = !!cubeToken || !!sillydevToken || !!discloudToken;
           return reply({
             code: anyFreeProviderConnected ? "provider_capacity_full" : "provider_not_connected",
             error: anyFreeProviderConnected
               ? providerIssues.join(" ") + " Nenhum bot existente foi substituído. Conecte outro provedor gratuito ou libere uma vaga na conta."
-              : "Conecte pelo menos um provedor gratuito: Cube Hosting ou Discloud. Depois de validar a API Key uma vez, o Estúdio tentará a primeira vaga livre automaticamente. Nenhum plano pago será iniciado."
+              : "Conecte pelo menos um provedor gratuito: Cube Hosting, Silly Development ou Discloud. Depois de validar a API Key uma vez, o Estúdio tentará a primeira vaga livre automaticamente. Nenhum plano pago será iniciado."
           }, anyFreeProviderConnected ? 402 : 409);
         } catch (error) {
           const message = error?.message || "Falha ao enviar o ZIP para a hospedagem alternativa.";
