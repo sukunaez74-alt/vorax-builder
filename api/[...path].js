@@ -1164,6 +1164,26 @@ async function ensureBotDeployment(bot, userId, env) {
   };
 }
 
+async function keritRequest(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
+  const suffix = path ? (path.startsWith("?") ? path : (path.startsWith("/") ? path : "/" + path)) : "";
+  const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.pterodactyl.v1+json, application/json" };
+  if (payload !== null && !rawBody && !form) headers["Content-Type"] = "application/json";
+  if (rawBody) headers["Content-Type"] = "text/plain";
+  const response = await fetch("https://panel.kerit.cloud/api/client" + suffix, {
+    method, headers,
+    body: form || (payload === null ? undefined : (rawBody ? String(payload) : JSON.stringify(payload))),
+    signal: AbortSignal.timeout(60000)
+  });
+  const raw = await response.text();
+  let data = {};
+  if (raw) { try { data = JSON.parse(raw); } catch { data = { text: raw }; } }
+  if (!response.ok) {
+    const reason = externalErrorText(data?.errors?.[0]?.detail || data?.message || data?.error || raw) || ("HTTP " + response.status);
+    const error = new Error("Kerit Cloud · " + method + " " + suffix + " · HTTP " + response.status + ": " + reason);
+    error.status = response.status; throw error;
+  }
+  return { data, raw, status: response.status };
+}
 async function cogitRequest(token, path, method = "GET", payload = null, rawBody = false) {
   const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.pterodactyl.v1+json, application/json", ...(payload !== null && !rawBody ? {"Content-Type":"application/json"} : {}) };
   if (rawBody) headers["Content-Type"] = "text/plain";
@@ -1184,6 +1204,12 @@ async function cogitRequest(token, path, method = "GET", payload = null, rawBody
 }
 async function cogitConfig(userId, env) {
   const row = await env.DB.prepare("SELECT encrypted_token FROM provider_connections WHERE user_id=? AND provider='cogithost'").bind(userId).first();
+  if (!row?.encrypted_token) return null;
+  try { const value = await decryptSecret(row.encrypted_token, env); const config = JSON.parse(value || "{}"); return config?.token ? { token: String(config.token) } : null; }
+  catch { return null; }
+}
+async function keritConfig(userId, env) {
+  const row = await env.DB.prepare("SELECT encrypted_token FROM provider_connections WHERE user_id=? AND provider='keritcloud'").bind(userId).first();
   if (!row?.encrypted_token) return null;
   try { const value = await decryptSecret(row.encrypted_token, env); const config = JSON.parse(value || "{}"); return config?.token ? { token: String(config.token) } : null; }
   catch { return null; }
@@ -1257,6 +1283,11 @@ async function aclCloudsSetDiscordToken(token, serverId, bot, env) {
 function cogitIdentifier(value) {
   const id = String(value || "").trim();
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error("Identificador do servidor Cogithost inválido.");
+  return id;
+}
+function keritIdentifier(value) {
+  const id = String(value || "").trim();
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error("Identificador do servidor Kerit Cloud inválido.");
   return id;
 }
 async function providerToken(userId, provider, env) {
