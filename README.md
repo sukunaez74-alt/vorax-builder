@@ -45,13 +45,22 @@ A execução contínua depende dos limites, disponibilidade, quota e política d
 
 ## Provedores gratuitos adicionais
 
-- **Cube Hosting Free**: a conta precisa reivindicar a vaga com `/free`; o Estúdio consulta quota/memória antes de criar um projeto por API.
-- **Discloud Free**: a API é usada como alternativa quando a Cube não tem capacidade. A conta precisa estar no Free, sem aplicação existente e com RAM confirmada; o Estúdio não escolhe planos pagos.
-- **Kerit Cloud Free**: cada membro reivindica o próprio servidor no painel Kerit (verificação de e-mail, vinculação do Discord e entrada na comunidade). Depois conecta uma Client API Key Pterodactyl; o Estúdio lista servidores, vincula o projeto, envia ZIP/arquivos, extrai, controla energia e lê métricas. A API de cliente não cria o primeiro servidor. O console ao vivo fica no painel externo. O Free anuncia 256 MB RAM e 2 GB NVMe; bots de música ou com uso alto de memória podem não caber.
-- **Cogithost e ACLClouds** continuam como integrações de servidores que o membro cria no painel do provedor antes de vincular ao Estúdio.
-- **FadeHost e Quaxly** continuam opções de publicação pelo painel externo, sem fluxo automático de ZIP por API documentado nesta versão.
+### Criação automática pelo Estúdio
+- **Cube Hosting Free**: a conta precisa reivindicar a vaga com `/free`; o Estúdio consulta quota e memória antes de criar o projeto por API.
+- **Discloud Free**: alternativa automática quando a Cube não tem capacidade. A conta precisa estar no Free, sem aplicação existente e com 100 MB livres confirmados; o Estúdio não seleciona planos pagos.
 
-Cada pessoa deve usar sua própria conta e chave de API. Credenciais são armazenadas criptografadas e não devem ser incluídas em arquivos públicos. Vagas, disponibilidade, cotas e termos são definidos pelos provedores; não há criação de contas em massa nem contorno de limites.
+### Servidores gratuitos conectados por API
+- **Kerit Cloud Free**: cada membro reivindica o próprio servidor no painel Kerit (verificação de e-mail, vinculação do Discord e entrada na comunidade). Depois conecta uma Client API Key Pterodactyl; o Estúdio lista servidores, vincula o projeto, envia ZIP/arquivos, extrai, controla energia e lê métricas. A API de cliente não cria o primeiro servidor. O Free anuncia 256 MB RAM e 2 GB NVMe; bots de música ou com uso alto de memória podem não caber.
+- **Waifly Free**: 1 servidor por conta, cerca de 300 MB RAM e 1 GB de armazenamento. O membro cria o servidor no painel e conecta a Client API Key; o Estúdio envia ZIP, gerencia arquivos e controla energia. O provedor pode suspender servidores que ficam desligados por vários dias.
+- **X Systems Hosting**: a primeira vaga gratuita da conta anuncia 4 GB RAM, 10 GB de disco e 20 backups. Servidores adicionais usam créditos conquistados no próprio serviço. O membro cria o servidor e conecta a Client API Key ao Estúdio.
+- **Torchlite Free Bot**: plano específico para bots Discord, com 512 MB RAM, 3 GB de disco, 0,5 CPU e 1 banco MySQL. Cada conta permite 1 servidor de jogo e 1 servidor de bot/TeamSpeak. O servidor de bot exige renovação manual gratuita a cada 24 horas (o botão abre 6 horas antes e pede 2 anúncios); também é preciso fazer uma ação no servidor a cada 5 dias. O Estúdio lista o servidor, envia ZIP, configura variável de token/startup quando o egg permite, gerencia arquivos e controla energia. A renovação diária continua manual.
+- **Daki Hosting**: integração de Client API para vincular e gerenciar servidores existentes. O provedor informa que as novas vagas Free estão fechadas no momento; não conte com uma vaga nova até a disponibilidade reabrir.
+- **Cogithost e ACLClouds**: integrações para servidores que o membro cria no painel do provedor antes de vincular ao Estúdio.
+
+### Publicação pelo painel externo
+- **FadeHost e Quaxly** continuam como opções de publicação pelo painel externo, sem fluxo automático de ZIP por API documentado nesta versão.
+
+Cada membro deve usar sua própria conta e chave de API. Credenciais são armazenadas criptografadas e não devem ser incluídas em arquivos públicos. Vagas, disponibilidade, cotas, renovações e termos são definidos pelos provedores; não há criação de contas em massa, contorno de limites ou garantia de hospedagem infinita.
 
 ## Recursos do painel
 
