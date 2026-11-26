@@ -4097,6 +4097,26 @@ export async function onRequest(context) {
           } });
         } catch (error) { return reply({ error: error.message || "Não consegui consultar o Cogithost." }, 502); }
       }
+      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "keritcloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+          const serverId = keritIdentifier(bot.provider_app_id);
+          if (action === "logs") return reply({ provider: "keritcloud", lines: [], note: "O console ao vivo do Kerit usa WebSocket. Abra o console pelo painel Kerit Cloud." });
+          const result = await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+          const data = result.data?.attributes || {};
+          if (action === "diagnose") return reply({ provider: "keritcloud", currentState: data.current_state || null, resources: data.resources || null });
+          return reply({ provider: "keritcloud", resources: {
+            currentState: data.current_state || null,
+            cpu: data.resources?.cpu_absolute ?? null,
+            memoryBytes: data.resources?.memory_bytes ?? null,
+            diskBytes: data.resources?.disk_bytes ?? null,
+            networkRxBytes: data.resources?.network_rx_bytes ?? null,
+            networkTxBytes: data.resources?.network_tx_bytes ?? null,
+            uptime: data.resources?.uptime ?? null
+          } });
+        } catch (error) { return reply({ error: error.message || "Não consegui consultar o Kerit Cloud." }, 502); }
+      }
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         try {
           const token = await providerToken(user.id, "cubecloud", env);
