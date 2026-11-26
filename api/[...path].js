@@ -1214,23 +1214,23 @@ async function keritConfig(userId, env) {
   try { const value = await decryptSecret(row.encrypted_token, env); const config = JSON.parse(value || "{}"); return config?.token ? { token: String(config.token) } : null; }
   catch { return null; }
 }
-async function keritDeployZip(token, serverIdValue, archiveBytes, archiveName, bot, requestedRuntime, userId, env) {
+async function keritDeployZip(apiKey, serverIdValue, archiveBytes, archiveName, bot, requestedRuntime, userId, env) {
   const serverId = keritIdentifier(serverIdValue);
   const prepared = await prepareDiscloudProject(archiveBytes, bot, requestedRuntime, env);
   const zip = await JSZip.loadAsync(prepared.bytes, { checkCRC32: false });
   const runtime = prepared.runtime;
-  const startupResult = await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/startup");
+  const startupResult = await keritRequest(apiKey, "/servers/" + encodeURIComponent(serverId) + "/startup");
   const variables = Array.isArray(startupResult.data?.data) ? startupResult.data.data : [];
   const envFile = zip.file(".env");
   let envText = envFile ? await envFile.async("string") : "";
   let tokenConfigured = false;
   let tokenKey = null;
-  const token = bot.discord_token_enc ? await decryptSecret(bot.discord_token_enc, env) : null;
+  const discordToken = bot.discord_token_enc ? await decryptSecret(bot.discord_token_enc, env) : null;
   const preferred = ["DISCORD_TOKEN", "BOT_TOKEN", "TOKEN"];
   const tokenVariable = variables.find(item => item?.attributes?.is_editable && preferred.includes(String(item.attributes.env_variable || "").toUpperCase()));
-  if (token && tokenVariable?.attributes?.env_variable) {
+  if (discordToken && tokenVariable?.attributes?.env_variable) {
     tokenKey = String(tokenVariable.attributes.env_variable);
-    await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/startup/variable", "PUT", { key: tokenKey, value: token });
+    await keritRequest(apiKey, "/servers/" + encodeURIComponent(serverId) + "/startup/variable", "PUT", { key: tokenKey, value: discordToken });
     tokenConfigured = true;
     envText = envText.split(/\r?\n/).filter(line => !/^\s*(?:DISCORD_TOKEN|BOT_TOKEN|TOKEN)\s*=/.test(line)).join("\n");
     if (envText.trim()) zip.file(".env", envText.replace(/\n*$/, "\n"));
@@ -1255,7 +1255,7 @@ async function keritDeployZip(token, serverIdValue, archiveBytes, archiveName, b
   const bytes = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
   if (!bytes.byteLength || bytes.byteLength > 25 * 1024 * 1024) throw new Error("O ZIP preparado ultrapassa 25 MB, limite de segurança do Estúdio para o Kerit Cloud.");
   const uploadName = String(archiveName || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").replace(/\.zip$/i, "") + "-black-zone.zip";
-  const uploadInfo = await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/files/upload");
+  const uploadInfo = await keritRequest(apiKey, "/servers/" + encodeURIComponent(serverId) + "/files/upload");
   const signedUrl = String(uploadInfo.data?.attributes?.url || uploadInfo.data?.url || "");
   if (!signedUrl.startsWith("https://")) throw new Error("O Kerit Cloud não retornou uma URL HTTPS de upload.");
   const target = new URL(signedUrl);
@@ -1264,14 +1264,14 @@ async function keritDeployZip(token, serverIdValue, archiveBytes, archiveName, b
   form.append("files", new Blob([bytes], { type: "application/zip" }), uploadName);
   const uploaded = await fetch(target.href, { method: "POST", body: form, signal: AbortSignal.timeout(90000) });
   if (!uploaded.ok) throw new Error("O envio do ZIP ao Kerit Cloud falhou: HTTP " + uploaded.status + ".");
-  await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/files/decompress", "POST", { root: "/", file: uploadName });
+  await keritRequest(apiKey, "/servers/" + encodeURIComponent(serverId) + "/files/decompress", "POST", { root: "/", file: uploadName });
   try {
-    await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/files/delete", "POST", { root: "/", files: [uploadName] });
+    await keritRequest(apiKey, "/servers/" + encodeURIComponent(serverId) + "/files/delete", "POST", { root: "/", files: [uploadName] });
   } catch {}
-  const resourceResult = await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+  const resourceResult = await keritRequest(apiKey, "/servers/" + encodeURIComponent(serverId) + "/resources");
   const stateBefore = String(resourceResult.data?.attributes?.current_state || "").toLowerCase();
   const signal = stateBefore === "running" ? "restart" : "start";
-  await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
+  await keritRequest(apiKey, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
   const customProject = {
     ...prepared.customProject,
     runtime,
@@ -1279,14 +1279,14 @@ async function keritDeployZip(token, serverIdValue, archiveBytes, archiveName, b
     providerName: "Kerit Cloud",
     deployedAt: Date.now(),
     tokenConfigured,
-    tokenStoredInEnvFile: !!token && !tokenConfigured
+    tokenStoredInEnvFile: !!discordToken && !tokenConfigured
   };
   await env.DB.prepare("UPDATE bots SET hosting_provider='keritcloud',provider_app_id=?,hosting_deployment_id=NULL,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?")
     .bind(serverId, runtime, JSON.stringify(customProject), Date.now(), bot.id, userId).run();
   return {
     ok: true, provider: "keritcloud", providerAppId: serverId, runtime, customProject,
     message: "ZIP enviado, extraído e comando de " + (signal === "restart" ? "reinício" : "início") + " solicitado ao Kerit Cloud. " +
-      (tokenConfigured ? "O token foi guardado na variável privada do servidor." : (token ? "O token permanece no arquivo .env privado do servidor; a chave não foi exposta a outros membros." : "Configure o token do Discord nas variáveis de ambiente do servidor."))
+      (tokenConfigured ? "O token foi guardado na variável privada do servidor." : (discordToken ? "O token permanece no arquivo .env privado do servidor; a chave não foi exposta a outros membros." : "Configure o token do Discord nas variáveis de ambiente do servidor."))
   };
 }
 
