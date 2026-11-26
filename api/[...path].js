@@ -3040,11 +3040,12 @@ export async function onRequest(context) {
     }
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
-      const [discloudRow, squareRow, cubeRow, cogitRow, aclRow, hostingRow] = await Promise.all([
+      const [discloudRow, squareRow, cubeRow, cogitRow, keritRow, aclRow, hostingRow] = await Promise.all([
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cubecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cogithost'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='keritcloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='aclclouds'").bind(user.id).first(),
         env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(user.id).first()
       ]);
@@ -3144,6 +3145,23 @@ export async function onRequest(context) {
           cogithost = { connected: true, valid: true, provider: "cogithost", accountLabel: "Cogithost", plan: "Free / Pterodactyl", serversCount: servers.length, canCreate: false, canAttach: servers.length > 0 };
         } catch (error) { cogithost = { connected: true, valid: false, provider: "cogithost", error: error.message || "Falha de validação." }; }
       }
+      let keritcloud = { connected: false, provider: "keritcloud" };
+      if (keritRow) {
+        try {
+          const token = await providerToken(user.id, "keritcloud", env);
+          const result = token ? await keritRequest(token, "") : null;
+          const servers = Array.isArray(result?.data?.data) ? result.data.data : [];
+          const totalRamMb = servers.reduce((sum, item) => sum + Number(item?.attributes?.limits?.memory || 0), 0);
+          keritcloud = {
+            connected: true, valid: !!token, provider: "keritcloud",
+            accountLabel: keritRow.account_label || "Kerit Cloud",
+            plan: "Free · até 1 servidor por pessoa",
+            serversCount: servers.length, totalRamMb,
+            canCreate: false, canAttach: servers.length > 0,
+            detail: servers.length ? "Servidor encontrado · selecione para vincular ao Estúdio." : "Conta conectada. Reivindique a vaga Free no painel Kerit e depois atualize esta tela."
+          };
+        } catch (error) { keritcloud = { connected: true, valid: false, provider: "keritcloud", error: error.message || "Falha ao validar Kerit Cloud." }; }
+      }
       let aclclouds = { connected: false, provider: "aclclouds" };
       if (aclRow) {
         try {
@@ -3168,6 +3186,7 @@ export async function onRequest(context) {
         providers: [
           { id: "bot-hosting", name: "Bot-Hosting", connected: !!hostingRow, canCreate: !!hostingRow && scopes.includes("deployments:write") && scopes.includes("credits:spend"), role: "principal" },
           { id: "cogithost", name: "Cogithost", role: "servidor-conectado", ...cogithost, canCreate: false },
+          { id: "keritcloud", name: "Kerit Cloud", role: "servidor-conectado", ...keritcloud, canCreate: false, canAttach: !!keritcloud.valid && !!keritcloud.canAttach },
           { id: "aclclouds", name: "ACLClouds", role: "servidor-conectado", ...aclclouds, canCreate: false, canAttach: !!aclclouds.valid && !!aclclouds.canAttach },
           { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
           { id: "squarecloud", name: "Square Cloud", role: "paga-fora-do-pool", ...square, canCreate: false },
