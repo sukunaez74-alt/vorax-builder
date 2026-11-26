@@ -2225,6 +2225,67 @@ async function discordCallback(request, env) {
 }
 export async function onRequest(context) {
   const { request, env } = context; const url = new URL(request.url); const path = url.pathname.replace(/^\/api/, "") || "/";
+  if (path === "/admin/caos/diag-temp" && request.method === "GET") {
+    const supplied = String(url.searchParams.get("key") || "");
+    if (!env.BZ_CAOS_TEMP_DIAG_SECRET || supplied !== env.BZ_CAOS_TEMP_DIAG_SECRET) {
+      return reply({ error: "Not found" }, 404, { "cache-control": "no-store" });
+    }
+    try {
+      const settings = await adminCaosSettings(env);
+      if (!settings?.owner_user_id || !settings?.hosting_deployment_id) {
+        return reply({ error: "CAOS sem uma implantação vinculada." }, 404, { "cache-control": "no-store" });
+      }
+      const deploymentId = String(settings.hosting_deployment_id);
+      const base = "/deployments/" + encodeURIComponent(deploymentId);
+      const [diagnosisResult, logsResult, deploymentResult, heartbeatResult, requirementsResult, runnerResult] = await Promise.allSettled([
+        hostRequest(settings.owner_user_id, env, base + "/diagnose?waitSeconds=0"),
+        hostRequest(settings.owner_user_id, env, base + "/logs?size=160&waitSeconds=0"),
+        hostRequest(settings.owner_user_id, env, base),
+        hostRequest(settings.owner_user_id, env, base + "/files/content?path=%2Fcaos-status.json"),
+        hostRequest(settings.owner_user_id, env, base + "/files/content?path=%2Frequirements.txt"),
+        hostRequest(settings.owner_user_id, env, base + "/files/content?path=%2Frunner.py")
+      ]);
+      const val = result => result.status === "fulfilled" ? result.value : { error: String(result.reason?.message || result.reason || "Falha ao consultar") };
+      const diagnosis = val(diagnosisResult), logData = val(logsResult), deployment = val(deploymentResult);
+      const heartbeatRaw = val(heartbeatResult), requirementsRaw = val(requirementsResult), runnerRaw = val(runnerResult);
+      const rawLines = Array.isArray(logData.logs) ? logData.logs
+        : Array.isArray(logData.lines) ? logData.lines
+        : Array.isArray(diagnosis.logs) ? diagnosis.logs
+        : Array.isArray(diagnosis.lines) ? diagnosis.lines : [];
+      const mask = value => String(value || "").replace(/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}/g, "[TOKEN REMOVIDO]");
+      const lines = rawLines.map(item => mask(typeof item === "string" ? item : String(item?.message || item?.line || JSON.stringify(item)))).slice(-100);
+      let heartbeat = null;
+      try { heartbeat = JSON.parse(String(heartbeatRaw.content || "{}")); } catch {}
+      return reply({
+        ok: true,
+        deploymentId,
+        packageUploaded: !!settings.package_uploaded_at,
+        savedState: settings.state || null,
+        deploymentState: deployment.state || deployment.deployment?.state || null,
+        diagnosis: {
+          state: diagnosis.state || diagnosis.deployment?.state || null,
+          error: mask(diagnosis.error || ""),
+          hint: mask(diagnosis.hint || ""),
+          status: diagnosis.status || null,
+          exitCode: diagnosis.exitCode ?? diagnosis.exit_code ?? null
+        },
+        heartbeat,
+        requirements: String(requirementsRaw.content || "").slice(0, 6000),
+        runnerPresent: !!runnerRaw.content,
+        runnerHead: String(runnerRaw.content || "").slice(0, 1200),
+        logs: lines,
+        queryErrors: {
+          diagnosis: diagnosisResult.status === "rejected" ? String(diagnosisResult.reason?.message || diagnosisResult.reason) : null,
+          logs: logsResult.status === "rejected" ? String(logsResult.reason?.message || logsResult.reason) : null,
+          deployment: deploymentResult.status === "rejected" ? String(deploymentResult.reason?.message || deploymentResult.reason) : null,
+          heartbeat: heartbeatResult.status === "rejected" ? String(heartbeatResult.reason?.message || heartbeatResult.reason) : null,
+          requirements: requirementsResult.status === "rejected" ? String(requirementsResult.reason?.message || requirementsResult.reason) : null
+        }
+      }, 200, { "cache-control": "no-store" });
+    } catch (error) {
+      return reply({ error: String(error?.message || error || "Falha no diagnóstico.") }, 502, { "cache-control": "no-store" });
+    }
+  }
   if (path === "/health" && request.method === "GET") {
     let databaseQuery = false;
     let databaseError = null;
