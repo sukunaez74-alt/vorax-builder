@@ -3532,7 +3532,10 @@ export async function onRequest(context) {
           { id: "squarecloud", name: "Square Cloud", role: "paga-fora-do-pool", ...square, canCreate: false },
           { id: "discloud", name: "Discloud", connected: !!discloud.connected, valid: !!discloud.valid, ...discloud, canCreate: !!discloud.canCreate, role: discloud.canCreate ? "reserva" : "compatibilidade-parcial" },
           { id: "fadehost", name: "FadeHost", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · 1 app por conta", detail: "Deploy pelo painel FadeHost; não é uma vaga conectada ao Estúdio.", url: "https://laplace.fadehost.com" },
-          { id: "quaxly", name: "Quaxly", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · até 3 bots", detail: "Deploy pelo painel Quaxly; não é uma vaga conectada ao Estúdio.", url: "https://quaxly.com" }
+          { id: "quaxly", name: "Quaxly", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · até 3 bots", detail: "Deploy pelo painel Quaxly; não é uma vaga conectada ao Estúdio.", url: "https://quaxly.com" },
+          { id: "torchlite", name: "Torchlite", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · 512 MB RAM · 3 GB disco", detail: "Renovação diária obrigatória no painel; não é uma vaga 24/7 sem manutenção.", url: "https://torchlite.host/games/discord-bots" },
+          { id: "fpsms", name: "FPS.ms", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · 128 MB RAM · 250 MB SSD", detail: "Plano muito pequeno, com renovação diária; indicado apenas para bots leves.", url: "https://fps.ms/free-discord-bot-hosting" },
+          { id: "daki", name: "Daki Hosting", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · 512 MB RAM · 1 GB disco", detail: "Renova com anúncios a cada poucos dias; vagas grátis podem ficar fechadas quando os nós estão cheios. Confirme disponibilidade.", url: "https://free.daki.cc" }
         ]
       });
     }
