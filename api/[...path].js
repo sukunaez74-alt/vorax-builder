@@ -2225,7 +2225,7 @@ async function discordCallback(request, env) {
 }
 export async function onRequest(context) {
   const { request, env } = context; const url = new URL(request.url); const path = url.pathname.replace(/^\/api/, "") || "/";
-  if (path === "/admin/caos/diag-temp" && request.method === "GET") {
+  if (path === "/admin/caos/diag-temp" && (request.method === "GET" || request.method === "POST")) {
     const supplied = String(url.searchParams.get("key") || "");
     if (!env.BZ_CAOS_TEMP_DIAG_SECRET || supplied !== env.BZ_CAOS_TEMP_DIAG_SECRET) {
       return reply({ error: "Not found" }, 404, { "cache-control": "no-store" });
@@ -2237,6 +2237,20 @@ export async function onRequest(context) {
       }
       const deploymentId = String(settings.hosting_deployment_id);
       const base = "/deployments/" + encodeURIComponent(deploymentId);
+      let applied = null;
+      let requirementsWrite = null;
+      if (request.method === "POST") {
+        const correctedRequirements = "discord.py[voice]==2.7.1\\ndavey==0.1.7\\nPyNaCl>=1.5.0,<1.6.0\\npython-dotenv>=1.0,<2.0\\n# yt-dlp-ejs aligned with the installed yt-dlp version.\\nyt-dlp[default]>=2026.10.26\\ndeno>=2.3.0\\nimageio-ffmpeg>=0.8.1\\n";
+        requirementsWrite = await hostRequest(settings.owner_user_id, env, base + "/files/writeMany", "POST", {
+          files: [{ path: "/requirements.txt", content: correctedRequirements, mode: "overwrite" }]
+        });
+        if (Array.isArray(requirementsWrite.failed) && requirementsWrite.failed.length) {
+          throw new Error("O Bot-Hosting recusou a atualização de requirements.txt: " + JSON.stringify(requirementsWrite.failed).slice(0, 900));
+        }
+        applied = await hostRequest(settings.owner_user_id, env, base + "/apply", "POST", {
+          restart: true, waitSeconds: 45
+        });
+      }
       const [diagnosisResult, logsResult, deploymentResult, heartbeatResult, requirementsResult, runnerResult] = await Promise.allSettled([
         hostRequest(settings.owner_user_id, env, base + "/diagnose?waitSeconds=0"),
         hostRequest(settings.owner_user_id, env, base + "/logs?size=160&waitSeconds=0"),
@@ -2259,6 +2273,8 @@ export async function onRequest(context) {
       return reply({
         ok: true,
         deploymentId,
+        applied: applied ? { state: applied.state || applied.deployment?.state || null, response: applied } : null,
+        requirementsUpdated: !!requirementsWrite,
         packageUploaded: !!settings.package_uploaded_at,
         savedState: settings.state || null,
         deploymentState: deployment.state || deployment.deployment?.state || null,
