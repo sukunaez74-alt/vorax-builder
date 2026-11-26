@@ -733,14 +733,15 @@ function botStatusLabel(b){
 async function deleteBotProject(id,button){
  const bot=state.bots.find(item=>item.id===id);
  if(!bot)return;
- if(!window.confirm("Excluir o projeto \""+(bot.name||"Bot")+"\"? Se a hospedagem for exclusiva, o Estúdio também tentará parar e remover o servidor. Esta ação não pode ser desfeita."))return;
+ if(!window.confirm(bot.hostingProvider==="keritcloud"?"Excluir o projeto \""+(bot.name||"Bot")+"\" do Estúdio? O servidor Kerit será parado, mas permanecerá na sua conta Kerit para você reutilizar ou excluir pelo painel deles.":"Excluir o projeto \""+(bot.name||"Bot")+"\"? Se a hospedagem for exclusiva, o Estúdio também tentará parar e remover o servidor. Esta ação não pode ser desfeita."))return;
  const original=button?.textContent||"Excluir";
  if(button){button.disabled=true;button.textContent="Excluindo…"}
  try{
   const result=await api("/bots/"+encodeURIComponent(id),{method:"DELETE"});
   state.activeBot=state.activeBot===id?null:state.activeBot;
   await loadBots();
-  if(result.sharedDeploymentRetained)toast("Projeto removido do painel. A hospedagem foi mantida porque ainda é compartilhada com outro serviço.");
+  if(result.externalServerRetained)toast("Projeto removido do Estúdio. O servidor Kerit foi parado e continua na sua conta externa para reutilização.");
+  else if(result.sharedDeploymentRetained)toast("Projeto removido do painel. A hospedagem foi mantida porque ainda é compartilhada com outro serviço.");
   else toast(result.deploymentDeleted?"Projeto e hospedagem removidos com sucesso.":"Projeto removido do painel.");
   if(state.view==="overview")loadDashboardPanels();
  }catch(error){
