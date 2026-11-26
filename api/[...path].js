@@ -2417,23 +2417,54 @@ export async function onRequest(context) {
         await setHostEnv(user.id, env, deploymentId, "DISCORD_TOKEN", token, true);
         await setHostEnv(user.id, env, deploymentId, "TOKEN", token, true);
         await setHostEnv(user.id, env, deploymentId, "APP_URL", "https://black-zone-estudio.vercel.app", false);
+        await setHostEnv(user.id, env, deploymentId, "PYTHONUNBUFFERED", "1", false);
+        // O comando explícito garante a instalação das dependências do ZIP antes do main.py.
+        const caosStartCommand = "python -m pip install --disable-pip-version-check -r requirements.txt && python -u main.py";
         await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
-          runtime: "python", runtimeVersion: "3.11", entryFile: "main.py", startCommand: null
+          runtime: "python", runtimeVersion: "3.11", entryFile: "main.py", startCommand: caosStartCommand
         });
         await env.DB.prepare("UPDATE admin_caos_settings SET package_uploaded_at=?,state='starting',updated_at=? WHERE id='main' AND owner_user_id=?")
           .bind(Date.now(), Date.now(), user.id).run();
-        let applied = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", {
+        let diagnosis = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", {
           restart: true, waitSeconds: 45
         });
-        const currentState = String(applied.state || applied.deployment?.state || "").toLowerCase();
+        let currentState = String(diagnosis.state || diagnosis.deployment?.state || "").toLowerCase();
         if (["offline","stopped","terminated","unknown",""].includes(currentState)) {
-          applied = { ...applied, ...(await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "start", waitSeconds: 45 })) };
+          await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "start", waitSeconds: 45 });
+          diagnosis = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=45");
+          currentState = String(diagnosis.state || diagnosis.deployment?.state || "").toLowerCase();
         }
-        await env.DB.prepare("UPDATE admin_caos_settings SET state='starting',updated_at=? WHERE id='main' AND owner_user_id=?")
-          .bind(Date.now(), user.id).run();
+        const rawLogs = Array.isArray(diagnosis.logs) ? diagnosis.logs : (Array.isArray(diagnosis.lines) ? diagnosis.lines : []);
+        const logs = rawLogs.map(line => typeof line === "string" ? line : String(line?.message || line?.line || JSON.stringify(line))).slice(-30);
+        const joinedLogs = logs.join("\\n");
+        const discordReady = /CAOS conectado como|logged in as/i.test(joinedLogs);
+        const startupError = /PrivilegedIntentsRequired|disallowed intents|4014/i.test(joinedLogs)
+          ? "O Discord recusou as intents privilegiadas. Ative Server Members Intent e Message Content Intent em Discord Developer Portal → Bot → Privileged Gateway Intents."
+          : /ModuleNotFoundError|No module named/i.test(joinedLogs)
+            ? "Uma dependência Python não foi instalada. O painel agora instala requirements.txt antes de executar; confira o nome do módulo nos logs."
+            : /LoginFailure|Improper token|401 Unauthorized/i.test(joinedLogs)
+              ? "O Discord recusou o token do bot durante o login. Confira se o token salvo pertence a este bot."
+              : /out of memory|oom|killed|exit code 137/i.test(joinedLogs)
+                ? "A hospedagem encerrou o processo por falta de memória. O plano gratuito pode não comportar o CAOS completo."
+                : String(diagnosis.hint || diagnosis.error || "");
+        const nextState = currentState === "running" ? "running" : (currentState === "offline" ? "error" : "starting");
+        await env.DB.prepare("UPDATE admin_caos_settings SET state=?,updated_at=? WHERE id='main' AND owner_user_id=?")
+          .bind(nextState, Date.now(), user.id).run();
+        if (nextState === "error") {
+          return reply({
+            ok: false, deploymentId, state: nextState, discordReady: false,
+            error: startupError || logs.slice(-8).join(" | ") || "A hospedagem recebeu o pacote, mas o processo encerrou antes de ficar online.",
+            hint: diagnosis.hint || null, logs
+          }, 502);
+        }
         return reply({
-          ok: true, deploymentId, state: String(applied.state || applied.deployment?.state || "starting").toLowerCase(),
-          message: "Pacote CAOS instalado e comando de inicialização enviado. Confira os logs para confirmar a conexão com o Discord."
+          ok: true, deploymentId, state: nextState, discordReady,
+          logs,
+          message: discordReady
+            ? "CAOS conectado ao Discord e confirmado pelos logs."
+            : (nextState === "running"
+              ? "O processo está rodando na hospedagem, mas o login do Discord ainda não foi confirmado. Confira os logs."
+              : "A inicialização foi solicitada; o Estúdio continuará mostrando o estado real e os logs da hospedagem.")
         });
       } catch (error) {
         return reply({ error: error.message || "Falha ao instalar ou iniciar o pacote CAOS." }, 502);
@@ -2461,19 +2492,51 @@ export async function onRequest(context) {
         if (!identity.valid) throw new Error("O Discord não confirmou o token salvo. Atualize a credencial.");
         await setHostEnv(user.id, env, deploymentId, "DISCORD_TOKEN", token, true);
         await setHostEnv(user.id, env, deploymentId, "TOKEN", token, true);
+        await setHostEnv(user.id, env, deploymentId, "PYTHONUNBUFFERED", "1", false);
+        const caosStartCommand = "python -m pip install --disable-pip-version-check -r requirements.txt && python -u main.py";
         await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
-          runtime: "python", runtimeVersion: "3.11", entryFile: "main.py", startCommand: null
+          runtime: "python", runtimeVersion: "3.11", entryFile: "main.py", startCommand: caosStartCommand
         });
-        let applied = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", {
+        let diagnosis = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/apply", "POST", {
           restart: true, waitSeconds: 45
         });
-        const currentState = String(applied.state || applied.deployment?.state || "").toLowerCase();
+        let currentState = String(diagnosis.state || diagnosis.deployment?.state || "").toLowerCase();
         if (["offline","stopped","terminated","unknown",""].includes(currentState)) {
-          applied = { ...applied, ...(await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "start", waitSeconds: 45 })) };
+          await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "start", waitSeconds: 45 });
+          diagnosis = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=45");
+          currentState = String(diagnosis.state || diagnosis.deployment?.state || "").toLowerCase();
         }
-        await env.DB.prepare("UPDATE admin_caos_settings SET state='starting',updated_at=? WHERE id='main' AND owner_user_id=?")
-          .bind(Date.now(), user.id).run();
-        return reply({ ok: true, action, state: String(applied.state || applied.deployment?.state || "starting").toLowerCase(), message: "Comando enviado ao Bot-Hosting." });
+        const rawLogs = Array.isArray(diagnosis.logs) ? diagnosis.logs : (Array.isArray(diagnosis.lines) ? diagnosis.lines : []);
+        const logs = rawLogs.map(line => typeof line === "string" ? line : String(line?.message || line?.line || JSON.stringify(line))).slice(-30);
+        const joinedLogs = logs.join("\\n");
+        const discordReady = /CAOS conectado como|logged in as/i.test(joinedLogs);
+        const startupError = /PrivilegedIntentsRequired|disallowed intents|4014/i.test(joinedLogs)
+          ? "O Discord recusou as intents privilegiadas. Ative Server Members Intent e Message Content Intent em Discord Developer Portal → Bot → Privileged Gateway Intents."
+          : /ModuleNotFoundError|No module named/i.test(joinedLogs)
+            ? "Uma dependência Python não foi instalada. O painel agora instala requirements.txt antes de executar; confira o nome do módulo nos logs."
+            : /LoginFailure|Improper token|401 Unauthorized/i.test(joinedLogs)
+              ? "O Discord recusou o token do bot durante o login. Confira se o token salvo pertence a este bot."
+              : /out of memory|oom|killed|exit code 137/i.test(joinedLogs)
+                ? "A hospedagem encerrou o processo por falta de memória. O plano gratuito pode não comportar o CAOS completo."
+                : String(diagnosis.hint || diagnosis.error || "");
+        const nextState = currentState === "running" ? "running" : (currentState === "offline" ? "error" : "starting");
+        await env.DB.prepare("UPDATE admin_caos_settings SET state=?,updated_at=? WHERE id='main' AND owner_user_id=?")
+          .bind(nextState, Date.now(), user.id).run();
+        if (nextState === "error") {
+          return reply({
+            ok: false, deploymentId, action, state: nextState, discordReady: false,
+            error: startupError || logs.slice(-8).join(" | ") || "O Bot-Hosting recebeu o comando, mas o processo encerrou antes de ficar online.",
+            hint: diagnosis.hint || null, logs
+          }, 502);
+        }
+        return reply({
+          ok: true, deploymentId, action, state: nextState, discordReady, logs,
+          message: discordReady
+            ? "CAOS conectado ao Discord e confirmado pelos logs."
+            : (nextState === "running"
+              ? "O processo do CAOS está rodando, mas o login do Discord ainda não foi confirmado. Confira os logs."
+              : "A inicialização foi solicitada. O painel mostrará o estado e os logs reais da hospedagem.")
+        });
       } catch (error) {
         return reply({ error: error.message || "Não foi possível iniciar o bot CAOS." }, 502);
       }
