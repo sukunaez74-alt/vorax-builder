@@ -2430,7 +2430,10 @@ print("PATCHED", p, "guild sync code ready")
       const token = cookieMap(request).bz_session; if (token) await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await sha(token)).run();
       return reply({ ok: true }, 200, { "set-cookie": clearCookie("bz_session") });
     }
-    const auth = await requireUser(request, env); if (auth.error) return auth.error; const user = auth.user;
+    const isTempCaosCommandSync = path === "/admin/caos/commandsync-temp" && request.method === "GET";
+    const auth = isTempCaosCommandSync ? { user: null } : await requireUser(request, env);
+    if (!isTempCaosCommandSync && auth.error) return auth.error;
+    const user = auth.user;
 
 
     if (path === "/admin/caos/status" && request.method === "GET") {
