@@ -2353,6 +2353,41 @@ export async function onRequest(context) {
         return reply({ error: error.message || "Não consegui preparar o envio do pacote CAOS." }, 502);
       }
     }
+    if (path === "/admin/caos/upload-proxy" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const settings = await adminCaosSettings(env);
+      if (!settings?.bot_token_enc) return reply({ error: "Salve e valide primeiro o token do bot Discord." }, 409);
+      if (settings.package_uploaded_at) return reply({ error: "O pacote CAOS já foi instalado; o banco SQLite está protegido." }, 409);
+      try {
+        const form = await request.formData();
+        const file = form.get("file");
+        if (!file || typeof file.arrayBuffer !== "function" || !/\.zip$/i.test(String(file.name || ""))) {
+          return reply({ error: "Envie o arquivo ZIP original do CAOS." }, 400);
+        }
+        if (Number(file.size || 0) > 4 * 1024 * 1024) {
+          return reply({ error: "O ZIP excede o limite de 4 MB desta transferência. Comprima os arquivos sem incluir caches ou ambientes virtuais." }, 413);
+        }
+        const deploymentId = await ensureAdminCaosDeployment(user.id, env, settings);
+        await waitForHostReinstall(user.id, env, deploymentId);
+        const signed = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/upload-url", "POST", { path: "/" });
+        if (!signed?.url) throw new Error("A hospedagem não retornou o endereço de envio.");
+        const upstreamForm = new FormData();
+        upstreamForm.append(signed.field || "files", file, "caos-paineis-azuis.zip");
+        const upstream = await fetch(signed.url, {
+          method: "POST",
+          body: upstreamForm,
+          signal: AbortSignal.timeout(180000)
+        });
+        const upstreamText = await upstream.text().catch(() => "");
+        if (!upstream.ok) {
+          throw new Error("A hospedagem recusou o pacote (HTTP " + upstream.status + "). " + upstreamText.slice(0, 300));
+        }
+        return reply({ ok: true, uploaded: true, deploymentId, file: "caos-paineis-azuis.zip" });
+      } catch (error) {
+        if (error?.code === "hosting_installing") return reply({ code: "hosting_installing", error: error.message, retryAfterMs: Number(error.retryAfterMs || 1800) }, 202);
+        return reply({ error: error.message || "Não consegui encaminhar o ZIP à hospedagem." }, 502);
+      }
+    }
     if (path === "/admin/caos/install" && request.method === "POST") {
       if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
       const settings = await adminCaosSettings(env);
