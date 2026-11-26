@@ -3549,6 +3549,17 @@ export async function onRequest(context) {
 
       if (!action && request.method === "DELETE") {
         let deploymentDeleted = false;
+        let externalServerRetained = false;
+        if (bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+          try {
+            const token = await providerToken(user.id, "keritcloud", env);
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud antes de remover este projeto. O Estúdio precisa parar o servidor para não deixá-lo rodando sem controle." }, 409);
+            await keritRequest(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/power", "POST", { signal: "stop" });
+            externalServerRetained = true;
+          } catch (error) {
+            return reply({ error: "Não consegui parar o servidor Kerit Cloud. O projeto continua salvo no Estúdio. " + (error.message || "") }, 502);
+          }
+        }
         if (bot.hosting_provider === "discloud" && bot.provider_app_id) {
           try {
             const token = await providerToken(user.id, "discloud", env);
@@ -3596,7 +3607,7 @@ export async function onRequest(context) {
           }
         }
         await env.DB.prepare("DELETE FROM bots WHERE id=? AND user_id=?").bind(id, user.id).run();
-        return reply({ ok: true, deleted: true, deploymentDeleted, sharedDeploymentRetained: !!bot.hosting_deployment_id && !deploymentDeleted });
+        return reply({ ok: true, deleted: true, deploymentDeleted, externalServerRetained, sharedDeploymentRetained: !!bot.hosting_deployment_id && !deploymentDeleted });
       }
 
       if (!action && request.method === "GET") {
