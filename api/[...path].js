@@ -2844,6 +2844,77 @@ export async function onRequest(context) {
       } catch (error) { return reply({ error: error.message || "Não consegui vincular esse servidor Cogithost." }, 502); }
     }
 
+    if (path === "/hosting/keritcloud/connect" && request.method === "POST") {
+      const b = await body(request), token = String(b.apiToken || "").trim();
+      if (token.length < 20 || token.length > 512 || /\\s/.test(token)) return reply({ error: "Informe uma Client API Key válida do Kerit Cloud." }, 400);
+      try {
+        const result = await keritRequest(token, "");
+        const servers = Array.isArray(result.data?.data) ? result.data.data : [];
+        const encrypted = await encryptSecret(token, env);
+        await env.DB.prepare("INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,'keritcloud',?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at")
+          .bind(user.id, encrypted, "Kerit Cloud", "Free · 256 MB · 1 servidor", Date.now()).run();
+        return reply({ ok: true, connected: true, provider: "keritcloud", serversCount: servers.length, message: "Client API Key do Kerit Cloud validada e guardada com criptografia." });
+      } catch (error) { return reply({ error: error.message || "Não consegui validar a Client API Key do Kerit Cloud." }, 401); }
+    }
+    if (path === "/hosting/keritcloud/disconnect" && request.method === "POST") {
+      const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='keritcloud' AND provider_app_id IS NOT NULL LIMIT 1").bind(user.id).first();
+      if (linked) return reply({ error: "Há bots vinculados ao Kerit Cloud. Desvincule os servidores antes de desconectar." }, 409);
+      await env.DB.prepare("DELETE FROM provider_connections WHERE user_id=? AND provider='keritcloud'").bind(user.id).run();
+      return reply({ ok: true, connected: false });
+    }
+    if (path === "/hosting/keritcloud/servers" && request.method === "GET") {
+      try {
+        const token = await providerToken(user.id, "keritcloud", env);
+        if (!token) return reply({ code: "provider_not_connected", error: "Conecte o Kerit Cloud em Configurações." }, 409);
+        const result = await keritRequest(token, "");
+        const servers = (Array.isArray(result.data?.data) ? result.data.data : []).map(item => {
+          const a = item?.attributes || {};
+          return { id: String(a.identifier || ""), uuid: String(a.uuid || ""), name: String(a.name || "Servidor"), memoryMb: Number(a.limits?.memory || 0), diskMb: Number(a.limits?.disk || 0), suspended: !!a.is_suspended, installing: !!a.is_installing };
+        }).filter(item => item.id);
+        return reply({ connected: true, servers });
+      } catch (error) { return reply({ error: error.message || "Não consegui listar servidores do Kerit Cloud." }, 502); }
+    }
+    if (path === "/hosting/keritcloud/attach" && request.method === "POST") {
+      const b = await body(request), botId = String(b.botId || "");
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(botId)) return reply({ error: "Selecione um projeto válido do Estúdio." }, 400);
+      const bot = await getOwnedBot(botId, user.id, env);
+      if (!bot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
+      if (bot.hosting_deployment_id || bot.provider_app_id) return reply({ error: "Este projeto já está vinculado a uma hospedagem. Crie um projeto vazio no Estúdio para não perder a referência atual." }, 409);
+      try {
+        const token = await providerToken(user.id, "keritcloud", env);
+        if (!token) return reply({ code: "provider_not_connected", error: "Conecte o Kerit Cloud em Configurações." }, 409);
+        const serverId = keritIdentifier(b.serverId);
+        const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider='keritcloud' AND provider_app_id=? LIMIT 1").bind(user.id, serverId).first();
+        if (linked) return reply({ error: "Este servidor Kerit Cloud já está vinculado a outro projeto do Estúdio." }, 409);
+        const details = await keritRequest(token, "/servers/" + encodeURIComponent(serverId));
+        const a = details.data?.attributes || {};
+        if (String(a.identifier || "") !== serverId) return reply({ error: "O Kerit Cloud não confirmou o identificador deste servidor." }, 502);
+        const resourcesResult = await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+        const resource = resourcesResult.data?.attributes || {};
+        const current = String(resource.current_state || "").toLowerCase();
+        const state = current === "running" ? "running" : (current === "starting" ? "starting" : "stopped");
+        let tokenConfigured = false;
+        if (bot.discord_token_enc) {
+          try {
+            const discordToken = await decryptSecret(bot.discord_token_enc, env);
+            const startup = await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/startup");
+            const variables = Array.isArray(startup.data?.data) ? startup.data.data : [];
+            const preferred = ["DISCORD_TOKEN","BOT_TOKEN","TOKEN"];
+            const variable = variables.find(item => item?.attributes?.is_editable && preferred.includes(String(item.attributes.env_variable || "").toUpperCase()));
+            if (discordToken && variable?.attributes?.env_variable) {
+              await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/startup/variable", "PUT", { key: variable.attributes.env_variable, value: discordToken });
+              tokenConfigured = true;
+            }
+          } catch {}
+        }
+        const customProject = { packageName: bot.name, rootPath: "/", runtime: bot.runtime || "python", provider: "keritcloud", linkedAt: Date.now(), panel: "Pterodactyl" };
+        await env.DB.prepare("UPDATE bots SET hosting_provider='keritcloud',provider_app_id=?,hosting_deployment_id=NULL,project_type='custom',custom_project=?::jsonb,state=?,updated_at=? WHERE id=? AND user_id=?")
+          .bind(serverId, JSON.stringify(customProject), state, Date.now(), botId, user.id).run();
+        return reply({ ok: true, provider: "keritcloud", providerAppId: serverId, serverName: String(a.name || "Servidor Kerit Cloud"), state, tokenConfigured,
+          message: "Servidor Kerit Cloud vinculado. O Estúdio já pode enviar arquivos e controlar a energia. " + (tokenConfigured ? "O token do Discord foi salvo na variável privada de inicialização." : "Configure uma variável editável DISCORD_TOKEN, BOT_TOKEN ou TOKEN no painel Kerit para o bot iniciar com segurança.") });
+      } catch (error) { return reply({ error: error.message || "Não consegui vincular esse servidor Kerit Cloud." }, 502); }
+    }
+
     if (path === "/hosting/aclclouds/connect" && request.method === "POST") {
       const b = await body(request), token = String(b.apiToken || "").trim();
       if (token.length < 20 || token.length > 1024 || /\s/.test(token)) return reply({ error: "Informe uma API Key ACLClouds válida." }, 400);
