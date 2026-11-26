@@ -2325,6 +2325,7 @@ export async function onRequest(context) {
         botName: settings?.bot_name || null,
         deploymentId: settings?.hosting_deployment_id || null,
         packageUploaded: !!settings?.package_uploaded_at,
+        packageReplacementPending: settings?.state === "replacement_pending",
         updatedAt: settings?.updated_at || null,
         ...hosting,
         runtime
@@ -2337,6 +2338,43 @@ export async function onRequest(context) {
         return reply(result);
       } catch (error) {
         return reply({ error: error.message || "Não foi possível salvar o token CAOS." }, 400);
+      }
+    }
+
+    if (path === "/admin/caos/replace-package" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const settings = await adminCaosSettings(env);
+      if (!settings?.package_uploaded_at) return reply({ error: "Não existe um pacote instalado para substituir." }, 409);
+      const deploymentId = String(settings.hosting_deployment_id || "");
+      if (!deploymentId) return reply({ error: "A hospedagem CAOS não está vinculada." }, 409);
+      try {
+        const diagnosis = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=3");
+        let currentState = String(diagnosis.state || diagnosis.deployment?.state || "").toLowerCase();
+        if (!currentState) {
+          const current = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId));
+          currentState = String(current.state || current.deployment?.state || "").toLowerCase();
+        }
+        if (!currentState) throw new Error("Não consegui confirmar o estado do bot. O pacote antigo foi mantido.");
+        if (!["offline","stopped","terminated"].includes(currentState)) {
+          await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "stop", waitSeconds: 25 });
+        }
+        const backupScript = "from pathlib import Path\nimport shutil, sqlite3\nsource = Path(\"/home/container/caos.sqlite3\")\nbackup = Path(\"/home/container/.blackzone-caos.sqlite3.backup\")\nif not source.is_file():\n    raise SystemExit(\"BANCO_NAO_ENCONTRADO: /home/container/caos.sqlite3\")\ncon = sqlite3.connect(str(source), timeout=10)\ncon.execute(\"PRAGMA wal_checkpoint(FULL)\")\ncon.close()\nshutil.copy2(source, backup)\nif not backup.is_file() or backup.stat().st_size != source.stat().st_size:\n    raise SystemExit(\"FALHA_VERIFICACAO_BACKUP_SQLITE\")\nprint(\"BLACKZONE_SQLITE_BACKUP_OK bytes=\" + str(backup.stat().st_size))";
+        const backupResult = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/shell", "POST", {
+          command: "python - <<'PY'\\n" + backupScript + "\\nPY", timeout: 35, maxChars: 5000
+        });
+        const backupText = String(backupResult?.stdout || backupResult?.output || backupResult?.message || JSON.stringify(backupResult));
+        if (!backupText.includes("BLACKZONE_SQLITE_BACKUP_OK")) {
+          throw new Error("A hospedagem não confirmou o backup do banco SQLite. O ZIP antigo continua instalado. Detalhe: " + backupText.slice(0, 600));
+        }
+        await env.DB.prepare("UPDATE admin_caos_settings SET package_uploaded_at=NULL,state='replacement_pending',updated_at=? WHERE id='main' AND owner_user_id=?").bind(Date.now(), user.id).run();
+        return reply({
+          ok: true,
+          packageReplacementPending: true,
+          databaseBackup: true,
+          message: "Bot parado e banco SQLite protegido. Agora selecione o ZIP atualizado para substituir o pacote antigo."
+        });
+      } catch (error) {
+        return reply({ error: error.message || "Não consegui preparar a substituição do pacote." }, 502);
       }
     }
     if (path === "/admin/caos/upload-url" && request.method === "POST") {
@@ -2409,10 +2447,22 @@ export async function onRequest(context) {
       if (!/^[A-Za-z0-9._-]{1,140}\.zip$/i.test(file) || file.includes("..")) return reply({ error: "Nome de ZIP inválido." }, 400);
       const deploymentId = settings.hosting_deployment_id;
       if (!deploymentId) return reply({ error: "Prepare primeiro a hospedagem para receber o pacote." }, 409);
+
       try {
+        const replacingInstalledPackage = settings.state === "replacement_pending";
         await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/decompress", "POST", {
           root: "/", file, removeArchive: true
         });
+        if (replacingInstalledPackage) {
+          const restoreScript = "from pathlib import Path\nimport shutil\nbackup = Path(\"/home/container/.blackzone-caos.sqlite3.backup\")\ndatabase = Path(\"/home/container/caos.sqlite3\")\nif not backup.is_file():\n    raise SystemExit(\"BACKUP_SQLITE_NAO_ENCONTRADO: não vou iniciar sem proteger o banco anterior.\")\nshutil.copy2(backup, database)\nif not database.is_file() or database.stat().st_size != backup.stat().st_size:\n    raise SystemExit(\"FALHA_RESTAURAR_SQLITE: o banco antigo não foi restaurado.\")\nbackup.unlink()\nprint(\"BLACKZONE_SQLITE_RESTORE_OK bytes=\" + str(database.stat().st_size))";
+          const restoreResult = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/shell", "POST", {
+            command: "python - <<'PY'\\n" + restoreScript + "\\nPY", timeout: 35, maxChars: 5000
+          });
+          const restoreText = String(restoreResult?.stdout || restoreResult?.output || restoreResult?.message || JSON.stringify(restoreResult));
+          if (!restoreText.includes("BLACKZONE_SQLITE_RESTORE_OK")) {
+            throw new Error("O pacote novo foi extraído, mas a hospedagem não confirmou a restauração do banco SQLite. O backup permanece salvo. Detalhe: " + restoreText.slice(0, 600));
+          }
+        }
         const token = await decryptSecret(settings.bot_token_enc, env);
         if (!token) throw new Error("Não consegui abrir o token protegido. Salve novamente o token do Discord.");
         await setHostEnv(user.id, env, deploymentId, "DISCORD_TOKEN", token, true);
