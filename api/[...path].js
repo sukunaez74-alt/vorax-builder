@@ -3517,6 +3517,44 @@ export async function onRequest(context) {
         } catch (error) { xsystems = { connected: true, valid: false, provider: "xsystems", error: error.message || "Falha de validação X Systems." }; }
       }
 
+      let torchlite = { connected: false, provider: "torchlite" };
+      if (torchliteRow) {
+        try {
+          const token = await providerToken(user.id, "torchlite", env);
+          const result = token ? await torchliteRequest(token, "") : null;
+          const servers = Array.isArray(result?.data?.data) ? result.data.data : [];
+          const botServers = servers.filter(item => /discord|bot/i.test(String(item?.attributes?.name || "")));
+          torchlite = {
+            connected: true, valid: !!token, provider: "torchlite",
+            accountLabel: torchliteRow.account_label || "Torchlite",
+            plan: "Free Bot · 512 MB RAM · 3 GB disco · renovação diária",
+            serversCount: servers.length, botServersCount: botServers.length,
+            canCreate: false, canAttach: servers.length > 0,
+            detail: servers.length
+              ? "Servidor encontrado. O plano Bot exige renovação gratuita a cada 24 horas e login no painel pelo menos a cada 5 dias."
+              : "Conta conectada. Crie um servidor Discord Bot no painel Torchlite. Cada conta aceita até 2 servidores no total."
+          };
+        } catch (error) { torchlite = { connected: true, valid: false, provider: "torchlite", error: error.message || "Falha de validação Torchlite." }; }
+      }
+      let daki = { connected: false, provider: "daki" };
+      if (dakiRow) {
+        try {
+          const token = await providerToken(user.id, "daki", env);
+          const result = token ? await dakiRequest(token, "") : null;
+          const servers = Array.isArray(result?.data?.data) ? result.data.data : [];
+          daki = {
+            connected: true, valid: !!token, provider: "daki",
+            accountLabel: dakiRow.account_label || "Daki Hosting",
+            plan: "Free Tier · 512 MB RAM · 1 GB disco",
+            serversCount: servers.length,
+            canCreate: false, canAttach: servers.length > 0,
+            detail: servers.length
+              ? "Servidor Daki encontrado e pronto para vincular ao Estúdio."
+              : "A Daki informa que os nós gratuitos estão sem vagas no momento. A conexão serve para vincular servidores Free que você já tenha."
+          };
+        } catch (error) { daki = { connected: true, valid: false, provider: "daki", error: error.message || "Falha de validação Daki." }; }
+      }
+
       let aclclouds = { connected: false, provider: "aclclouds" };
       if (aclRow) {
         try {
@@ -3544,6 +3582,8 @@ export async function onRequest(context) {
           { id: "keritcloud", name: "Kerit Cloud", role: "servidor-conectado", ...keritcloud, canCreate: false, canAttach: !!keritcloud.valid && !!keritcloud.canAttach },
           { id: "waifly", name: "Waifly", role: "servidor-conectado", ...waifly, canCreate: false, canAttach: !!waifly.valid && !!waifly.canAttach },
           { id: "xsystems", name: "X Systems Hosting", role: "servidor-conectado", ...xsystems, canCreate: false, canAttach: !!xsystems.valid && !!xsystems.canAttach },
+          { id: "torchlite", name: "Torchlite", role: "servidor-conectado", ...torchlite, canCreate: false, canAttach: !!torchlite.valid && !!torchlite.canAttach },
+          { id: "daki", name: "Daki Hosting", role: "servidor-conectado", ...daki, canCreate: false, canAttach: !!daki.valid && !!daki.canAttach },
           { id: "aclclouds", name: "ACLClouds", role: "servidor-conectado", ...aclclouds, canCreate: false, canAttach: !!aclclouds.valid && !!aclclouds.canAttach },
           { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
           { id: "squarecloud", name: "Square Cloud", role: "paga-fora-do-pool", ...square, canCreate: false },
