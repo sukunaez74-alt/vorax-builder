@@ -1062,7 +1062,8 @@ function verificationAdminView(){
   :(!hostingReady?"A autorização precisa liberar criação de servidor e envio de arquivos."
   :(!hostingApiOk?String(r.hostingDiagnostic?.message||"Não foi possível validar a hospedagem.")
   :(!r.configured?"Cole e salve o token do bot Discord."
-  :(!r.packageUploaded?"Token salvo. Falta enviar o ZIP CAOS uma única vez.":"Pacote CAOS instalado. Você já pode iniciar o bot."))));
+  :(!r.packageUploaded?(r.packageReplacementPending?"Backup do banco protegido. Selecione o ZIP novo para concluir a substituição.":"Token salvo. Falta enviar o ZIP CAOS."):"Pacote CAOS instalado. Você já pode iniciar o bot."))));
+ const packageStatus=r.packageUploaded?"INSTALADO":(r.packageReplacementPending?"AGUARDANDO ZIP NOVO":"ZIP NECESSÁRIO");
  return pageHead("CAOS · ADM","Painel privado para instalar e controlar o bot CAOS completo.")+
  (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
  '<section class="card"><div class="section-head"><h3>Estado do CAOS</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+escapeHtml(status)+'</span></div>'+
@@ -1083,12 +1084,14 @@ function verificationAdminView(){
  '<form id="verificationBotConfigForm" class="grid settings-grid">'+
  '<div class="field" style="grid-column:1/-1"><label>BOT TOKEN</label><input id="verificationBotToken" name="botToken" type="password" autocomplete="new-password" placeholder="'+(r.hasToken?"Token já salvo · cole apenas para substituir":"Cole aqui o token do bot")+'"></div>'+
  '<div style="grid-column:1/-1"><button class="btn" id="verificationSave" type="submit">Salvar token com segurança</button></div></form></section>'+
- '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Pacote do bot</h3><span class="status">'+(r.packageUploaded?"INSTALADO":"ZIP NECESSÁRIO")+'</span></div>'+
- (r.packageUploaded?'<div class="notice">O pacote CAOS foi instalado. O Estúdio protege o banco SQLite para não sobrescrever os dados em uma nova tentativa.</div>':
- '<p class="muted small">Envie uma vez o arquivo <b>CAOS_PAINÉIS_AZUIS_ATUALIZADO.zip</b>. O Estúdio prepara Python, dependências, imagens, áudio e o banco original.</p>'+
+ '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Pacote do bot</h3><span class="status">'+packageStatus+'</span></div>'+
+ (r.packageUploaded?'<div class="notice">O pacote CAOS está instalado. Para atualizar a versão, use o botão abaixo: o bot será parado e o banco SQLite terá um backup verificado antes de liberar o novo ZIP.</div>'+
+ '<div class="hero-actions" style="margin-top:12px"><button class="btn secondary" id="caosReplacePackageButton">↻ Remover pacote antigo e enviar nova versão</button></div>'+
+ '<div id="caosReplaceStatus" class="muted small" style="margin-top:10px">O token e as configurações do bot serão mantidos. O banco SQLite será preservado.</div>':
+ '<p class="muted small">'+(r.packageReplacementPending?'O backup do banco SQLite já foi confirmado. Agora selecione o ZIP atualizado para substituir os arquivos antigos.':'Envie o arquivo <b>CAOS_PAINÉIS_AZUIS_ATUALIZADO.zip</b>. O Estúdio prepara Python, dependências, imagens e áudio.')+'</p>'+
  '<div class="field"><label>ARQUIVO ZIP DO CAOS</label><input id="caosZipInput" type="file" accept=".zip,application/zip"></div>'+
- '<div class="hero-actions" style="margin-top:12px"><button class="btn" id="caosUploadButton" '+(!canInstall?"disabled":"")+'>⇧ Instalar pacote CAOS</button></div>'+
- '<div id="caosUploadStatus" class="muted small" style="margin-top:10px">'+(r.configured?"Selecione o ZIP original para enviar à hospedagem.":"Salve o token antes de instalar o pacote.")+'</div>')+
+ '<div class="hero-actions" style="margin-top:12px"><button class="btn" id="caosUploadButton" '+(!canInstall?"disabled":"")+'>⇧ '+(r.packageReplacementPending?"Instalar nova versão do CAOS":"Instalar pacote CAOS")+'</button></div>'+
+ '<div id="caosUploadStatus" class="muted small" style="margin-top:10px">'+(r.packageReplacementPending?"Backup do banco seguro. Selecione o ZIP novo para continuar.":(r.configured?"Selecione o ZIP original para enviar à hospedagem.":"Salve o token antes de instalar o pacote."))+'</div>')+
  '<div class="notice" style="margin-top:14px">A hospedagem gratuita pode exigir renovação periódica e limitar CPU/RAM. Recursos de áudio podem consumir mais memória do que o plano gratuito oferece.</div></section>';
 }
 
@@ -1362,6 +1365,26 @@ function bindView(){
   verifyConnect.disabled=true;verifyConnect.textContent="Preparando autorização…";
   try{const result=await api("/hosting/connect");window.location.assign(result.authorizationUrl)}
   catch(error){toast(error.message);verifyConnect.disabled=false;verifyConnect.textContent="Autorizar hospedagem ↗"}
+ };
+ const caosReplacePackageButton=$("#caosReplacePackageButton");
+ if(caosReplacePackageButton)caosReplacePackageButton.onclick=async()=>{
+  if(!window.confirm("O bot será parado para atualizar os arquivos. O Estúdio fará e verificará um backup do banco SQLite antes de liberar o novo ZIP. Deseja continuar?"))return;
+  caosReplacePackageButton.disabled=true;caosReplacePackageButton.textContent="Parando bot e protegendo o banco…";
+  const status=$("#caosReplaceStatus");
+  if(status)status.textContent="Parando o CAOS e verificando o backup do SQLite…";
+  try{
+   const result=await api("/admin/caos/replace-package",{method:"POST",body:JSON.stringify({})});
+   toast(result.message||"Backup concluído. Agora envie o ZIP atualizado.");
+   await loadVerificationBotAdmin();
+  }catch(error){
+   toast(error.message||"Não consegui preparar a substituição do ZIP.");
+   if(status)status.textContent=error.message||"O pacote antigo foi mantido.";
+  }finally{
+   if($("#caosReplacePackageButton")){
+    $("#caosReplacePackageButton").disabled=false;
+    $("#caosReplacePackageButton").textContent="↻ Remover pacote antigo e enviar nova versão";
+   }
+  }
  };
  const caosUploadButton=$("#caosUploadButton");
  if(caosUploadButton)caosUploadButton.onclick=async()=>{
