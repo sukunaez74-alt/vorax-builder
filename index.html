@@ -561,7 +561,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
    <button class="nav-btn" data-view="files"><span>▤</span> Arquivos</button>
    <button class="nav-btn" data-view="logs"><span>›_</span> Terminal / Logs</button>
    <button class="nav-btn" data-view="settings"><span>▤</span> Banco de Dados</button>
-   <button class="nav-btn owner-only hidden" data-view="verificationAdmin"><span>⌁</span> Bot de verificação</button>
+   <button class="nav-btn owner-only hidden" data-view="verificationAdmin"><span>⌁</span> CAOS · ADM</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Gerenciamento</div>
    <button class="nav-btn" data-view="schedules"><span>◷</span> Agendamentos</button>
@@ -648,7 +648,7 @@ $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#regi
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){if(state.adminPortal&&view!=="verificationAdmin")return;if(!state.adminPortal&&view==="verificationAdmin")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"Administração · Verificação"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){if(state.adminPortal&&view!=="verificationAdmin")return;if(!state.adminPortal&&view==="verificationAdmin")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Integrações",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"CAOS · ADM"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
 function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 
@@ -1045,51 +1045,53 @@ async function loadSettingsHostingState(){
 
 async function loadVerificationBotAdmin(){
  try{
-  state.verificationAdmin=await api("/admin/verification-bot/status");
+  state.verificationAdmin=await api("/admin/caos/status");
   if(state.view==="verificationAdmin"&&state.adminPortal)render();
  }catch(error){
-  state.verificationAdmin={loadError:error.message||"Não foi possível consultar o painel administrativo."};
+  state.verificationAdmin={loadError:error.message||"Não foi possível consultar o painel CAOS."};
   if(state.view==="verificationAdmin"&&state.adminPortal){render();toast(state.verificationAdmin.loadError);}
  }
 }
 function verificationAdminView(){
  const r=state.verificationAdmin||{},runtime=r.runtime||{},live=runtime.online===true;
- const status=live?"ONLINE":runtime.state==="not_deployed"?"NÃO INICIADO":String(runtime.state||"AGUARDANDO").toUpperCase();
- const hostingReady=!!r.hostingCanCreate;
- const hostingApiOk=r.hostingDiagnostic?.ok===true;
- const canStart=!!r.configured&&hostingReady&&hostingApiOk;
- const note=!r.hostingConnected
-  ?"A hospedagem ainda não está conectada."
-  :(!hostingReady
-    ?"A hospedagem precisa autorizar criação de servidores."
-    :(!hostingApiOk
-      ?String(r.hostingDiagnostic?.message||"Não foi possível validar a conexão com a hospedagem.")
-      :(!r.configured?"Preencha o Bot Token e o convite do servidor.":"Token, convite e hospedagem prontos para iniciar.")));
- return pageHead("Bot de verificação","Configure o bot central com apenas o token e o convite do seu servidor.")+
+ const status=live?(runtime.discordReady?"DISCORD ONLINE":"SERVIDOR LIGADO"):runtime.state==="not_deployed"?"NÃO INICIADO":String(runtime.state||"AGUARDANDO").toUpperCase();
+ const hostingReady=!!r.hostingCanCreate,hostingApiOk=r.hostingDiagnostic?.ok===true;
+ const canInstall=!!r.configured&&hostingReady&&hostingApiOk&&!r.packageUploaded;
+ const canStart=!!r.configured&&!!r.packageUploaded&&hostingReady&&hostingApiOk;
+ const note=!r.hostingConnected?"A hospedagem ainda não está conectada."
+  :(!hostingReady?"A autorização precisa liberar criação de servidor e envio de arquivos."
+  :(!hostingApiOk?String(r.hostingDiagnostic?.message||"Não foi possível validar a hospedagem.")
+  :(!r.configured?"Cole e salve o token do bot Discord."
+  :(!r.packageUploaded?"Token salvo. Falta enviar o ZIP CAOS uma única vez.":"Pacote CAOS instalado. Você já pode iniciar o bot."))));
+ return pageHead("CAOS · ADM","Painel privado para instalar e controlar o bot CAOS completo.")+
  (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
- '<section class="card"><div class="section-head"><h3>Estado do bot central</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+status+'</span></div>'+
- '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot de verificação")+'</strong><br>'+escapeHtml(note)+
- (runtime.guilds!==undefined?'<br>Servidores conectados: <b>'+Number(runtime.guilds)+'</b>':"")+
- (runtime.heartbeatAt?'<br>Último sinal: '+escapeHtml(new Date(runtime.heartbeatAt).toLocaleString("pt-BR")):"")+
+ '<section class="card"><div class="section-head"><h3>Estado do CAOS</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+escapeHtml(status)+'</span></div>'+
+ '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot CAOS")+'</strong><br>'+escapeHtml(note)+
+ (r.runtime?.deploymentId?'<br>ID da hospedagem: <b>'+escapeHtml(r.runtime.deploymentId)+'</b>':"")+
+ (r.runtime?.discordReady?'<br><b>O log confirmou conexão com o Discord.</b>':(live?'<br>O servidor está ligado; confira os logs para confirmar o login no Discord.':""))+
  (runtime.error?'<br><b>Erro:</b> '+escapeHtml(runtime.error):"")+
  (runtime.hint?'<br><b>Detalhe:</b> '+escapeHtml(runtime.hint):"")+
  (r.hostingDiagnostic?'<br><b>Hospedagem:</b> '+escapeHtml(r.hostingDiagnostic.message||"Sem diagnóstico"):"")+
- (Array.isArray(runtime.logs)&&runtime.logs.length?'<pre class="terminal">'+runtime.logs.map(line=>escapeHtml(line)).join("\\n")+'</pre>':"")+
+ (Array.isArray(runtime.logs)&&runtime.logs.length?'<pre class="terminal">'+runtime.logs.map(line=>escapeHtml(line)).join("\n")+'</pre>':'<div class="muted small" style="margin-top:10px">Os logs do bot aparecerão aqui depois da primeira inicialização.</div>')+
  '</div><div class="hero-actions" style="margin-top:14px">'+
  ((!hostingReady||!hostingApiOk)?'<button class="btn" id="verificationConnectHosting">'+(r.hostingConnected?"Reconectar hospedagem ↗":"Conectar hospedagem ↗")+'</button>':"")+
  '<button class="btn" id="verificationStart" '+(!canStart?"disabled":"")+'>▶ Iniciar bot</button>'+
- '<button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"") +'>■ Parar bot</button>'+
- '<button class="btn secondary" id="verificationRefresh">↻ Atualizar</button></div>'+
- '</section>'+
- '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Configuração</h3><span class="status">2 campos</span></div>'+
- '<p class="muted small">Informe o token do seu bot e o convite do servidor. O token fica protegido e não será mostrado depois de salvo.</p>'+
+ '<button class="btn danger" id="verificationStop" '+(!r.deploymentId?"disabled":"")+'>■ Parar bot</button>'+
+ '<button class="btn secondary" id="verificationRefresh">↻ Atualizar</button></div></section>'+
+ '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Token do Discord</h3><span class="status">'+(r.hasToken?"TOKEN PROTEGIDO":"CONFIGURAR")+'</span></div>'+
+ '<p class="muted small">Cole o token do bot CAOS. Ele será validado e criptografado no servidor; não será exibido novamente.</p>'+
  '<form id="verificationBotConfigForm" class="grid settings-grid">'+
- '<div class="field" style="grid-column:1/-1"><label>BOT TOKEN</label><input id="verificationBotToken" name="botToken" type="password" autocomplete="new-password" placeholder="Cole o token do bot aqui"></div>'+
- '<div class="field" style="grid-column:1/-1"><label>CONVITE DO SERVIDOR</label><input id="verificationInviteUrl" name="inviteUrl" type="url" value="'+escapeHtml(r.inviteUrl||"")+'" placeholder="https://discord.gg/..." required></div>'+
- '<div style="grid-column:1/-1"><button class="btn" id="verificationSave" type="submit">Salvar configuração</button></div></form>'+
- '<div class="notice" style="margin-top:14px">Depois de salvar, o botão <b>Iniciar bot</b> prepara a hospedagem automaticamente e liga o bot com esse convite.</div>'+
- '<a class="btn secondary" style="display:inline-flex;text-decoration:none;align-items:center;margin-top:12px" id="verificationInviteBot" href="https://discord.com/oauth2/authorize?client_id='+encodeURIComponent(r.botId||"")+'&permissions=19456&scope=bot%20applications.commands" target="_blank" rel="noopener noreferrer">Adicionar bot ao servidor ↗</a></section>';
+ '<div class="field" style="grid-column:1/-1"><label>BOT TOKEN</label><input id="verificationBotToken" name="botToken" type="password" autocomplete="new-password" placeholder="'+(r.hasToken?"Token já salvo · cole apenas para substituir":"Cole aqui o token do bot")+'"></div>'+
+ '<div style="grid-column:1/-1"><button class="btn" id="verificationSave" type="submit">Salvar token com segurança</button></div></form></section>'+
+ '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Pacote do bot</h3><span class="status">'+(r.packageUploaded?"INSTALADO":"ZIP NECESSÁRIO")+'</span></div>'+
+ (r.packageUploaded?'<div class="notice">O pacote CAOS foi instalado. O Estúdio protege o banco SQLite para não sobrescrever os dados em uma nova tentativa.</div>':
+ '<p class="muted small">Envie uma vez o arquivo <b>CAOS_PAINÉIS_AZUIS_ATUALIZADO.zip</b>. O Estúdio prepara Python, dependências, imagens, áudio e o banco original.</p>'+
+ '<div class="field"><label>ARQUIVO ZIP DO CAOS</label><input id="caosZipInput" type="file" accept=".zip,application/zip"></div>'+
+ '<div class="hero-actions" style="margin-top:12px"><button class="btn" id="caosUploadButton" '+(!canInstall?"disabled":"")+'>⇧ Instalar pacote CAOS</button></div>'+
+ '<div id="caosUploadStatus" class="muted small" style="margin-top:10px">'+(r.configured?"Selecione o ZIP original para enviar à hospedagem.":"Salve o token antes de instalar o pacote.")+'</div>')+
+ '<div class="notice" style="margin-top:14px">A hospedagem gratuita pode exigir renovação periódica e limitar CPU/RAM. Recursos de áudio podem consumir mais memória do que o plano gratuito oferece.</div></section>';
 }
+
 async function loadDiscloudHostingState(){
  const node=$("#settingsDiscloudState"),squareNode=$("#settingsSquareState"),cubeNode=$("#settingsCubeState")||$("#filesCubeState"),cogitNode=$("#settingsCogitState"),aclNode=$("#settingsAclState")||$("#filesAclState");
  if(!node&&!squareNode&&!cubeNode&&!cogitNode&&!aclNode)return;
@@ -1336,32 +1338,66 @@ function bindView(){
  };
  const verifyForm=$("#verificationBotConfigForm");
  if(verifyForm)verifyForm.onsubmit=async e=>{
-  e.preventDefault();const button=$("#verificationSave");if(button){button.disabled=true;button.textContent="Validando e criptografando…"}
+  e.preventDefault();const button=$("#verificationSave");if(button){button.disabled=true;button.textContent="Validando token…"}
   try{
-   const result=await api("/admin/verification-bot/config",{method:"POST",body:JSON.stringify({
-    botToken:$("#verificationBotToken").value,inviteUrl:$("#verificationInviteUrl").value.trim()
-   })});
+   const result=await api("/admin/caos/config",{method:"POST",body:JSON.stringify({botToken:$("#verificationBotToken").value})});
    $("#verificationBotToken").value="";
-   toast(result.message||"Token e convite salvos.");await loadVerificationBotAdmin();
+   toast(result.message||"Token salvo com segurança.");await loadVerificationBotAdmin();
   }catch(error){toast(error.message)}
-  finally{if(button){button.disabled=false;button.textContent="Salvar token e convite"}}
+  finally{if(button){button.disabled=false;button.textContent="Salvar token com segurança"}}
  };
  const verifyStart=$("#verificationStart");if(verifyStart)verifyStart.onclick=async()=>{
-  verifyStart.disabled=true;verifyStart.textContent="Preparando hospedagem…";
-  try{const r=await api("/admin/verification-bot/power",{method:"POST",body:JSON.stringify({action:"start"})});toast(r.message||"Inicialização solicitada.");await loadVerificationBotAdmin()}
+  verifyStart.disabled=true;verifyStart.textContent="Iniciando CAOS…";
+  try{const result=await api("/admin/caos/power",{method:"POST",body:JSON.stringify({action:"start"})});toast(result.message||"Inicialização solicitada.");await loadVerificationBotAdmin()}
   catch(error){toast(error.message)}
-  finally{if($("#verificationStart")){const s=state.verificationAdmin||{};$("#verificationStart").disabled=!(s.configured&&s.hostingCanCreate&&s.hostingDiagnostic?.ok===true);$("#verificationStart").textContent="▶ Iniciar / atualizar"}}
+  finally{if($("#verificationStart")){$("#verificationStart").disabled=!(state.verificationAdmin?.configured&&state.verificationAdmin?.packageUploaded&&state.verificationAdmin?.hostingCanCreate&&state.verificationAdmin?.hostingDiagnostic?.ok);$("#verificationStart").textContent="▶ Iniciar bot"}}
  };
  const verifyStop=$("#verificationStop");if(verifyStop)verifyStop.onclick=async()=>{
-  if(!window.confirm("Deseja parar o bot central de verificação?"))return;verifyStop.disabled=true;
-  try{await api("/admin/verification-bot/power",{method:"POST",body:JSON.stringify({action:"stop"})});toast("Bot central parado.");await loadVerificationBotAdmin()}
+  if(!window.confirm("Deseja parar o bot CAOS?"))return;verifyStop.disabled=true;
+  try{await api("/admin/caos/power",{method:"POST",body:JSON.stringify({action:"stop"})});toast("Bot CAOS parado.");await loadVerificationBotAdmin()}
   catch(error){toast(error.message)}finally{if($("#verificationStop"))$("#verificationStop").disabled=false}
  };
  const verifyRefresh=$("#verificationRefresh");if(verifyRefresh)verifyRefresh.onclick=loadVerificationBotAdmin;
  const verifyConnect=$("#verificationConnectHosting");if(verifyConnect)verifyConnect.onclick=async()=>{
   verifyConnect.disabled=true;verifyConnect.textContent="Preparando autorização…";
-  try{const r=await api("/hosting/connect");window.location.assign(r.authorizationUrl)}
-  catch(error){toast(error.message);verifyConnect.disabled=false;verifyConnect.textContent="Autorizar criação de servidores ↗"}
+  try{const result=await api("/hosting/connect");window.location.assign(result.authorizationUrl)}
+  catch(error){toast(error.message);verifyConnect.disabled=false;verifyConnect.textContent="Autorizar hospedagem ↗"}
+ };
+ const caosUploadButton=$("#caosUploadButton");
+ if(caosUploadButton)caosUploadButton.onclick=async()=>{
+  const input=$("#caosZipInput"),file=input?.files?.[0],status=$("#caosUploadStatus");
+  if(!file){toast("Selecione o ZIP atualizado do CAOS.");input?.focus();return}
+  if(!/\.zip$/i.test(file.name)){toast("Escolha um arquivo .ZIP.");return}
+  if(file.size>25*1024*1024){toast("O ZIP ultrapassa o limite de 25 MB desta tela.");return}
+  caosUploadButton.disabled=true;caosUploadButton.textContent="Preparando instalação…";
+  try{
+   const deadline=Date.now()+75000;let signed=null;
+   while(Date.now()<deadline){
+    try{signed=await api("/admin/caos/upload-url",{method:"POST",body:JSON.stringify({path:"/"})});break}
+    catch(error){
+     if(error.code!=="hosting_installing")throw error;
+     if(status)status.textContent="A hospedagem está preparando o ambiente Python 3.11…";
+     await new Promise(resolve=>setTimeout(resolve,Math.max(1000,Number(error.retryAfterMs||1800))));
+    }
+   }
+   if(!signed?.url)throw new Error("A hospedagem demorou demais para preparar o upload. Tente novamente.");
+   const archiveName="caos-paineis-azuis.zip";
+   caosUploadButton.textContent="Enviando ZIP…";
+   await uploadSignedFiles(signed.url,signed.field||"files",[{file,name:archiveName}],(loaded,total)=>{
+    if(status)status.textContent="Enviando pacote CAOS: "+Math.round(loaded/total*100)+"%";
+   });
+   if(status)status.textContent="ZIP enviado. Extraindo arquivos e preparando o início do bot…";
+   caosUploadButton.textContent="Instalando e iniciando…";
+   const installed=await api("/admin/caos/install",{method:"POST",body:JSON.stringify({file:archiveName})});
+   if(status)status.textContent=installed.message||"Pacote instalado e inicialização solicitada.";
+   toast(installed.message||"CAOS instalado.");
+   await loadVerificationBotAdmin();
+  }catch(error){
+   toast(error.message||"Não consegui instalar o ZIP CAOS.");
+   if(status)status.textContent=error.message||"Falha no envio. O arquivo original do seu computador continua preservado.";
+  }finally{
+   if($("#caosUploadButton")){$("#caosUploadButton").disabled=false;$("#caosUploadButton").textContent="⇧ Instalar pacote CAOS"}
+  }
  };
 
  const add=()=>createBotModal();
