@@ -4157,6 +4157,65 @@ export async function onRequest(context) {
         }
       }
 
+      if (action === "files" && bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+        try {
+          const token = await providerToken(user.id, "keritcloud", env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+          const serverId = keritIdentifier(bot.provider_app_id);
+          const base = "/servers/" + encodeURIComponent(serverId) + "/files";
+          if (!subPath && request.method === "GET") {
+            const directory = safeVolumePath(url.searchParams.get("path") || "/");
+            const result = await keritRequest(token, base + "/list?directory=" + encodeURIComponent(directory));
+            const values = Array.isArray(result.data?.data) ? result.data.data : [];
+            const entries = values.map(item => {
+              const a = item?.attributes || {};
+              return { name: String(a.name || ""), type: a.is_file ? "file" : "directory", sizeBytes: Number(a.size || 0), modifiedAt: a.modified_at || null };
+            }).filter(item => item.name);
+            return reply({ provider: "keritcloud", path: directory, entries });
+          }
+          if (subPath === "download-url" && request.method === "GET") {
+            const filePath = safeVolumePath(url.searchParams.get("path") || "/");
+            const result = await keritRequest(token, base + "/download?file=" + encodeURIComponent(filePath));
+            const downloadUrl = String(result.data?.attributes?.url || result.data?.url || "");
+            if (!downloadUrl.startsWith("https://")) return reply({ error: "Kerit Cloud não retornou link HTTPS para download." }, 502);
+            return reply({ provider: "keritcloud", url: downloadUrl, filename: filePath.split("/").pop() || "download.bin" });
+          }
+          if (subPath === "content" && request.method === "GET") {
+            const filePath = safeVolumePath(url.searchParams.get("path") || "/main.py");
+            if (/\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f|mp3|wav|ogg|m4a|flac|mp4|webm|mov|woff2?|ttf|otf|zip|pdf|db|sqlite)$/i.test(filePath)) return reply({ error: "Arquivo binário. Use Baixar." }, 415);
+            const result = await keritRequest(token, base + "/contents?file=" + encodeURIComponent(filePath));
+            return reply({ provider: "keritcloud", path: filePath, content: result.raw, totalLines: result.raw.split("\n").length });
+          }
+          if (subPath === "content" && request.method === "POST") {
+            const b = await body(request), filePath = safeVolumePath(b.path), content = String(b.content ?? "");
+            if (content.length > 450000) return reply({ error: "O arquivo é grande demais para o editor." }, 413);
+            const result = await keritRequest(token, base + "/write?file=" + encodeURIComponent(filePath), "POST", content, true);
+            return reply({ ok: true, provider: "keritcloud", status: result.status });
+          }
+          if (subPath === "delete" && request.method === "POST") {
+            const b = await body(request), filePath = safeVolumePath(b.path);
+            if (filePath === "/") return reply({ error: "A pasta raiz não pode ser removida." }, 400);
+            const root = filePath.split("/").slice(0, -1).join("/") || "/";
+            const name = filePath.split("/").pop();
+            const result = await keritRequest(token, base + "/delete", "POST", { root, files: [name] });
+            return reply(result.data || { ok: true });
+          }
+          if (subPath === "compress" && request.method === "POST") {
+            const b = await body(request), root = safeVolumePath(b.root || "/");
+            const items = Array.isArray(b.files) ? b.files.map(item => String(item || "").replace(/^\/+/, "")) : [];
+            if (!items.length || items.length > 60 || items.some(item => !item || item.split("/").some(part => part === ".."))) {
+              return reply({ error: "Selecione de 1 a 60 arquivos ou pastas válidos para exportar." }, 400);
+            }
+            const result = await keritRequest(token, base + "/compress", "POST", { root, files: items });
+            const archive = String(result.data?.attributes?.name || result.data?.name || "");
+            if (!archive) return reply({ error: "Kerit Cloud não retornou o nome do ZIP criado." }, 502);
+            return reply({ provider: "keritcloud", archive, filesCount: items.length });
+          }
+        } catch (error) {
+          return reply({ error: error.message || "Falha ao acessar os arquivos do Kerit Cloud." }, 502);
+        }
+      }
+
       if (action === "files" && !subPath && request.method === "GET" && bot.hosting_provider === "aclclouds" && bot.provider_app_id) {
         try {
           const token = await providerToken(user.id, "aclclouds", env);
