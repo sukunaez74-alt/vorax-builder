@@ -1208,6 +1208,38 @@ async function cogitConfig(userId, env) {
   try { const value = await decryptSecret(row.encrypted_token, env); const config = JSON.parse(value || "{}"); return config?.token ? { token: String(config.token) } : null; }
   catch { return null; }
 }
+
+async function waiflyRequest(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
+  return pterodactylRequest("waifly", token, path, method, payload, rawBody, form);
+}
+async function xsystemsRequest(token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
+  return pterodactylRequest("xsystems", token, path, method, payload, rawBody, form);
+}
+async function pterodactylRequest(provider, token, path = "", method = "GET", payload = null, rawBody = false, form = null) {
+  const panels = { waifly: "https://panel.waifly.com", xsystems: "https://panel.xsystemshosting.com" };
+  const labels = { waifly: "Waifly", xsystems: "X Systems Hosting" };
+  const base = panels[provider];
+  if (!base) throw new Error("Provedor Pterodactyl não reconhecido.");
+  const suffix = path ? (path.startsWith("?") ? path : (path.startsWith("/") ? path : "/" + path)) : "";
+  const headers = { Authorization: "Bearer " + token, Accept: "application/vnd.pterodactyl.v1+json, application/json" };
+  if (payload !== null && !rawBody && !form) headers["Content-Type"] = "application/json";
+  if (rawBody) headers["Content-Type"] = "text/plain";
+  const response = await fetch(base + "/api/client" + suffix, {
+    method, headers,
+    body: form || (payload === null ? undefined : (rawBody ? String(payload) : JSON.stringify(payload))),
+    signal: AbortSignal.timeout(60000)
+  });
+  const raw = await response.text();
+  let data = {};
+  if (raw) { try { data = JSON.parse(raw); } catch { data = { text: raw }; } }
+  if (!response.ok) {
+    const reason = externalErrorText(data?.errors?.[0]?.detail || data?.message || data?.error || raw) || ("HTTP " + response.status);
+    const error = new Error((labels[provider] || provider) + " · " + method + " " + suffix + " · HTTP " + response.status + ": " + reason);
+    error.status = response.status; throw error;
+  }
+  return { data, raw, status: response.status };
+}
+
 async function keritConfig(userId, env) {
   const row = await env.DB.prepare("SELECT encrypted_token FROM provider_connections WHERE user_id=? AND provider='keritcloud'").bind(userId).first();
   if (!row?.encrypted_token) return null;
@@ -1315,6 +1347,108 @@ async function keritDeployZip(apiKey, serverIdValue, archiveBytes, archiveName, 
       (tokenConfigured ? "O token foi guardado na variável privada do servidor." : (discordToken ? "O token permanece no arquivo .env privado do servidor; a chave não foi exposta a outros membros." : "Configure o token do Discord nas variáveis de ambiente do servidor."))
   };
 }
+async function pterodactylDeployZip(apiKey, serverIdValue, archiveBytes, archiveName, bot, requestedRuntime, userId, env, providerId, providerName, requestFn) {
+  const serverId = keritIdentifier(serverIdValue);
+  const prepared = await prepareDiscloudProject(archiveBytes, bot, requestedRuntime, env);
+  const zip = await JSZip.loadAsync(prepared.bytes, { checkCRC32: false });
+  const runtime = prepared.runtime;
+  const startupResult = await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/startup");
+  const variables = Array.isArray(startupResult.data?.data) ? startupResult.data.data : [];
+  const envFile = zip.file(".env");
+  let envText = envFile ? await envFile.async("string") : "";
+  let tokenConfigured = false;
+  let tokenKey = null;
+  const discordToken = bot.discord_token_enc ? await decryptSecret(bot.discord_token_enc, env) : null;
+  const preferred = ["DISCORD_TOKEN", "BOT_TOKEN", "TOKEN"];
+  const tokenVariable = variables.find(item => item?.attributes?.is_editable && preferred.includes(String(item.attributes.env_variable || "").toUpperCase()));
+  if (discordToken && tokenVariable?.attributes?.env_variable) {
+    tokenKey = String(tokenVariable.attributes.env_variable);
+    await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/startup/variable", "PUT", { key: tokenKey, value: discordToken });
+    tokenConfigured = true;
+    envText = envText.split(/\r?\n/).filter(line => !/^\s*(?:DISCORD_TOKEN|BOT_TOKEN|TOKEN)\s*=/.test(line)).join("\n");
+    if (envText.trim()) zip.file(".env", envText.replace(/\n*$/, "\n"));
+    else zip.remove(".env");
+  }
+
+  if (runtime === "nodejs") {
+    const pkgFile = zip.file("package.json");
+    let packageJson = {};
+    if (pkgFile) {
+      try { packageJson = JSON.parse(await pkgFile.async("string")); }
+      catch { throw new Error("O package.json deste bot não é um JSON válido."); }
+    }
+    packageJson.name = String(packageJson.name || String(bot.name || "discord-bot").toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 48));
+    packageJson.scripts = packageJson.scripts && typeof packageJson.scripts === "object" ? packageJson.scripts : {};
+    if (!String(packageJson.scripts.start || "").trim()) packageJson.scripts.start = "node blackzone_launcher.cjs";
+    zip.file("package.json", JSON.stringify(packageJson, null, 2) + "\n");
+  } else if (runtime === "python") {
+    let pythonEntry = prepared.entryFile;
+    if (pythonEntry === "main.py") {
+      const originalMain = zip.file("main.py");
+      if (originalMain) {
+        zip.file("_blackzone_original_main.py", await originalMain.async("uint8array"));
+        pythonEntry = "_blackzone_original_main.py";
+      }
+    }
+    zip.file("main.py", [
+      "from pathlib import Path",
+      "import os",
+      "from runpy import run_path",
+      "env_file = Path('.env')",
+      "if env_file.exists():",
+      "    for raw in env_file.read_text(encoding='utf-8').splitlines():",
+      "        line = raw.strip()",
+      "        if not line or line.startswith('#') or '=' not in line:",
+      "            continue",
+      "        key, value = line.split('=', 1)",
+      "        key, value = key.strip(), value.strip()",
+      "        if len(value) >= 2 and value[0] == value[-1] and value[0] in (chr(34), chr(39)):",
+      "            value = value[1:-1]",
+      "        if key:",
+      "            os.environ[key] = value",
+      "run_path(" + JSON.stringify(pythonEntry) + ", run_name='__main__')",
+      ""
+    ].join("\n"));
+  }
+
+  const bytes = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 } });
+  if (!bytes.byteLength || bytes.byteLength > 25 * 1024 * 1024) throw new Error("O ZIP preparado ultrapassa 25 MB, limite de segurança do Estúdio para ' + providerName + '.");
+  const uploadName = String(archiveName || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").replace(/\.zip$/i, "") + "-black-zone.zip";
+  const uploadInfo = await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/files/upload");
+  const signedUrl = String(uploadInfo.data?.attributes?.url || uploadInfo.data?.url || "");
+  if (!signedUrl.startsWith("https://")) throw new Error("' + providerName + ' não retornou uma URL HTTPS de upload.");
+  const target = new URL(signedUrl);
+  target.searchParams.set("directory", "/");
+  const form = new FormData();
+  form.append("files", new Blob([bytes], { type: "application/zip" }), uploadName);
+  const uploaded = await fetch(target.href, { method: "POST", body: form, signal: AbortSignal.timeout(90000) });
+  if (!uploaded.ok) throw new Error("O envio do ZIP à ' + providerName + ' falhou: HTTP " + uploaded.status + ".");
+  await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/files/decompress", "POST", { root: "/", file: uploadName });
+  try {
+    await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/files/delete", "POST", { root: "/", files: [uploadName] });
+  } catch {}
+  const resourceResult = await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/resources");
+  const stateBefore = String(resourceResult.data?.attributes?.current_state || "").toLowerCase();
+  const signal = stateBefore === "running" ? "restart" : "start";
+  await requestFn(apiKey, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
+  const customProject = {
+    ...prepared.customProject,
+    runtime,
+    provider: providerId,
+    providerName,
+    deployedAt: Date.now(),
+    tokenConfigured,
+    tokenStoredInEnvFile: !!discordToken && !tokenConfigured
+  };
+  await env.DB.prepare("UPDATE bots SET hosting_provider=?,provider_app_id=?,hosting_deployment_id=NULL,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?")
+    .bind(providerId, serverId, runtime, JSON.stringify(customProject), Date.now(), bot.id, userId).run();
+  return {
+    ok: true, provider: providerId, providerAppId: serverId, runtime, customProject,
+    message: "ZIP enviado, extraído e comando de " + (signal === "restart" ? "reinício" : "início") + " solicitado à ' + providerName + '. " +
+      (tokenConfigured ? "O token foi guardado na variável privada do servidor." : (discordToken ? "O token permanece no arquivo .env privado do servidor; a chave não foi exposta a outros membros." : "Configure o token do Discord nas variáveis de ambiente do servidor."))
+  };
+}
+
 
 async function aclCloudsRequest(token, path = "", method = "GET", payload = null, form = null, raw = false) {
   const suffix = path ? (path.startsWith("?") ? path : (path.startsWith("/") ? path : "/" + path)) : "";
@@ -2946,6 +3080,84 @@ export async function onRequest(context) {
       } catch (error) { return reply({ error: error.message || "Não consegui vincular esse servidor Cogithost." }, 502); }
     }
 
+
+    const pteroProviderRoute = path.match(/^\/hosting\/(waifly|xsystems)\/(connect|disconnect|servers|attach)$/);
+    if (pteroProviderRoute) {
+      const providerId = pteroProviderRoute[1];
+      const routeAction = pteroProviderRoute[2];
+      const config = providerId === "waifly"
+        ? { name: "Waifly", plan: "Free · 300 MB RAM · 1 GB · 1 servidor", request: waiflyRequest }
+        : { name: "X Systems Hosting", plan: "1 servidor Free · 4 GB RAM · extras por créditos", request: xsystemsRequest };
+      if (routeAction === "connect" && request.method === "POST") {
+        const b = await body(request), token = String(b.apiToken || "").trim();
+        if (token.length < 20 || token.length > 512 || /\s/.test(token)) return reply({ error: "Informe uma Client API Key válida de " + config.name + "." }, 400);
+        try {
+          const result = await config.request(token, "");
+          const servers = Array.isArray(result.data?.data) ? result.data.data : [];
+          const encrypted = await encryptSecret(token, env);
+          await env.DB.prepare("INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at")
+            .bind(user.id, providerId, encrypted, config.name, config.plan, Date.now()).run();
+          return reply({ ok: true, connected: true, provider: providerId, serversCount: servers.length, message: "Client API Key de " + config.name + " validada e salva com criptografia." });
+        } catch (error) { return reply({ error: error.message || "Não consegui validar a Client API Key de " + config.name + "." }, 401); }
+      }
+      if (routeAction === "disconnect" && request.method === "POST") {
+        const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider=? AND provider_app_id IS NOT NULL LIMIT 1").bind(user.id, providerId).first();
+        if (linked) return reply({ error: "Há bots vinculados à " + config.name + ". Desvincule os projetos antes de desconectar." }, 409);
+        await env.DB.prepare("DELETE FROM provider_connections WHERE user_id=? AND provider=?").bind(user.id, providerId).run();
+        return reply({ ok: true, connected: false });
+      }
+      if (routeAction === "servers" && request.method === "GET") {
+        try {
+          const token = await providerToken(user.id, providerId, env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Conecte a " + config.name + " primeiro." }, 409);
+          const result = await config.request(token, "");
+          const servers = (Array.isArray(result.data?.data) ? result.data.data : []).map(item => {
+            const a = item?.attributes || {};
+            return { id: String(a.identifier || ""), uuid: String(a.uuid || ""), name: String(a.name || "Servidor"), memoryMb: Number(a.limits?.memory || 0), diskMb: Number(a.limits?.disk || 0), suspended: !!a.is_suspended, installing: !!a.is_installing };
+          }).filter(item => item.id);
+          return reply({ connected: true, servers });
+        } catch (error) { return reply({ error: error.message || "Não consegui listar servidores de " + config.name + "." }, 502); }
+      }
+      if (routeAction === "attach" && request.method === "POST") {
+        const b = await body(request), botId = String(b.botId || "");
+        if (!/^[A-Za-z0-9_-]{1,80}$/.test(botId)) return reply({ error: "Selecione um projeto válido do Estúdio." }, 400);
+        const bot = await getOwnedBot(botId, user.id, env);
+        if (!bot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
+        if (bot.hosting_deployment_id || bot.provider_app_id) return reply({ error: "Este projeto já está vinculado a uma hospedagem. Crie um projeto vazio no Estúdio para não perder a referência atual." }, 409);
+        try {
+          const token = await providerToken(user.id, providerId, env);
+          if (!token) return reply({ code: "provider_not_connected", error: "Conecte a " + config.name + " em Configurações." }, 409);
+          const serverId = keritIdentifier(b.serverId);
+          const linked = await env.DB.prepare("SELECT id FROM bots WHERE user_id=? AND hosting_provider=? AND provider_app_id=? LIMIT 1").bind(user.id, providerId, serverId).first();
+          if (linked) return reply({ error: "Este servidor já está vinculado a outro projeto do Estúdio." }, 409);
+          const details = await config.request(token, "/servers/" + encodeURIComponent(serverId));
+          const a = details.data?.attributes || {};
+          if (String(a.identifier || "") !== serverId) return reply({ error: config.name + " não confirmou o identificador deste servidor." }, 502);
+          const resourcesResult = await config.request(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+          const resource = resourcesResult.data?.attributes || {};
+          const current = String(resource.current_state || "").toLowerCase();
+          const state = resource.is_suspended ? "stopped" : (current === "running" ? "running" : (current === "starting" ? "starting" : "stopped"));
+          let tokenConfigured = false;
+          if (bot.discord_token_enc) {
+            try {
+              const discordToken = await decryptSecret(bot.discord_token_enc, env);
+              const startup = await config.request(token, "/servers/" + encodeURIComponent(serverId) + "/startup");
+              const variables = Array.isArray(startup.data?.data) ? startup.data.data : [];
+              const variable = variables.find(item => item?.attributes?.is_editable && ["DISCORD_TOKEN","BOT_TOKEN","TOKEN"].includes(String(item.attributes.env_variable || "").toUpperCase()));
+              if (discordToken && variable?.attributes?.env_variable) {
+                await config.request(token, "/servers/" + encodeURIComponent(serverId) + "/startup/variable", "PUT", { key: variable.attributes.env_variable, value: discordToken });
+                tokenConfigured = true;
+              }
+            } catch {}
+          }
+          const customProject = { packageName: bot.name, rootPath: "/", runtime: bot.runtime || "python", provider: providerId, providerName: config.name, linkedAt: Date.now() };
+          await env.DB.prepare("UPDATE bots SET hosting_provider=?,provider_app_id=?,hosting_deployment_id=NULL,project_type='custom',custom_project=?::jsonb,state=?,updated_at=? WHERE id=? AND user_id=?")
+            .bind(providerId, serverId, JSON.stringify(customProject), state, Date.now(), botId, user.id).run();
+          return reply({ ok: true, provider: providerId, providerAppId: serverId, serverName: String(a.name || "Servidor"), state, message: "Servidor " + config.name + " vinculado ao Estúdio." + (tokenConfigured ? " Token Discord salvo na variável privada de inicialização." : " Envie o ZIP e confira a variável de token no painel.") });
+        } catch (error) { return reply({ error: error.message || "Não consegui vincular esse servidor " + config.name + "." }, 502); }
+      }
+    }
+
     if (path === "/hosting/keritcloud/connect" && request.method === "POST") {
       const b = await body(request), token = String(b.apiToken || "").trim();
       if (token.length < 20 || token.length > 512 || /\\s/.test(token)) return reply({ error: "Informe uma Client API Key válida do Kerit Cloud." }, 400);
@@ -3142,13 +3354,15 @@ export async function onRequest(context) {
     }
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
-      const [discloudRow, squareRow, cubeRow, cogitRow, keritRow, aclRow, hostingRow] = await Promise.all([
+      const [discloudRow, squareRow, cubeRow, cogitRow, keritRow, aclRow, waiflyRow, xsystemsRow, hostingRow] = await Promise.all([
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cubecloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cogithost'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='keritcloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='aclclouds'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='waifly'").bind(user.id).first(),
+        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='xsystems'").bind(user.id).first(),
         env.DB.prepare("SELECT scope,expires_at FROM hosting_connections WHERE user_id=?").bind(user.id).first()
       ]);
       let discloud = { connected: false, provider: "discloud" };
@@ -3264,6 +3478,28 @@ export async function onRequest(context) {
           };
         } catch (error) { keritcloud = { connected: true, valid: false, provider: "keritcloud", error: error.message || "Falha ao validar Kerit Cloud." }; }
       }
+
+      let waifly = { connected: false, provider: "waifly" };
+      if (waiflyRow) {
+        try {
+          const token = await providerToken(user.id, "waifly", env);
+          const result = token ? await waiflyRequest(token, "") : null;
+          const servers = Array.isArray(result?.data?.data) ? result.data.data : [];
+          waifly = { connected: true, valid: !!token, provider: "waifly", accountLabel: waiflyRow.account_label || "Waifly", plan: "Free · 1 servidor", serversCount: servers.length, totalRamMb: servers.reduce((sum,item)=>sum+Number(item?.attributes?.limits?.memory||0),0), canCreate: false, canAttach: servers.length > 0, detail: servers.length ? "Servidor disponível para vincular · 300 MB RAM / 1 GB disco." : "Conta conectada. Crie o servidor Free no painel Waifly." };
+        } catch (error) { waifly = { connected: true, valid: false, provider: "waifly", error: error.message || "Falha de validação Waifly." }; }
+      }
+      let xsystems = { connected: false, provider: "xsystems" };
+      if (xsystemsRow) {
+        try {
+          const token = await providerToken(user.id, "xsystems", env);
+          const result = token ? await xsystemsRequest(token, "") : null;
+          const servers = Array.isArray(result?.data?.data) ? result.data.data : [];
+          const totalRamMb = servers.reduce((sum,item)=>sum+Number(item?.attributes?.limits?.memory||0),0);
+          const freeSizedServer = servers.some(item => Number(item?.attributes?.limits?.memory||0) >= 4000 && Number(item?.attributes?.limits?.disk||0) >= 10000);
+          xsystems = { connected: true, valid: !!token, provider: "xsystems", accountLabel: xsystemsRow.account_label || "X Systems Hosting", plan: "1 servidor Free · 4 GB RAM", serversCount: servers.length, totalRamMb, freeSizedServer, canCreate: false, canAttach: servers.length > 0, detail: freeSizedServer ? "Servidor Free de 4 GB encontrado. Servidores extras usam créditos ganhos gratuitamente (3 créditos/dia no servidor básico)." : (servers.length ? "Servidor(es) encontrado(s). Confira o custo diário e os créditos antes de iniciar servidores extras." : "Conta conectada. Crie o primeiro servidor Free de 4 GB no painel X Systems.") };
+        } catch (error) { xsystems = { connected: true, valid: false, provider: "xsystems", error: error.message || "Falha de validação X Systems." }; }
+      }
+
       let aclclouds = { connected: false, provider: "aclclouds" };
       if (aclRow) {
         try {
@@ -3289,6 +3525,8 @@ export async function onRequest(context) {
           { id: "bot-hosting", name: "Bot-Hosting", connected: !!hostingRow, canCreate: !!hostingRow && scopes.includes("deployments:write") && scopes.includes("credits:spend"), role: "principal" },
           { id: "cogithost", name: "Cogithost", role: "servidor-conectado", ...cogithost, canCreate: false },
           { id: "keritcloud", name: "Kerit Cloud", role: "servidor-conectado", ...keritcloud, canCreate: false, canAttach: !!keritcloud.valid && !!keritcloud.canAttach },
+          { id: "waifly", name: "Waifly", role: "servidor-conectado", ...waifly, canCreate: false, canAttach: !!waifly.valid && !!waifly.canAttach },
+          { id: "xsystems", name: "X Systems Hosting", role: "servidor-conectado", ...xsystems, canCreate: false, canAttach: !!xsystems.valid && !!xsystems.canAttach },
           { id: "aclclouds", name: "ACLClouds", role: "servidor-conectado", ...aclclouds, canCreate: false, canAttach: !!aclclouds.valid && !!aclclouds.canAttach },
           { id: "cubecloud", name: "Cube Hosting", role: "reserva", ...cube, canCreate: !!cube.valid && !!cube.canCreate },
           { id: "squarecloud", name: "Square Cloud", role: "paga-fora-do-pool", ...square, canCreate: false },
@@ -3558,14 +3796,16 @@ export async function onRequest(context) {
       if (!action && request.method === "DELETE") {
         let deploymentDeleted = false;
         let externalServerRetained = false;
-        if (bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+        if (["keritcloud","waifly","xsystems"].includes(bot.hosting_provider) && bot.provider_app_id) {
           try {
-            const token = await providerToken(user.id, "keritcloud", env);
-            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud antes de remover este projeto. O Estúdio precisa parar o servidor para não deixá-lo rodando sem controle." }, 409);
-            await keritRequest(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/power", "POST", { signal: "stop" });
+            const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+            const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : xsystemsRequest);
+            const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : "X Systems Hosting");
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " antes de remover este projeto para que o Estúdio consiga parar o servidor." }, 409);
+            await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/power", "POST", { signal: "stop" });
             externalServerRetained = true;
           } catch (error) {
-            return reply({ error: "Não consegui parar o servidor Kerit Cloud. O projeto continua salvo no Estúdio. " + (error.message || "") }, 502);
+            return reply({ error: "Não consegui parar o servidor externo. O projeto continua salvo no Estúdio. " + (error.message || "") }, 502);
           }
         }
         if (bot.hosting_provider === "discloud" && bot.provider_app_id) {
@@ -3679,15 +3919,16 @@ export async function onRequest(context) {
             const current = String(runtimeInfo.current_state || "").toLowerCase();
             state = current === "running" ? "running" : (current === "starting" ? "starting" : "stopped");
           } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar Cogithost." }; }
-        } else if (bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+        } else if (["keritcloud","waifly","xsystems"].includes(bot.hosting_provider) && bot.provider_app_id) {
           try {
-            const token = await providerToken(user.id, "keritcloud", env);
-            if (!token) throw new Error("Conta Kerit Cloud desconectada.");
-            const result = await keritRequest(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/resources");
+            const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+            const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : xsystemsRequest);
+            if (!token) throw new Error("Conta de hospedagem desconectada.");
+            const result = await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/resources");
             runtimeInfo = result.data?.attributes || result.data;
             const current = String(runtimeInfo.current_state || "").toLowerCase();
-            state = current === "running" ? "running" : (current === "starting" ? "starting" : "stopped");
-          } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar Kerit Cloud." }; }
+            state = runtimeInfo.is_suspended ? "stopped" : (current === "running" ? "running" : (current === "starting" ? "starting" : "stopped"));
+          } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar hospedagem Pterodactyl." }; }
         } else if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
           try {
             const token = await providerToken(user.id, "cubecloud", env);
@@ -3824,20 +4065,22 @@ export async function onRequest(context) {
               hint: signal === "stop" ? "Servidor parado no Cogithost." : "Comando enviado. Confira o console do painel Cogithost para confirmar a inicialização." });
           } catch (error) { return reply({ ok: false, error: error.message || "Falha ao controlar o servidor Cogithost." }, 502); }
         }
-        if (bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+        if (["keritcloud","waifly","xsystems"].includes(bot.hosting_provider) && bot.provider_app_id) {
           try {
-            const token = await providerToken(user.id, "keritcloud", env);
-            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+            const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+            const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : xsystemsRequest);
+            const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : "X Systems Hosting");
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " nas Configurações." }, 409);
             const serverId = keritIdentifier(bot.provider_app_id);
-            await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
-            const resource = await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+            await requestFn(token, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
+            const resource = await requestFn(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
             const current = String(resource.data?.attributes?.current_state || "").toLowerCase();
             const state = signal === "stop" ? "stopped" : (current === "running" ? "running" : "starting");
             await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?").bind(state, Date.now(), id, user.id).run();
-            return reply({ ok: true, action: signal, state, provider: "keritcloud", providerAppId: serverId, discordOnline: false,
+            return reply({ ok: true, action: signal, state, provider: providerId, providerAppId: serverId, discordOnline: false,
               resources: resource.data?.attributes?.resources || null,
-              hint: signal === "stop" ? "Servidor parado no Kerit Cloud." : "Comando enviado. Confira o console Kerit Cloud para confirmar a inicialização." });
-          } catch (error) { return reply({ ok: false, error: error.message || "Falha ao controlar o servidor Kerit Cloud." }, 502); }
+              hint: signal === "stop" ? "Servidor parado em " + providerName + "." : "Comando enviado. Confira o console " + providerName + " para confirmar a inicialização." });
+          } catch (error) { return reply({ ok: false, error: error.message || "Falha ao controlar o servidor externo." }, 502); }
         }
         if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
           try {
@@ -4134,16 +4377,18 @@ export async function onRequest(context) {
           } });
         } catch (error) { return reply({ error: error.message || "Não consegui consultar o Cogithost." }, 502); }
       }
-      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+      if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && ["keritcloud","waifly","xsystems"].includes(bot.hosting_provider) && bot.provider_app_id) {
         try {
-          const token = await providerToken(user.id, "keritcloud", env);
-          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+          const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : xsystemsRequest);
+          const providerName = providerId === "keritcloud" ? "Kerit Cloud" : (providerId === "waifly" ? "Waifly" : "X Systems Hosting");
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " nas Configurações." }, 409);
           const serverId = keritIdentifier(bot.provider_app_id);
-          if (action === "logs") return reply({ provider: "keritcloud", lines: [], note: "O console ao vivo do Kerit usa WebSocket. Abra o console pelo painel Kerit Cloud." });
-          const result = await keritRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
+          if (action === "logs") return reply({ provider: "keritcloud", lines: [], note: "O console ao vivo do Kerit usa WebSocket. Abra o console pelo painel hospedagem Pterodactyl." });
+          const result = await requestFn(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
           const data = result.data?.attributes || {};
           if (action === "diagnose") return reply({ provider: "keritcloud", currentState: data.current_state || null, resources: data.resources || null });
-          return reply({ provider: "keritcloud", resources: {
+          return reply({ provider: providerId, resources: {
             currentState: data.current_state || null,
             cpu: data.resources?.cpu_absolute ?? null,
             memoryBytes: data.resources?.memory_bytes ?? null,
@@ -4152,7 +4397,7 @@ export async function onRequest(context) {
             networkTxBytes: data.resources?.network_tx_bytes ?? null,
             uptime: data.resources?.uptime ?? null
           } });
-        } catch (error) { return reply({ error: error.message || "Não consegui consultar o Kerit Cloud." }, 502); }
+        } catch (error) { return reply({ error: error.message || "Não consegui consultar o hospedagem Pterodactyl." }, 502); }
       }
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         try {
@@ -4214,47 +4459,48 @@ export async function onRequest(context) {
         }
       }
 
-      if (action === "files" && bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+      if (action === "files" && ["keritcloud","waifly","xsystems"].includes(bot.hosting_provider) && bot.provider_app_id) {
         try {
-          const token = await providerToken(user.id, "keritcloud", env);
-          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+          const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : xsystemsRequest);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o hospedagem nas Configurações." }, 409);
           const serverId = keritIdentifier(bot.provider_app_id);
           const base = "/servers/" + encodeURIComponent(serverId) + "/files";
           if (!subPath && request.method === "GET") {
             const directory = safeVolumePath(url.searchParams.get("path") || "/");
-            const result = await keritRequest(token, base + "/list?directory=" + encodeURIComponent(directory));
+            const result = await requestFn(token, base + "/list?directory=" + encodeURIComponent(directory));
             const values = Array.isArray(result.data?.data) ? result.data.data : [];
             const entries = values.map(item => {
               const a = item?.attributes || {};
               return { name: String(a.name || ""), type: a.is_file ? "file" : "directory", sizeBytes: Number(a.size || 0), modifiedAt: a.modified_at || null };
             }).filter(item => item.name);
-            return reply({ provider: "keritcloud", path: directory, entries });
+            return reply({ provider: providerId, path: directory, entries });
           }
           if (subPath === "download-url" && request.method === "GET") {
             const filePath = safeVolumePath(url.searchParams.get("path") || "/");
-            const result = await keritRequest(token, base + "/download?file=" + encodeURIComponent(filePath));
+            const result = await requestFn(token, base + "/download?file=" + encodeURIComponent(filePath));
             const downloadUrl = String(result.data?.attributes?.url || result.data?.url || "");
-            if (!downloadUrl.startsWith("https://")) return reply({ error: "Kerit Cloud não retornou link HTTPS para download." }, 502);
-            return reply({ provider: "keritcloud", url: downloadUrl, filename: filePath.split("/").pop() || "download.bin" });
+            if (!downloadUrl.startsWith("https://")) return reply({ error: "hospedagem não retornou link HTTPS para download." }, 502);
+            return reply({ provider: providerId, url: downloadUrl, filename: filePath.split("/").pop() || "download.bin" });
           }
           if (subPath === "content" && request.method === "GET") {
             const filePath = safeVolumePath(url.searchParams.get("path") || "/main.py");
             if (/\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f|mp3|wav|ogg|m4a|flac|mp4|webm|mov|woff2?|ttf|otf|zip|pdf|db|sqlite)$/i.test(filePath)) return reply({ error: "Arquivo binário. Use Baixar." }, 415);
-            const result = await keritRequest(token, base + "/contents?file=" + encodeURIComponent(filePath));
-            return reply({ provider: "keritcloud", path: filePath, content: result.raw, totalLines: result.raw.split("\n").length });
+            const result = await requestFn(token, base + "/contents?file=" + encodeURIComponent(filePath));
+            return reply({ provider: providerId, path: filePath, content: result.raw, totalLines: result.raw.split("\n").length });
           }
           if (subPath === "content" && request.method === "POST") {
             const b = await body(request), filePath = safeVolumePath(b.path), content = String(b.content ?? "");
             if (content.length > 450000) return reply({ error: "O arquivo é grande demais para o editor." }, 413);
-            const result = await keritRequest(token, base + "/write?file=" + encodeURIComponent(filePath), "POST", content, true);
-            return reply({ ok: true, provider: "keritcloud", status: result.status });
+            const result = await requestFn(token, base + "/write?file=" + encodeURIComponent(filePath), "POST", content, true);
+            return reply({ ok: true, provider: providerId, status: result.status });
           }
           if (subPath === "delete" && request.method === "POST") {
             const b = await body(request), filePath = safeVolumePath(b.path);
             if (filePath === "/") return reply({ error: "A pasta raiz não pode ser removida." }, 400);
             const root = filePath.split("/").slice(0, -1).join("/") || "/";
             const name = filePath.split("/").pop();
-            const result = await keritRequest(token, base + "/delete", "POST", { root, files: [name] });
+            const result = await requestFn(token, base + "/delete", "POST", { root, files: [name] });
             return reply(result.data || { ok: true });
           }
           if (subPath === "compress" && request.method === "POST") {
@@ -4263,13 +4509,13 @@ export async function onRequest(context) {
             if (!items.length || items.length > 60 || items.some(item => !item || item.split("/").some(part => part === ".."))) {
               return reply({ error: "Selecione de 1 a 60 arquivos ou pastas válidos para exportar." }, 400);
             }
-            const result = await keritRequest(token, base + "/compress", "POST", { root, files: items });
+            const result = await requestFn(token, base + "/compress", "POST", { root, files: items });
             const archive = String(result.data?.attributes?.name || result.data?.name || "");
-            if (!archive) return reply({ error: "Kerit Cloud não retornou o nome do ZIP criado." }, 502);
-            return reply({ provider: "keritcloud", archive, filesCount: items.length });
+            if (!archive) return reply({ error: "hospedagem não retornou o nome do ZIP criado." }, 502);
+            return reply({ provider: providerId, archive, filesCount: items.length });
           }
         } catch (error) {
-          return reply({ error: error.message || "Falha ao acessar os arquivos do Kerit Cloud." }, 502);
+          return reply({ error: error.message || "Falha ao acessar os arquivos do hospedagem." }, 502);
         }
       }
 
@@ -4624,8 +4870,8 @@ export async function onRequest(context) {
           const archiveName = String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
-          const isKeritCloudTarget = String(bot.hosting_provider || "").toLowerCase() === "keritcloud" && !!bot.provider_app_id;
-          const maxArchiveBytes = (isAclCloudsTarget || isKeritCloudTarget) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
+          const isPterodactylTarget = ["keritcloud","waifly","xsystems"].includes(String(bot.hosting_provider || "").toLowerCase()) && !!bot.provider_app_id;
+          const maxArchiveBytes = (isAclCloudsTarget || isPterodactylTarget) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
           const uploadId = String(b.uploadId || "");
           if (uploadId) {
@@ -4673,14 +4919,19 @@ export async function onRequest(context) {
 
           // Preserve projetos existentes no provedor atual. Para novos projetos,
           // use somente provedores gratuitos autorizados e com vaga real.
-          if (currentProvider === "keritcloud" && currentAppId) {
-            const token = await providerToken(user.id, "keritcloud", env);
-            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+          if (["keritcloud","waifly","xsystems"].includes(currentProvider) && currentAppId) {
+            const token = await providerToken(user.id, currentProvider, env);
+            const providerConfig = currentProvider === "keritcloud"
+              ? { name: "Kerit Cloud", request: keritRequest }
+              : (currentProvider === "waifly" ? { name: "Waifly", request: waiflyRequest } : { name: "X Systems Hosting", request: xsystemsRequest });
+            if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerConfig.name + " nas Configurações." }, 409);
             try {
-              const deployed = await keritDeployZip(token, currentAppId, archiveBytes, archiveName, bot, b.runtime, user.id, env);
+              const deployed = currentProvider === "keritcloud"
+                ? await keritDeployZip(token, currentAppId, archiveBytes, archiveName, bot, b.runtime, user.id, env)
+                : await pterodactylDeployZip(token, currentAppId, archiveBytes, archiveName, bot, b.runtime, user.id, env, currentProvider, providerConfig.name, providerConfig.request);
               return reply(deployed);
             } catch (error) {
-              return reply({ code: "kerit_upload_failed", error: error.message || "Falha ao publicar o bot no Kerit Cloud. Os arquivos anteriores foram preservados." }, 502);
+              return reply({ code: "pterodactyl_upload_failed", error: error.message || "Falha ao publicar o bot em " + providerConfig.name + ". Os arquivos anteriores foram preservados." }, 502);
             }
           }
           if (currentProvider === "aclclouds" && currentAppId) {
@@ -4980,18 +5231,19 @@ export async function onRequest(context) {
           return reply({ url: target.href, field: "files", path: directory, provider: "aclclouds" });
         } catch (error) { return reply({ error: error.message || "Falha ao preparar upload ACLClouds." }, 502); }
       }
-      if (action === "upload-url" && request.method === "POST" && bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+      if (action === "upload-url" && request.method === "POST" && ["keritcloud","waifly","xsystems"].includes(bot.hosting_provider) && bot.provider_app_id) {
         try {
-          const token = await providerToken(user.id, "keritcloud", env);
-          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
+          const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : xsystemsRequest);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte sua hospedagem nas Configurações." }, 409);
           const b = await body(request), directory = safeVolumePath(b.path || "/");
-          const result = await keritRequest(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/files/upload");
+          const result = await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/files/upload");
           const url = String(result.data?.attributes?.url || result.data?.url || "");
-          if (!url.startsWith("https://")) return reply({ error: "O Kerit Cloud não retornou URL de upload válida." }, 502);
+          if (!url.startsWith("https://")) return reply({ error: "O provedor não retornou URL de upload válida." }, 502);
           const target = new URL(url);
           target.searchParams.set("directory", directory);
-          return reply({ url: target.href, field: "files", path: directory, provider: "keritcloud" });
-        } catch (error) { return reply({ error: error.message || "Falha ao preparar upload Kerit Cloud." }, 502); }
+          return reply({ url: target.href, field: "files", path: directory, provider: providerId });
+        } catch (error) { return reply({ error: error.message || "Falha ao preparar upload Pterodactyl." }, 502); }
       }
       if (action === "upload-url" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         try {
@@ -5094,15 +5346,16 @@ export async function onRequest(context) {
           return reply({ ...(result.data || {}), provider: "aclclouds" });
         } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP na ACLClouds." }, 502); }
       }
-      if (action === "extract" && request.method === "POST" && bot.hosting_provider === "keritcloud" && bot.provider_app_id) {
+      if (action === "extract" && request.method === "POST" && ["keritcloud","waifly","xsystems"].includes(bot.hosting_provider) && bot.provider_app_id) {
         const b = await body(request), file = String(b.file || "");
         if (!/^[A-Za-z0-9._-]{1,140}\\.zip$/i.test(file) || file.includes("..")) return reply({ error: "Nome de ZIP inválido." }, 400);
         try {
-          const token = await providerToken(user.id, "keritcloud", env);
-          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte o Kerit Cloud nas Configurações." }, 409);
-          const result = await keritRequest(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/files/decompress", "POST", { root: safeVolumePath(b.path || "/"), file });
-          return reply({ provider: "keritcloud", status: result.status });
-        } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP Kerit Cloud." }, 502); }
+          const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+          const requestFn = providerId === "keritcloud" ? keritRequest : (providerId === "waifly" ? waiflyRequest : xsystemsRequest);
+          if (!token) return reply({ code: "provider_not_connected", error: "Reconecte sua hospedagem nas Configurações." }, 409);
+          const result = await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/files/decompress", "POST", { root: safeVolumePath(b.path || "/"), file });
+          return reply({ provider: providerId, status: result.status });
+        } catch (error) { return reply({ error: error.message || "Falha ao extrair ZIP Pterodactyl." }, 502); }
       }
       if (action === "extract" && request.method === "POST" && bot.hosting_provider === "cogithost" && bot.provider_app_id) {
         const b = await body(request), file = String(b.file || "");
