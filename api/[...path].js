@@ -2248,7 +2248,7 @@ export async function onRequest(context) {
           throw new Error("O Bot-Hosting recusou a atualização de requirements.txt: " + JSON.stringify(requirementsWrite.failed).slice(0, 900));
         }
         applied = await hostRequest(settings.owner_user_id, env, base + "/apply", "POST", {
-          restart: true, waitSeconds: 45
+          restart: true, waitSeconds: 0
         });
       }
       const [diagnosisResult, logsResult, deploymentResult, heartbeatResult, requirementsResult, runnerResult] = await Promise.allSettled([
