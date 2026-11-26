@@ -1107,6 +1107,27 @@ async function aclCloudsServices(token) {
   }
   return services;
 }
+async function aclCloudsSetDiscordToken(token, serverId, bot, env) {
+  if (!bot?.discord_token_enc) return false;
+  try {
+    const discordToken = await decryptSecret(bot.discord_token_enc, env);
+    if (!discordToken) return false;
+    const startup = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(serverId) + "/startup");
+    const variables = Array.isArray(startup.data?.data) ? startup.data.data : [];
+    const preferred = ["DISCORD_TOKEN", "BOT_TOKEN", "TOKEN"];
+    const variable = variables.find(item =>
+      item?.attributes?.is_editable &&
+      preferred.includes(String(item.attributes.env_variable || "").toUpperCase())
+    );
+    if (!variable?.attributes?.env_variable) return false;
+    await aclCloudsRequest(token, "/servers/" + encodeURIComponent(serverId) + "/startup/variable", "PUT", {
+      key: variable.attributes.env_variable, value: discordToken
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 function cogitIdentifier(value) {
   const id = String(value || "").trim();
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new Error("Identificador do servidor Cogithost inválido.");
@@ -2884,7 +2905,7 @@ export async function onRequest(context) {
           const totalChunks = Number(b.totalChunks);
           const chunkBase64 = String(b.chunkBase64 || "");
           if (!/^[A-Za-z0-9_-]{16,80}$/.test(uploadId)) return reply({ error: "Identificador de envio inválido." }, 400);
-          if (!Number.isInteger(index) || !Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > 24 || index < 0 || index >= totalChunks) {
+          if (!Number.isInteger(index) || !Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > 100 || index < 0 || index >= totalChunks) {
             return reply({ error: "Índice ou quantidade de partes inválida." }, 400);
           }
           if (!chunkBase64 || chunkBase64.length > 360000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(chunkBase64)) {
@@ -3857,6 +3878,8 @@ export async function onRequest(context) {
           const b = await body(request);
           const archiveName = String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
+          const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
+          const maxArchiveBytes = isAclCloudsTarget ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
           const uploadId = String(b.uploadId || "");
           if (uploadId) {
@@ -3867,7 +3890,7 @@ export async function onRequest(context) {
             const rows = Array.isArray(chunks) ? chunks : (Array.isArray(chunks?.results) ? chunks.results : []);
             if (!rows.length) return reply({ code: "upload_chunks_missing", error: "Não encontrei as partes deste ZIP. Selecione o arquivo e tente novamente." }, 409);
             const totalChunks = Number(rows[0].total_chunks || 0);
-            if (!Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > 24 || rows.length !== totalChunks) {
+            if (!Number.isInteger(totalChunks) || totalChunks < 1 || totalChunks > 100 || rows.length !== totalChunks) {
               return reply({ code: "upload_chunks_incomplete", error: "O envio do ZIP ficou incompleto (" + rows.length + "/" + totalChunks + " partes). Tente novamente." }, 409);
             }
             const decoded = [];
@@ -3878,7 +3901,7 @@ export async function onRequest(context) {
               }
               const part = decodeBase64Bytes(rows[i].chunk_base64);
               totalBytes += part.byteLength;
-              if (totalBytes > 5 * 1024 * 1024) return reply({ code: "fallback_zip_too_large", error: "O ZIP limpo passa do limite de 5 MB da rota alternativa. O arquivo original continua intacto." }, 413);
+              if (totalBytes > maxArchiveBytes) return reply({ code: "fallback_zip_too_large", error: "O ZIP limpo ultrapassa o limite gratuito desta hospedagem. O arquivo original continua intacto." }, 413);
               decoded.push(part);
             }
             archiveBytes = new Uint8Array(totalBytes);
@@ -3889,7 +3912,7 @@ export async function onRequest(context) {
           } else {
             archiveBytes = decodeBase64Bytes(b.archiveBase64);
           }
-          if (archiveBytes.byteLength > 5 * 1024 * 1024) {
+          if (archiveBytes.byteLength > maxArchiveBytes) {
             return reply({
               code: "fallback_zip_too_large",
               error: "O ZIP limpo passa do limite de 5 MB da rota alternativa. O arquivo original continua intacto."
@@ -3909,12 +3932,36 @@ export async function onRequest(context) {
             if (!aclToken) return reply({ code: "provider_not_connected", error: "Reconecte ACLClouds nas Configurações para atualizar este bot." }, 409);
             const prepared = await prepareDiscloudProject(archiveBytes, bot, b.runtime, env);
             const serverId = aclCloudsIdentifier(currentAppId);
+            let archiveToUpload = prepared.bytes;
+            const tokenConfigured = await aclCloudsSetDiscordToken(aclToken, serverId, bot, env);
+            if (tokenConfigured) {
+              try {
+                const projectZip = await JSZip.loadAsync(archiveToUpload, { checkCRC32: false });
+                const envFile = projectZip.file(".env");
+                if (envFile) {
+                  const envText = await envFile.async("string");
+                  const safeEnv = envText.split(/\r?\n/).filter(line =>
+                    !/^\s*(?:DISCORD_TOKEN|BOT_TOKEN|TOKEN)\s*=/.test(line)
+                  ).join("\n") + "\n";
+                  projectZip.file(".env", safeEnv);
+                  archiveToUpload = await projectZip.generateAsync({
+                    type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 6 }
+                  });
+                }
+              } catch {}
+            }
+            if (archiveToUpload.byteLength > maxArchiveBytes) {
+              throw new Error("O ZIP preparado ultrapassa o limite gratuito desta hospedagem. O arquivo original continua intacto.");
+            }
             const uploadResponse = await aclCloudsRequest(aclToken, "/servers/" + encodeURIComponent(serverId) + "/files/upload");
+            const uploadInfo = aclCloudsAttributes(uploadResponse.data);
+            const uploadUrl = String(uploadInfo.url || uploadResponse.data?.url || "");
+            if (!/^https:\/\//i.test(uploadUrl)) throw new Error("A ACLClouds não retornou uma URL segura para enviar o ZIP.");
             const target = new URL(uploadUrl);
             target.searchParams.set("directory", "/");
             const form = new FormData();
             const archiveFile = archiveName.replace(/\.zip$/i, "-black-zone.zip");
-            form.append("files", new Blob([prepared.bytes], { type: "application/zip" }), archiveFile);
+            form.append("files", new Blob([archiveToUpload], { type: "application/zip" }), archiveFile);
             const uploaded = await fetch(target.href, { method: "POST", body: form, signal: AbortSignal.timeout(60000) });
             if (!uploaded.ok) throw new Error("O envio do ZIP à ACLClouds falhou: HTTP " + uploaded.status);
             const deployResult = await aclCloudsRequest(aclToken, "/servers/" + encodeURIComponent(serverId) + "/files/deploy", "POST", {
@@ -3926,8 +3973,11 @@ export async function onRequest(context) {
             await env.DB.prepare("UPDATE bots SET hosting_deployment_id=NULL,hosting_provider='aclclouds',provider_app_id=?,runtime=?,project_type='custom',custom_project=?::jsonb,state='starting',updated_at=? WHERE id=? AND user_id=?")
               .bind(serverId, prepared.runtime, JSON.stringify(prepared.customProject), Date.now(), id, user.id).run();
             return reply({ ok: true, provider: "aclclouds", providerAppId: serverId, runtime: prepared.runtime,
-              customProject: prepared.customProject, deployment: deployResult.data || null,
-              message: "ZIP enviado, implantado e comando de início/reinício enviado à ACLClouds. Confira o comando Startup e a variável DISCORD_TOKEN no painel." });
+              customProject: prepared.customProject, deployment: deployResult.data || null, tokenConfigured,
+              message: "ZIP enviado, implantado e comando de início/reinício enviado à ACLClouds. " +
+                (tokenConfigured
+                  ? "O token Discord foi gravado na variável privada de inicialização."
+                  : "O token foi mantido no arquivo .env privado do projeto; confirme no painel o arquivo/comando de inicialização se o servidor não iniciar sozinho.") });
           }
 
           if (currentProvider === "cubecloud" && currentAppId) {
