@@ -2368,6 +2368,17 @@ export async function onRequest(context) {
           return reply({ error: "O ZIP excede o limite de 4 MB desta transferência. Comprima os arquivos sem incluir caches ou ambientes virtuais." }, 413);
         }
         const deploymentId = await ensureAdminCaosDeployment(user.id, env, settings);
+        // A vaga foi autorizada para substituir o ADM antigo; pare-o antes de trocar os arquivos.
+        const diagnosis = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=2");
+        let currentState = String(diagnosis.state || diagnosis.deployment?.state || "").toLowerCase();
+        if (!currentState) {
+          const current = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId));
+          currentState = String(current.state || current.deployment?.state || "").toLowerCase();
+        }
+        if (!currentState) throw new Error("Não consegui confirmar o estado da vaga antiga do ADM. Nenhum arquivo foi enviado.");
+        if (!["offline","stopped","terminated"].includes(currentState)) {
+          await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/power", "POST", { action: "stop", waitSeconds: 20 });
+        }
         await waitForHostReinstall(user.id, env, deploymentId);
         const signed = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/upload-url", "POST", { path: "/" });
         if (!signed?.url) throw new Error("A hospedagem não retornou o endereço de envio.");
