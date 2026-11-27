@@ -2919,7 +2919,9 @@ export async function onRequest(context) {
     if (path === "/minecraft/status" && request.method === "GET") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;
       const mc=await minecraftSettings(env);
-      let servers=await env.DB.prepare("SELECT id,name,version,state,allocation_ip,allocation_port,panel_server_id,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
+      const configuredLoaderConfigs=mc?.loader_configs||{};
+      const supportedLoaders=Object.entries(configuredLoaderConfigs).filter(([key,value])=>MODRINTH_LOADERS.has(key)&&Number(value?.eggId)>0).map(([key])=>key);
+      let servers=await env.DB.prepare("SELECT id,name,version,server_type,mod_loader,installed_mods,state,allocation_ip,allocation_port,panel_server_id,panel_server_identifier,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
       let rows=Array.isArray(servers)?servers:(servers?.results||[]);
       if(minecraftConfigReady(mc)){
         for(const item of rows){
@@ -2942,10 +2944,84 @@ export async function onRequest(context) {
             // The creation record remains visible even while the remote panel is temporarily unavailable.
           }
         }
-        servers=await env.DB.prepare("SELECT id,name,version,state,allocation_ip,allocation_port,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
+        servers=await env.DB.prepare("SELECT id,name,version,server_type,mod_loader,installed_mods,state,allocation_ip,allocation_port,panel_server_id,panel_server_identifier,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
         rows=Array.isArray(servers)?servers:(servers?.results||[]);
       }
-      return reply({configured:minecraftConfigReady(mc),emailVerified:!!auth.user.email_verified_at,email:emailMask(auth.user.email),servers:rows});
+      return reply({configured:minecraftConfigReady(mc),modsConfigured:!!mc?.client_api_key_enc,supportedLoaders,emailVerified:!!auth.user.email_verified_at,email:emailMask(auth.user.email),servers:rows});
+    }
+    if (path === "/minecraft/versions" && request.method === "GET") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      try{
+        const versions=await modrinthRequest("/tag/game_version");
+        const releases=(Array.isArray(versions)?versions:[]).filter(item=>item.version_type==="release").slice(0,40).map(item=>item.version);
+        return reply({versions:releases,source:"Modrinth"});
+      }catch(error){return reply({error:error.message||"Não consegui consultar as versões do Minecraft."},502);}
+    }
+    if (path === "/minecraft/mods/search" && request.method === "GET") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      const url=new URL(request.url),query=String(url.searchParams.get("query")||"").trim().slice(0,100);
+      const version=String(url.searchParams.get("version")||""),loader=String(url.searchParams.get("loader")||"").toLowerCase();
+      const offset=Math.max(0,Math.min(5000,Number(url.searchParams.get("offset")||0)));
+      if(!/^\d{1,2}(?:\.\d{1,2}){0,2}(?:[-.][A-Za-z0-9.-]+)?$/.test(version)||!MODRINTH_LOADERS.has(loader))
+        return reply({error:"Escolha uma versão e um mod loader compatíveis."},400);
+      const environments=["client_and_server","server_only","server_only_client_optional","dedicated_server_only","client_or_server","client_or_server_prefers_both"];
+      const facets=[["project_type:mod"],["versions:"+version],["categories:"+loader],environments.map(value=>"environment:"+value)];
+      const params=new URLSearchParams({query,facets:JSON.stringify(facets),limit:"24",offset:String(offset),index:"downloads"});
+      try{
+        const result=await modrinthRequest("/search?"+params.toString());
+        const hits=(result.hits||[]).map(item=>({
+          projectId:item.project_id,slug:item.slug,title:item.title,author:item.author,
+          description:item.description,iconUrl:item.icon_url,downloads:item.downloads,
+          follows:item.follows,categories:item.display_categories||item.categories||[],
+          environment:item.environment||[],url:"https://modrinth.com/mod/"+encodeURIComponent(item.slug)
+        }));
+        return reply({hits,total:Number(result.total_hits||0),offset,limit:24,source:"Modrinth",version,loader});
+      }catch(error){return reply({error:error.message||"O catálogo de mods não respondeu."},502);}
+    }
+    if (path === "/minecraft/mods/install" && request.method === "POST") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      if(!auth.user.email_verified_at)return reply({code:"email_verification_required",error:"Confirme seu e-mail antes de instalar mods."},403);
+      const b=await body(request),serverId=String(b.serverId||"").trim();
+      const modIds=Array.isArray(b.modIds)?[...new Set(b.modIds.map(value=>String(value||"").trim()).filter(Boolean))]:[];
+      if(!serverId||!modIds.length||modIds.length>15||modIds.some(id=>!/^[A-Za-z0-9_-]{4,40}$/.test(id)))
+        return reply({error:"Selecione um servidor e até 15 mods por instalação."},400);
+      try{
+        const mc=await minecraftSettings(env);
+        if(!mc?.client_api_key_enc)return reply({code:"minecraft_client_api_not_configured",error:"O ADM ainda precisa configurar a Client API de arquivos do painel Minecraft."},503);
+        const server=await env.DB.prepare("SELECT id,name,version,server_type,mod_loader,installed_mods,state,panel_server_id,panel_server_identifier FROM minecraft_servers WHERE id=? AND user_id=?")
+          .bind(serverId,auth.user.id).first();
+        if(!server)return reply({error:"Servidor Minecraft não encontrado na sua conta."},404);
+        if(server.server_type!=="modded"||!MODRINTH_LOADERS.has(String(server.mod_loader||"")))return reply({error:"Este servidor não foi criado como servidor com mods."},409);
+        if(!["ready","running","stopped"].includes(String(server.state||"")))return reply({error:"Aguarde a instalação do servidor terminar antes de adicionar mods."},409);
+        const mcVersion=String(server.version||"");
+        if(!mcVersion||mcVersion==="latest")return reply({error:"Este servidor precisa usar uma versão específica do Minecraft para validar mods."},409);
+        let identifier=server.panel_server_identifier;
+        if(!identifier&&server.panel_server_id){
+          const remote=await minecraftPanelRequest(mc,env,"/servers/"+encodeURIComponent(server.panel_server_id));
+          const attrs=remote.attributes||remote.data?.attributes||remote.data||{};
+          identifier=attrs.identifier||attrs.uuid||"";
+          if(identifier)await env.DB.prepare("UPDATE minecraft_servers SET panel_server_identifier=? WHERE id=? AND user_id=?").bind(identifier,serverId,auth.user.id).run();
+        }
+        if(!identifier)return reply({error:"O painel Minecraft não informou o identificador do servidor para gerenciar arquivos."},502);
+        const installedRaw=typeof server.installed_mods==="string"?JSON.parse(server.installed_mods||"[]"):(server.installed_mods||[]);
+        const installed=Array.isArray(installedRaw)?installedRaw:[];
+        const existingVersions=new Set(installed.map(item=>String(item.versionId||"")));
+        const ctx={seen:new Set(),files:[]};
+        for(const projectId of modIds)await resolveMinecraftMod(projectId,mcVersion,String(server.mod_loader),ctx);
+        const pending=ctx.files.filter(file=>!existingVersions.has(String(file.versionId)));
+        if(!pending.length)return reply({ok:true,installed:0,message:"Todos os mods selecionados já aparecem como instalados neste servidor.",mods:installed});
+        const completed=[];
+        for(const file of pending){
+          await minecraftClientRequest(mc,env,"/servers/"+encodeURIComponent(identifier)+"/files/pull","POST",{
+            url:file.url,directory:"/mods",filename:file.filename,foreground:true
+          });
+          completed.push({...file,installedAt:Date.now()});
+        }
+        const next=[...installed.filter(item=>!completed.some(file=>file.projectId===item.projectId)),...completed];
+        await env.DB.prepare("UPDATE minecraft_servers SET installed_mods=?::jsonb,updated_at=? WHERE id=? AND user_id=?")
+          .bind(JSON.stringify(next),Date.now(),serverId,auth.user.id).run();
+        return reply({ok:true,installed:completed.length,mods:completed,message:completed.length+" arquivo(s) de mod enviados para a pasta /mods. Reinicie o servidor para carregar os mods."},202);
+      }catch(error){return reply({code:"minecraft_mod_install_failed",error:error.message||"Não foi possível instalar os mods no servidor."},502);}
     }
     if (path === "/minecraft/create" && request.method === "POST") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;
