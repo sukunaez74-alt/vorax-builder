@@ -340,3 +340,5 @@
  #app .mc-consent-card{padding:20px}
 }
 
+
+#app .mc-panel-link{display:flex;justify-content:flex-end;margin:14px 0}#app .mc-panel-link a{border-color:rgba(190,130,239,.4)}
