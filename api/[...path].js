@@ -3931,6 +3931,18 @@ export async function onRequest(context) {
         prepared = await prepareDiscordBotToken(rawToken, env);
         if (!prepared.ok) return reply({ error: prepared.error }, prepared.status);
       }
+      if (prepared) {
+        const claimed = await env.DB.prepare(
+          "SELECT id,user_id,name FROM bots WHERE discord_bot_id=? LIMIT 1"
+        ).bind(prepared.identity.botId).first();
+        if (claimed) {
+          return reply({ error: "Este bot Discord já está cadastrado no Estúdio. Cada Bot Token só pode pertencer a um projeto." }, 409);
+        }
+        const central = await verificationBotSettings(env);
+        if (central?.bot_id && String(central.bot_id) === String(prepared.identity.botId)) {
+          return reply({ error: "Este Bot Token pertence ao bot central do Estúdio e não pode ser usado em outro projeto." }, 409);
+        }
+      }
       if (!name) name = String(prepared?.identity?.botName || "Meu bot").trim().slice(0, 48) || "Meu bot";
       if (name.length < 2) return reply({ error: "O nome identificado do bot é inválido. Informe um nome com pelo menos 2 caracteres." }, 400);
 
