@@ -759,24 +759,88 @@ document.addEventListener("click",async e=>{
  }else if(action==="request-create"){
   const data=await api("/minecraft/status").catch(()=>null);
   if(!data?.emailVerified){await loadMinecraftStatus();return;}
-  const name=$("#minecraftName")?.value||"",version=$("#minecraftVersion")?.value||"latest";
+  const name=$("#minecraftName")?.value||"",version=$("#minecraftVersion")?.value||"1.21.11";
+  const serverType=$("#minecraftServerType")?.value||"vanilla",loader=serverType==="modded"?($("#minecraftLoader")?.value||""):"";
   if(name.trim().length<3){const target=$("#minecraftStatus");if(target)target.insertAdjacentHTML("beforeend",'<div class="notice error">Digite um nome com pelo menos 3 caracteres.</div>');return;}
-  const modal=$("#minecraftConsent");if(modal){modal.dataset.name=name;modal.dataset.version=version;modal.classList.remove("hidden");}
+  if(serverType==="modded"&&(!loader||version==="latest")){const target=$("#minecraftStatus");if(target)target.insertAdjacentHTML("beforeend",'<div class="notice error">Escolha um mod loader e uma versão específica para o servidor com mods.</div>');return;}
+  const modal=$("#minecraftConsent");if(modal){modal.dataset.name=name;modal.dataset.version=version;modal.dataset.serverType=serverType;modal.dataset.loader=loader;modal.classList.remove("hidden");}
  }else if(action==="cancel-consent"){
   $("#minecraftConsent")?.classList.add("hidden");
  }else if(action==="confirm-create"){
   const modal=$("#minecraftConsent"),note=$("#minecraftCreateNotice");if(!modal)return;
-  const name=modal.dataset.name||"",version=modal.dataset.version||"latest";
-  button.disabled=true;button.textContent="Criando sua conta e solicitando servidor…";
+  const name=modal.dataset.name||"",version=modal.dataset.version||"1.21.11";
+  const serverType=modal.dataset.serverType||"vanilla",loader=modal.dataset.loader||"";
+  button.disabled=true;button.textContent="Criando conta e servidor…";
   try{
-   const result=await api("/minecraft/create",{method:"POST",body:JSON.stringify({name,version,consent:true})});
+   const result=await api("/minecraft/create",{method:"POST",body:JSON.stringify({name,version,serverType,loader,consent:true})});
    modal.classList.add("hidden");
    await loadMinecraftStatus();
    const status=$("#minecraftStatus");
-   if(status)status.insertAdjacentHTML("afterbegin",'<div class="notice ok">Conta individual criada e servidor solicitado. A instalação começa automaticamente quando o painel terminar de preparar os arquivos. Use “Atualizar status” para acompanhar.</div>');
+   if(status)status.insertAdjacentHTML("afterbegin",'<div class="notice ok">'+(serverType==="modded"?"Conta e servidor com mods solicitados. Depois que a instalação terminar, abra Minecraft → Mods e modpacks para escolher os mods.":"Conta e servidor normal solicitados. Use “Atualizar servidores” para acompanhar.")+'</div>');
    toast(result.message||"Sua conta Minecraft foi criada e o servidor foi solicitado.");
   }catch(error){if(note){note.className="notice error";note.textContent=error.message||"Não foi possível criar o servidor.";} }
   finally{button.disabled=false;button.textContent="Continuar e criar conta";}
+ }
+});
+
+
+document.addEventListener("click",event=>{
+ const kindButton=event.target.closest("[data-mc-server-kind]");
+ if(kindButton){
+  const kind=kindButton.dataset.mcServerKind==="modded"?"modded":"vanilla";
+  const typeField=$("#minecraftServerType"),loaderField=$("#minecraftLoaderField"),help=$("#minecraftModdedHelp"),create=$("#minecraftStatus [data-minecraft-action='request-create']");
+  if(typeField)typeField.value=kind;
+  document.querySelectorAll("[data-mc-server-kind]").forEach(button=>button.classList.toggle("is-selected",button===kindButton));
+  if(loaderField)loaderField.classList.toggle("hidden",kind!=="modded");
+  if(help)help.classList.toggle("hidden",kind!=="modded");
+  if(create)create.textContent=kind==="modded"?"Criar servidor com mods":"Criar servidor normal";
+  return;
+ }
+ const createButton=event.target.closest("[data-mc-create-server]");
+ if(createButton){navigate("minecraft");return;}
+ const openMods=event.target.closest("[data-mc-open-mods]");
+ if(openMods){state.minecraftModServerId=openMods.dataset.mcOpenMods;navigate("minecraftMods");return;}
+ const more=event.target.closest("#minecraftModsMore");
+ if(more){loadMinecraftModResults(false);return;}
+ const modButton=event.target.closest("[data-mc-mod-action]");
+ if(modButton&&modButton.dataset.mcModAction==="toggle"){
+  const id=String(modButton.dataset.modId||""),item=(state.minecraftModResults||[]).find(value=>value.projectId===id);
+  if(!id||!item)return;
+  state.minecraftSelectedMods=state.minecraftSelectedMods||{};
+  if(state.minecraftSelectedMods[id])delete state.minecraftSelectedMods[id];else state.minecraftSelectedMods[id]={projectId:id,title:item.title};
+  renderMinecraftModResults();return;
+ }
+ const installButton=event.target.closest("#minecraftModsInstall");
+ if(installButton){
+  const ids=Object.keys(state.minecraftSelectedMods||{}),note=$("#minecraftModsNotice"),server=state.minecraftModServerId;
+  if(!ids.length||!server)return;
+  installButton.disabled=true;installButton.textContent="Instalando mods…";
+  if(note){note.className="notice";note.classList.remove("hidden");note.textContent="Enviando mods e dependências para a pasta /mods do servidor…";}
+  api("/minecraft/mods/install",{method:"POST",body:JSON.stringify({serverId:server,modIds:ids})}).then(async result=>{
+   state.minecraftSelectedMods={};
+   if(note){note.className="notice ok";note.textContent=result.message||"Mods enviados ao servidor.";}
+   await loadMinecraftMods();
+  }).catch(error=>{
+   if(note){note.className="notice error";note.textContent=error.message||"Não foi possível instalar os mods.";}
+  }).finally(()=>{
+   installButton.disabled=false;installButton.textContent="Instalar selecionados";
+   renderMinecraftModResults();
+  });
+ }
+});
+document.addEventListener("submit",async event=>{
+ if(event.target?.id!=="minecraftModsSearchForm")return;
+ event.preventDefault();
+ await loadMinecraftModResults(true);
+});
+document.addEventListener("change",async event=>{
+ if(event.target?.id==="minecraftModsServer"){
+  state.minecraftModServerId=event.target.value;
+  state.minecraftSelectedMods={};
+  await loadMinecraftModResults(true);
+  const server=(state.minecraftServers||[]).find(item=>item.id===state.minecraftModServerId),installedTarget=$("#minecraftModsInstalled");
+  const installed=Array.isArray(server?.installed_mods)?server.installed_mods:(typeof server?.installed_mods==="string"?JSON.parse(server.installed_mods||"[]"):[]);
+  if(installedTarget)installedTarget.innerHTML=installed.length?'<div class="mc-installed-heading">Mods já registrados neste servidor</div><div class="mc-installed-list">'+installed.map(item=>'<span>'+escapeHtml(item.title||item.filename||"Mod")+'</span>').join("")+'</div>':'<div class="mc-installed-heading">Nenhum mod registrado ainda.</div>';
  }
 });
 
