@@ -3975,7 +3975,7 @@ export async function onRequest(context) {
       }, 201);
     }
 
-    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|upload-chunk|auto-upload|extract|import|config|resources|files|shell|schedule|diagnose|backups)(?:\/([A-Za-z0-9._-]{1,120})(?:\/(restore))?)?)?$/);
+    const match = path.match(/^\/bots\/([A-Za-z0-9_-]{1,80})(?:\/(logs|power|upload-url|upload-chunk|upload-cleanup|auto-upload|extract|import|config|resources|files|shell|schedule|diagnose|backups)(?:\/([A-Za-z0-9._-]{1,120})(?:\/(restore))?)?)?$/);
     if (match) {
       const id = match[1];
       const action = match[2] || "";
@@ -4004,13 +4004,60 @@ export async function onRequest(context) {
           let decodedLength = 0;
           try { decodedLength = atob(chunkBase64).length; } catch { return reply({ error: "Parte do ZIP em Base64 inválida." }, 400); }
           if (decodedLength > 256 * 1024) return reply({ error: "Cada parte do ZIP pode ter no máximo 256 KB." }, 413);
-          await env.DB.prepare("DELETE FROM bot_upload_chunks WHERE created_at<?").bind(Date.now() - 6 * 60 * 60 * 1000).run();
+          await env.DB.prepare("DELETE FROM bot_upload_chunks WHERE created_at<?").bind(Date.now() - 48 * 60 * 60 * 1000).run();
           await env.DB.prepare(
             "INSERT INTO bot_upload_chunks (user_id,bot_id,upload_id,chunk_index,total_chunks,chunk_base64,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT (user_id,bot_id,upload_id,chunk_index) DO UPDATE SET total_chunks=EXCLUDED.total_chunks,chunk_base64=EXCLUDED.chunk_base64,created_at=EXCLUDED.created_at"
           ).bind(user.id, id, uploadId, index, totalChunks, chunkBase64, Date.now()).run();
-          return reply({ ok: true, uploadId, index, totalChunks, received: decodedLength });
+          let customProject = null;
+          const savedChunks = await env.DB.prepare(
+            "SELECT chunk_index,total_chunks,chunk_base64 FROM bot_upload_chunks WHERE user_id=? AND bot_id=? AND upload_id=? ORDER BY chunk_index ASC"
+          ).bind(user.id, id, uploadId).all();
+          const savedRows = Array.isArray(savedChunks) ? savedChunks : [];
+          if (savedRows.length === totalChunks && savedRows.every((part, position) =>
+            Number(part.chunk_index) === position && Number(part.total_chunks) === totalChunks
+          )) {
+            const parts = savedRows.map(part => decodeBase64Bytes(part.chunk_base64));
+            const totalBytes = parts.reduce((sum, part) => sum + part.byteLength, 0);
+            if (totalBytes > 25 * 1024 * 1024) {
+              await env.DB.prepare("DELETE FROM bot_upload_chunks WHERE user_id=? AND bot_id=? AND upload_id=?").bind(user.id, id, uploadId).run();
+              return reply({ error: "O ZIP ultrapassa o limite de 25 MB do Estúdio." }, 413);
+            }
+            const archiveBytes = new Uint8Array(totalBytes);
+            let offset = 0;
+            for (const part of parts) { archiveBytes.set(part, offset); offset += part.byteLength; }
+            let analyzed;
+            try {
+              analyzed = await prepareDiscloudProject(archiveBytes, bot, b.runtime || bot.runtime, env);
+              customProject = {
+                ...analyzed.customProject,
+                provider: "pending",
+                uploadPending: true,
+                pendingUploadId: uploadId,
+                pendingUploadExpiresAt: Date.now() + 48 * 60 * 60 * 1000
+              };
+            } catch (error) {
+              await env.DB.prepare("DELETE FROM bot_upload_chunks WHERE user_id=? AND bot_id=? AND upload_id=?").bind(user.id, id, uploadId).run();
+              return reply({ error: error.message || "Não consegui reconhecer o ZIP enviado." }, 400);
+            }
+            await env.DB.prepare("UPDATE bots SET runtime=?,project_type='custom',custom_project=?::jsonb,updated_at=? WHERE id=? AND user_id=?")
+              .bind(analyzed.runtime, JSON.stringify(customProject), Date.now(), id, user.id).run();
+          }
+          return reply({ ok: true, uploadId, index, totalChunks, received: decodedLength, recognized: !!customProject, customProject });
         } catch (error) {
           return reply({ error: error.message || "Não consegui guardar esta parte do ZIP." }, 500);
+        }
+      }
+
+      if (action === "upload-cleanup" && request.method === "POST") {
+        try {
+          const b = await body(request);
+          const uploadId = String(b.uploadId || "");
+          if (!/^[A-Za-z0-9_-]{16,80}$/.test(uploadId)) return reply({ error: "Identificador de envio inválido." }, 400);
+          await env.DB.prepare("DELETE FROM bot_upload_chunks WHERE user_id=? AND bot_id=? AND upload_id=?")
+            .bind(user.id, id, uploadId).run();
+          return reply({ ok: true });
+        } catch (error) {
+          return reply({ error: error.message || "Não consegui limpar o ZIP já publicado." }, 500);
         }
       }
 
@@ -5077,7 +5124,7 @@ export async function onRequest(context) {
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
           const isPterodactylTarget = ["cogithost","sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(String(bot.hosting_provider || "").toLowerCase()) && !!bot.provider_app_id;
-          const sillydevConnection = await env.DB.prepare("SELECT id FROM provider_connections WHERE user_id IN (?,?) AND provider='sillydev' LIMIT 1").bind(user.id, SHARED_HOSTING_OWNER_ID).first();
+          const sillydevConnection = await env.DB.prepare("SELECT user_id FROM provider_connections WHERE user_id IN (?,?) AND provider='sillydev' LIMIT 1").bind(user.id, SHARED_HOSTING_OWNER_ID).first();
           const maxArchiveBytes = (isAclCloudsTarget || isPterodactylTarget || !!sillydevConnection) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
           if (generatedStandard) {
@@ -5128,8 +5175,6 @@ export async function onRequest(context) {
             archiveBytes = new Uint8Array(totalBytes);
             let offset = 0;
             for (const part of decoded) { archiveBytes.set(part, offset); offset += part.byteLength; }
-            await env.DB.prepare("DELETE FROM bot_upload_chunks WHERE user_id=? AND bot_id=? AND upload_id=?")
-              .bind(user.id, id, uploadId).run();
           } else {
             archiveBytes = decodeBase64Bytes(b.archiveBase64);
           }
