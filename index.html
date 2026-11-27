@@ -478,6 +478,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 <link rel="stylesheet" href="/studio-ui.css?v=1">
 <link rel="stylesheet" href="/studio-dashboard.css?v=4">
 <link rel="stylesheet" href="/studio-extra.css?v=3">
+<link rel="stylesheet" href="/studio-dragon.css?v=1">
 </head>
 <body>
 <svg class="bz-symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -704,6 +705,7 @@ function pageHead(title,desc,action=""){return '<div class="page-head"><div><div
 function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,backups:backupsView,docs:docsView,integrations:integrationsView,hosting:hostingView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 
 const DECORATION_OPTIONS=[
+ {id:"dragon",name:"Dragão Violeta",tag:"🐉 · DRAGÃO ABISSAL",description:"Dragão roxo, sombras profundas, fumaça e brilho violeta.",symbol:"🐉",scene:"decor-scene-dragon",wallpaper:"/themes/dragon.svg",emojis:"🐉 ⚔️ 🌑 ✦"},
  {id:"sakura",name:"Sakura Neon",tag:"🌸 · LUA VIOLETA",description:"Templo japonês, lua gigante, sakuras e cidade iluminada.",symbol:"🌸",scene:"decor-scene-sakura",wallpaper:"/themes/sakura.svg",emojis:"🌸 🌙 ⛩️ ✨"},
  {id:"samurai",name:"Samurai Rubro",tag:"⚔️ · LUA DE SANGUE",description:"Castelo, portais torii, lua vermelha e silhueta samurai.",symbol:"⚔️",scene:"decor-scene-samurai",wallpaper:"/themes/samurai.svg",emojis:"⚔️ 🔥 🏯 🌕"},
  {id:"neon",name:"Tokyo Neon",tag:"🎧 · CIDADE FUTURISTA",description:"Arranha-céus, letreiros neon, carro esportivo e brilho rosa.",symbol:"🎧",scene:"decor-scene-neon",wallpaper:"/themes/neon.svg",emojis:"🎧 🚗 🌃 💗"},
@@ -715,7 +717,7 @@ function decorationStorageKey(){
  return "bz-decoration:"+identity;
 }
 function applyDecoration(id,save=true){
- const valid=DECORATION_OPTIONS.some(item=>item.id===id)?id:"sakura";
+ const valid=DECORATION_OPTIONS.some(item=>item.id===id)?id:"dragon";
  state.decoration=valid;
  const app=$("#app");
  if(app)app.dataset.decoration=valid;
@@ -732,12 +734,13 @@ function applyDecoration(id,save=true){
  });
 }
 function loadSavedDecoration(){
- let stored="sakura";
- try{stored=localStorage.getItem(decorationStorageKey())||"sakura"}catch{}
+ let stored="dragon";
+ try{stored=localStorage.getItem(decorationStorageKey())||"dragon"}catch{}
+ if(stored==="sakura")stored="dragon";
  applyDecoration(stored,false);
 }
 function decorationView(){
- const current=state.decoration||"sakura";
+ const current=state.decoration||"dragon";
  const cards=DECORATION_OPTIONS.map(item=>
   '<button type="button" class="decoration-card '+(current===item.id?"is-selected":"")+'" data-decoration-choice="'+item.id+'" aria-pressed="'+(current===item.id?"true":"false")+'">'+
    '<span class="decor-scene '+item.scene+'"><span class="decor-moon"></span><span class="decor-landscape"></span><span class="decor-symbol">'+item.symbol+'</span><span class="decor-tag">'+item.tag+'</span></span>'+
@@ -747,7 +750,7 @@ function decorationView(){
  return pageHead("Decoração","Escolha um visual para personalizar as cores e o clima do seu painel.",'<button class="btn secondary" id="resetDecoration">Restaurar visual padrão</button>')+
   '<section class="decoration-intro dashboard-panel"><div class="decoration-intro-mark">✧</div><div><b>Seu painel, do seu jeito</b><p>Selecione uma das quatro inspirações. A mudança é aplicada na hora e fica salva para sua conta neste navegador.</p></div></section>'+
   '<div class="decoration-grid">'+cards+'</div>'+
-  '<section class="decoration-preview-panel dashboard-panel"><div class="decoration-preview-copy"><span class="caps">CENÁRIO APLICADO AO PAINEL</span><b>O fundo inteiro acompanha o tema escolhido</b><p>Paisagem, céu, lua, construções japonesas, iluminação, elementos decorativos e emojis mudam juntos.</p><div class="decoration-preview-emojis" id="decorationPreviewEmojis">'+(DECORATION_OPTIONS.find(item=>item.id===current)?.emojis||"🌸 🌙 ⛩️ ✨")+'</div></div><div class="decoration-preview-art decor-scene-'+current+'"></div></section>'+
+  '<section class="decoration-preview-panel dashboard-panel"><div class="decoration-preview-copy"><span class="caps">CENÁRIO APLICADO AO PAINEL</span><b>O fundo inteiro acompanha o tema escolhido</b><p>Paisagem, céu, lua, construções japonesas, iluminação, elementos decorativos e emojis mudam juntos.</p><div class="decoration-preview-emojis" id="decorationPreviewEmojis">'+(DECORATION_OPTIONS.find(item=>item.id===current)?.emojis||"🐉 ⚔️ 🌑 ✦")+'</div></div><div class="decoration-preview-art decor-scene-'+current+'"></div></section>'+
   '<div class="decoration-footnote">A decoração muda somente a aparência do Estúdio. Seus bots, arquivos, tokens e configurações de hospedagem permanecem intactos.</div>';
 }
 function overviewView(){
@@ -1895,7 +1898,7 @@ const keritForm=$("#keritConnectForm");
  });
  const resetDecoration=$("#resetDecoration");
  if(resetDecoration)resetDecoration.onclick=()=>{
-  applyDecoration("sakura",true);
+  applyDecoration("dragon",true);
   render();
   toast("Visual padrão restaurado.");
  };
