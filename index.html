@@ -748,9 +748,9 @@ function decorationView(){
   '</button>'
  ).join("");
  return pageHead("Decoração","Escolha um visual para personalizar as cores e o clima do seu painel.",'<button class="btn secondary" id="resetDecoration">Restaurar visual padrão</button>')+
-  '<section class="decoration-intro dashboard-panel"><div class="decoration-intro-mark">✧</div><div><b>Seu painel, do seu jeito</b><p>Selecione uma das quatro inspirações. A mudança é aplicada na hora e fica salva para sua conta neste navegador.</p></div></section>'+
+  '<section class="decoration-intro dashboard-panel"><div class="decoration-intro-mark">✧</div><div><b>Seu painel, do seu jeito</b><p>Selecione uma das cinco inspirações. A mudança é aplicada na hora e fica salva para sua conta neste navegador.</p></div></section>'+
   '<div class="decoration-grid">'+cards+'</div>'+
-  '<section class="decoration-preview-panel dashboard-panel"><div class="decoration-preview-copy"><span class="caps">CENÁRIO APLICADO AO PAINEL</span><b>O fundo inteiro acompanha o tema escolhido</b><p>Paisagem, céu, lua, construções japonesas, iluminação, elementos decorativos e emojis mudam juntos.</p><div class="decoration-preview-emojis" id="decorationPreviewEmojis">'+(DECORATION_OPTIONS.find(item=>item.id===current)?.emojis||"🐉 ⚔️ 🌑 ✦")+'</div></div><div class="decoration-preview-art decor-scene-'+current+'"></div></section>'+
+  '<section class="decoration-preview-panel dashboard-panel"><div class="decoration-preview-copy"><span class="caps">CENÁRIO APLICADO AO PAINEL</span><b>O fundo inteiro acompanha o tema escolhido</b><p>Arte, atmosfera, paleta, iluminação e elementos decorativos mudam juntos.</p><div class="decoration-preview-emojis" id="decorationPreviewEmojis">'+(DECORATION_OPTIONS.find(item=>item.id===current)?.emojis||"🐉 ⚔️ 🌑 ✦")+'</div></div><div class="decoration-preview-art decor-scene-'+current+'"></div></section>'+
   '<div class="decoration-footnote">A decoração muda somente a aparência do Estúdio. Seus bots, arquivos, tokens e configurações de hospedagem permanecem intactos.</div>';
 }
 function overviewView(){
