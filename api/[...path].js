@@ -127,6 +127,93 @@ async function discordOAuthCredentials(env) {
     clientSecret: String(storedSecret || env.DISCORD_CLIENT_SECRET || "").trim()
   };
 }
+
+async function emailSenderSettings(env) {
+  return await env.DB.prepare("SELECT api_key_enc,from_email FROM email_sender_settings WHERE id='main'").first();
+}
+function emailMask(value) {
+  const email=String(value||""); const at=email.indexOf("@");
+  if(at<1)return "";
+  const name=email.slice(0,at); return name.slice(0,1)+"***"+(name.length>2?name.slice(-1):"")+"@"+email.slice(at+1);
+}
+async function emailCodeHash(email,purpose,code,env) {
+  const input=new TextEncoder().encode(String(env.APP_SESSION_SECRET||"")+"|"+email+"|"+purpose+"|"+code);
+  const digest=await crypto.subtle.digest("SHA-256",input);
+  return Array.from(new Uint8Array(digest),v=>v.toString(16).padStart(2,"0")).join("");
+}
+async function sendStudioEmail(env,to,subject,html) {
+  const settings=await emailSenderSettings(env);
+  if(!settings?.api_key_enc||!settings?.from_email)throw new Error("O envio de e-mail ainda não foi configurado pelo administrador.");
+  const key=await decryptSecret(settings.api_key_enc,env);
+  const response=await fetch("https://api.resend.com/emails",{
+    method:"POST",
+    headers:{authorization:"Bearer "+key,"content-type":"application/json",accept:"application/json"},
+    body:JSON.stringify({from:settings.from_email,to:[to],subject,html}),
+    signal:AbortSignal.timeout(15000)
+  });
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok||!data.id)throw new Error(data.message||data.error||"O serviço de e-mail não confirmou o envio.");
+  return data;
+}
+async function issueEmailVerification(env,{email,purpose,userId=null,payload=null}) {
+  const settings=await emailSenderSettings(env);
+  if(!settings?.api_key_enc||!settings?.from_email)throw new Error("A verificação por e-mail ainda não está disponível. O administrador precisa configurar o envio de mensagens.");
+  const now=Date.now();
+  const previous=await env.DB.prepare("SELECT sent_at,window_started_at,send_count,payload FROM email_verifications WHERE email=? AND purpose=?").bind(email,purpose).first();
+  if(previous&&now-Number(previous.sent_at)<60000)throw new Error("Aguarde 60 segundos antes de solicitar outro código.");
+  const windowStart=previous&&now-Number(previous.window_started_at)<3600000?Number(previous.window_started_at):now;
+  const count=previous&&windowStart===Number(previous.window_started_at)?Number(previous.send_count||0):0;
+  if(count>=5)throw new Error("Limite de 5 códigos por hora atingido. Tente novamente mais tarde.");
+  const code=String(crypto.getRandomValues(new Uint32Array(1))[0]%900000+100000);
+  const hash=await emailCodeHash(email,purpose,code,env);
+  await env.DB.prepare("INSERT INTO email_verifications (email,purpose,user_id,code_hash,payload,expires_at,attempts,sent_at,window_started_at,send_count,created_at) VALUES (?,?,?,?,?::jsonb,?,0,?,?,?,?) ON CONFLICT (email,purpose) DO UPDATE SET user_id=EXCLUDED.user_id,code_hash=EXCLUDED.code_hash,payload=EXCLUDED.payload,expires_at=EXCLUDED.expires_at,attempts=0,sent_at=EXCLUDED.sent_at,window_started_at=EXCLUDED.window_started_at,send_count=EXCLUDED.send_count,created_at=EXCLUDED.created_at")
+    .bind(email,purpose,userId,hash,payload?JSON.stringify(payload):null,now+10*60*1000,now,windowStart,count+1,now).run();
+  const safeCode=code;
+  try {
+    await sendStudioEmail(env,email,"Seu código de verificação — BLACK ZONE Estúdio",
+      '<div style="font-family:Arial,sans-serif;background:#09060e;color:#eee;padding:28px;border-radius:14px"><h2 style="color:#c28aff">BLACK ZONE Estúdio</h2><p>Use este código para confirmar que este e-mail pertence a você:</p><div style="font-size:32px;font-weight:700;letter-spacing:8px;padding:18px;background:#1b1025;border:1px solid #7941a2;border-radius:10px;text-align:center">'+safeCode+'</div><p>O código expira em 10 minutos. Se você não solicitou, ignore esta mensagem.</p></div>');
+  } catch(error) {
+    await env.DB.prepare("DELETE FROM email_verifications WHERE email=? AND purpose=?").bind(email,purpose).run();
+    throw error;
+  }
+  return {maskedEmail:emailMask(email),expiresIn:600};
+}
+async function verifyEmailCode(env,email,purpose,code) {
+  const row=await env.DB.prepare("SELECT * FROM email_verifications WHERE email=? AND purpose=?").bind(email,purpose).first();
+  if(!row)return {ok:false,error:"Não há um código ativo para este e-mail. Solicite um novo."};
+  if(Number(row.expires_at)<Date.now()){
+    await env.DB.prepare("DELETE FROM email_verifications WHERE email=? AND purpose=?").bind(email,purpose).run();
+    return {ok:false,error:"O código expirou. Solicite um novo código."};
+  }
+  if(Number(row.attempts)>=5)return {ok:false,error:"Muitas tentativas. Solicite um novo código."};
+  const actual=await emailCodeHash(email,purpose,String(code||"").trim(),env);
+  if(!same(actual,row.code_hash)){
+    await env.DB.prepare("UPDATE email_verifications SET attempts=attempts+1 WHERE email=? AND purpose=?").bind(email,purpose).run();
+    return {ok:false,error:"Código incorreto. Confira o e-mail e tente novamente."};
+  }
+  return {ok:true,row};
+}
+async function minecraftSettings(env) {
+  return await env.DB.prepare("SELECT * FROM minecraft_settings WHERE id='main'").first();
+}
+async function minecraftPanelRequest(settings,env,path,method="GET",data=null) {
+  const base=String(settings.panel_url||"").replace(/\/+$/,"");
+  const key=await decryptSecret(settings.application_key_enc,env);
+  const response=await fetch(base+"/api/application"+path,{
+    method,
+    headers:{authorization:"Bearer "+key,accept:"Application/vnd.pterodactyl.v1+json","content-type":"application/json"},
+    body:data===null?undefined:JSON.stringify(data),
+    signal:AbortSignal.timeout(30000)
+  });
+  const raw=await response.text();let parsed={};
+  try{parsed=raw?JSON.parse(raw):{}}catch{parsed={error:raw.slice(0,1200)}}
+  if(!response.ok){const error=new Error(parsed.errors?.[0]?.detail||parsed.errors?.[0]?.code||parsed.message||"Falha na API do painel Minecraft (HTTP "+response.status+").");error.status=response.status;throw error;}
+  return parsed;
+}
+function minecraftConfigReady(settings) {
+  return !!(settings&&settings.panel_url&&settings.application_key_enc&&Number(settings.egg_id)>0&&Number(settings.allocation_id)>0&&settings.docker_image&&settings.startup_command);
+}
+
 function ownerOnly(user) {
   return user?.role === "owner";
 }
@@ -702,7 +789,7 @@ async function createSession(userId, env) {
 }
 async function currentUser(request, env) {
   const token = cookieMap(request).bz_session; if (!token) return null;
-  const row = await env.DB.prepare("SELECT users.id,users.name,users.username,users.email,users.role,users.discord_id,users.discord_username,users.discord_linked_at FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?")
+  const row = await env.DB.prepare("SELECT users.id,users.name,users.username,users.email,users.role,users.discord_id,users.discord_username,users.discord_linked_at,email_verified_at FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?")
     .bind(await sha(token), Date.now()).first();
   return row || null;
 }
@@ -2603,19 +2690,202 @@ export async function onRequest(context) {
       return await startDiscord(request, env);
     }
     if (path === "/auth/discord/callback" && request.method === "GET") return await discordCallback(request, env);
-    if (path === "/register" && request.method === "POST") {
-      if (!(await gateOk(request, env))) return reply({ error: "Acesso bloqueado." }, 403);
-      const b = await body(request); const name = String(b.name || "").trim(); const username = String(b.username || "").trim().toLowerCase(); const email = String(b.email || "").trim().toLowerCase(); const password = String(b.password || "");
-      if (name.length < 2 || name.length > 80 || !/^[a-z0-9_]{3,24}$/.test(username) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 10 || password.length > 128) return reply({ error: "Confira nome, usuário, e-mail e senha (mínimo de 10 caracteres)." }, 400);
-      const duplicate = await env.DB.prepare("SELECT id FROM users WHERE email=? OR username=?").bind(email, username).first();
-      if (duplicate) return reply({ error: "Este e-mail ou nome de usuário já está cadastrado." }, 409);
-      const id = randomToken(16);
-      await env.DB.prepare("INSERT INTO users (id,name,username,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?,?)")
-        .bind(id, name, username, email, await hashPassword(password), "member", Date.now()).run();
-      await claimOwner(id, env);
-      const user = await env.DB.prepare("SELECT * FROM users WHERE id=?").bind(id).first();
-      return reply({ user: publicUser(user) }, 201, { "set-cookie": await createSession(id, env) });
+
+    if (path === "/register/start" && request.method === "POST") {
+      if (!(await gateOk(request,env))) return reply({error:"Acesso bloqueado."},403);
+      const b=await body(request);
+      const name=String(b.name||"").trim(), username=String(b.username||"").trim().toLowerCase();
+      const email=String(b.email||"").trim().toLowerCase(), password=String(b.password||"");
+      if(name.length<2||name.length>80||!/^[a-z0-9_]{3,24}$/.test(username)||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||password.length<10||password.length>128)
+        return reply({error:"Confira nome, usuário, e-mail e senha (mínimo de 10 caracteres)."},400);
+      const duplicate=await env.DB.prepare("SELECT id FROM users WHERE lower(email)=? OR lower(username)=?").bind(email,username).first();
+      if(duplicate)return reply({error:"Este e-mail ou nome de usuário já está cadastrado."},409);
+      try {
+        const passwordHash=await hashPassword(password);
+        const result=await issueEmailVerification(env,{email,purpose:"register",payload:{name,username,passwordHash}});
+        return reply({ok:true,...result,message:"Código enviado. Digite o código recebido para concluir seu cadastro."});
+      } catch(error) { return reply({error:error.message||"Não consegui enviar o código."},503); }
     }
+    if (path === "/register/resend" && request.method === "POST") {
+      if (!(await gateOk(request,env))) return reply({error:"Acesso bloqueado."},403);
+      const b=await body(request),email=String(b.email||"").trim().toLowerCase();
+      const row=await env.DB.prepare("SELECT payload FROM email_verifications WHERE email=? AND purpose='register' AND expires_at>?").bind(email,Date.now()).first();
+      if(!row)return reply({error:"Cadastro pendente não encontrado. Preencha o formulário novamente."},404);
+      try {
+        const payload=typeof row.payload==="string"?JSON.parse(row.payload):row.payload;
+        const result=await issueEmailVerification(env,{email,purpose:"register",payload});
+        return reply({ok:true,...result,message:"Novo código enviado."});
+      } catch(error) { return reply({error:error.message||"Não consegui reenviar o código."},429); }
+    }
+    if (path === "/register/verify" && request.method === "POST") {
+      if (!(await gateOk(request,env))) return reply({error:"Acesso bloqueado."},403);
+      const b=await body(request),email=String(b.email||"").trim().toLowerCase(),code=String(b.code||"").trim();
+      const checked=await verifyEmailCode(env,email,"register",code);
+      if(!checked.ok)return reply({error:checked.error},400);
+      const payload=typeof checked.row.payload==="string"?JSON.parse(checked.row.payload):checked.row.payload;
+      const duplicate=await env.DB.prepare("SELECT id FROM users WHERE lower(email)=? OR lower(username)=?").bind(email,String(payload.username||"")).first();
+      if(duplicate)return reply({error:"Este e-mail ou nome de usuário acabou de ser cadastrado. Tente entrar na conta."},409);
+      const id=randomToken(16),now=Date.now();
+      await env.DB.prepare("INSERT INTO users (id,name,username,email,password_hash,role,email_verified_at,created_at) VALUES (?,?,?,?,?,?,?,?)")
+        .bind(id,payload.name,payload.username,email,payload.passwordHash,"member",now,now).run();
+      await env.DB.prepare("DELETE FROM email_verifications WHERE email=? AND purpose='register'").bind(email).run();
+      await claimOwner(id,env);
+      const user=await env.DB.prepare("SELECT * FROM users WHERE id=?").bind(id).first();
+      const session=await createSession(id,env);
+      return reply({user:publicUser(user),message:"E-mail confirmado e cadastro concluído."},201,{"set-cookie":session});
+    }
+    if (path === "/email/verify/start" && request.method === "POST") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      const email=String(auth.user.email||"").trim().toLowerCase();
+      if(auth.user.email_verified_at)return reply({ok:true,verified:true,message:"Seu e-mail já está confirmado."});
+      try {return reply({ok:true,...await issueEmailVerification(env,{email,purpose:"verify",userId:auth.user.id})});}
+      catch(error){return reply({error:error.message||"Não consegui enviar o código."},503);}
+    }
+    if (path === "/email/verify/confirm" && request.method === "POST") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      const b=await body(request),email=String(auth.user.email||"").trim().toLowerCase();
+      const checked=await verifyEmailCode(env,email,"verify",String(b.code||""));
+      if(!checked.ok)return reply({error:checked.error},400);
+      await env.DB.prepare("UPDATE users SET email_verified_at=? WHERE id=?").bind(Date.now(),auth.user.id).run();
+      await env.DB.prepare("DELETE FROM email_verifications WHERE email=? AND purpose='verify'").bind(email).run();
+      return reply({ok:true,verified:true,message:"E-mail confirmado."});
+    }
+
+    if (path === "/admin/minecraft/config" && request.method === "GET") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;if(!ownerOnly(auth.user))return reply({error:"Acesso restrito ao administrador."},403);
+      const [mail,mc]=await Promise.all([emailSenderSettings(env),minecraftSettings(env)]);
+      return reply({emailConfigured:!!mail?.api_key_enc,fromEmail:mail?.from_email||"",minecraftConfigured:minecraftConfigReady(mc),
+        panelUrl:mc?.panel_url||"",panelKeyConfigured:!!mc?.application_key_enc,eggId:mc?.egg_id||"",allocationId:mc?.allocation_id||"",
+        dockerImage:mc?.docker_image||"ghcr.io/pterodactyl/yolks:java_21",startupCommand:mc?.startup_command||"java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar {{SERVER_JARFILE}}",
+        environment:mc?.environment_json||{},versionEnv:mc?.version_env||"MINECRAFT_VERSION",
+        memoryMb:mc?.memory_mb||2048,diskMb:mc?.disk_mb||10240,cpuPercent:mc?.cpu_percent||200,maxServersPerUser:mc?.max_servers_per_user||1});
+    }
+    if (path === "/admin/minecraft/config" && request.method === "POST") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;if(!ownerOnly(auth.user))return reply({error:"Acesso restrito ao administrador."},403);
+      const b=await body(request),now=Date.now();
+      const fromEmail=String(b.fromEmail||"").trim(),mailKey=String(b.resendApiKey||"").trim();
+      const panelUrl=String(b.panelUrl||"").trim().replace(/\/+$/,""),panelKey=String(b.panelApplicationKey||"").trim();
+      const eggId=Number(b.eggId),allocationId=Number(b.allocationId),memory=Number(b.memoryMb),disk=Number(b.diskMb),cpu=Number(b.cpuPercent),maxServers=Number(b.maxServersPerUser);
+      if(mailKey||fromEmail){
+        if(!/^.+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$|^[^<>\s]+@[^<>\s]+\.[^<>\s]+$/.test(fromEmail))return reply({error:"Informe um remetente válido, de preferência no formato Nome <email@seudominio.com>."},400);
+        if(mailKey.length<20&&!(await emailSenderSettings(env))?.api_key_enc)return reply({error:"Informe a chave de API do Resend."},400);
+        const old=await emailSenderSettings(env);
+        const enc=mailKey?await encryptSecret(mailKey,env):old?.api_key_enc;
+        await env.DB.prepare("INSERT INTO email_sender_settings (id,owner_user_id,api_key_enc,from_email,updated_at) VALUES ('main',?,?,?,?) ON CONFLICT (id) DO UPDATE SET api_key_enc=EXCLUDED.api_key_enc,from_email=EXCLUDED.from_email,updated_at=EXCLUDED.updated_at")
+          .bind(auth.user.id,enc,fromEmail,now).run();
+      }
+      if(panelUrl||panelKey||eggId||allocationId){
+        if(!/^https:\/\//i.test(panelUrl)||!Number.isInteger(eggId)||eggId<1||!Number.isInteger(allocationId)||allocationId<1)
+          return reply({error:"Informe a URL HTTPS do painel, Egg ID e Allocation ID."},400);
+        const old=await minecraftSettings(env);
+        if(!panelKey&&!old?.application_key_enc)return reply({error:"Informe a chave Application API do Pterodactyl."},400);
+        const docker=String(b.dockerImage||"ghcr.io/pterodactyl/yolks:java_21").trim();
+        const startup=String(b.startupCommand||"").trim();
+        const versionEnv=String(b.versionEnv||"MINECRAFT_VERSION").trim();
+        const environment=b.environment&&typeof b.environment==="object"?b.environment:{};
+        if(!docker||!startup||!/^[A-Z][A-Z0-9_]{1,48}$/.test(versionEnv)||Object.keys(environment).length>40)return reply({error:"Confira Docker Image, comando de início e variáveis de ambiente."},400);
+        if(![memory,disk,cpu,maxServers].every(Number.isFinite)||memory<512||memory>65536||disk<1024||disk>1048576||cpu<50||cpu>10000||maxServers<1||maxServers>20)
+          return reply({error:"Limites fora da faixa permitida."},400);
+        const keyEnc=panelKey?await encryptSecret(panelKey,env):old.application_key_enc;
+        await env.DB.prepare("INSERT INTO minecraft_settings (id,owner_user_id,panel_url,application_key_enc,egg_id,allocation_id,docker_image,startup_command,environment_json,version_env,memory_mb,disk_mb,cpu_percent,max_servers_per_user,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,panel_url=EXCLUDED.panel_url,application_key_enc=EXCLUDED.application_key_enc,egg_id=EXCLUDED.egg_id,allocation_id=EXCLUDED.allocation_id,docker_image=EXCLUDED.docker_image,startup_command=EXCLUDED.startup_command,environment_json=EXCLUDED.environment_json,version_env=EXCLUDED.version_env,memory_mb=EXCLUDED.memory_mb,disk_mb=EXCLUDED.disk_mb,cpu_percent=EXCLUDED.cpu_percent,max_servers_per_user=EXCLUDED.max_servers_per_user,updated_at=EXCLUDED.updated_at")
+          .bind(auth.user.id,panelUrl,keyEnc,eggId,allocationId,docker,startup,JSON.stringify(environment),versionEnv,memory,disk,cpu,maxServers,now).run();
+      }
+      return reply({ok:true,message:"Configurações salvas. As chaves ficam criptografadas."});
+    }
+    if (path === "/admin/minecraft/test-email" && request.method === "POST") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;if(!ownerOnly(auth.user))return reply({error:"Acesso restrito ao administrador."},403);
+      try{await sendStudioEmail(env,auth.user.email,"Teste de e-mail — BLACK ZONE Estúdio","<p>O envio de e-mail do BLACK ZONE Estúdio está funcionando.</p>");return reply({ok:true,message:"E-mail de teste enviado."});}
+      catch(error){return reply({error:error.message||"Falha no teste de e-mail."},502);}
+    }
+    if (path === "/admin/minecraft/test-panel" && request.method === "POST") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;if(!ownerOnly(auth.user))return reply({error:"Acesso restrito ao administrador."},403);
+      try{const mc=await minecraftSettings(env);if(!minecraftConfigReady(mc))return reply({error:"Preencha primeiro as configurações do Pterodactyl."},409);
+        await minecraftPanelRequest(mc,env,"/users?per_page=1");return reply({ok:true,message:"Conexão com o painel Pterodactyl confirmada."});}
+      catch(error){return reply({error:error.message||"Falha ao testar o painel."},502);}
+    }
+    if (path === "/minecraft/status" && request.method === "GET") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      const mc=await minecraftSettings(env);
+      const servers=await env.DB.prepare("SELECT id,name,version,state,allocation_ip,allocation_port,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
+      const rows=Array.isArray(servers)?servers:(servers?.results||[]);
+      return reply({configured:minecraftConfigReady(mc),emailVerified:!!auth.user.email_verified_at,email:emailMask(auth.user.email),servers:rows});
+    }
+    if (path === "/minecraft/create" && request.method === "POST") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      if(!auth.user.email_verified_at)return reply({code:"email_verification_required",error:"Confirme seu e-mail antes de criar uma conta Minecraft."},403);
+      const b=await body(request);if(b.consent!==true)return reply({error:"Confirme a criação da sua conta Minecraft para continuar."},400);
+      const name=String(b.name||"").trim().replace(/\s+/g," ").slice(0,32),version=String(b.version||"").trim();
+      if(name.length<3||!/^[A-Za-z0-9 _-]{3,32}$/.test(name))return reply({error:"O nome do servidor deve ter de 3 a 32 caracteres e usar letras, números, espaço, _ ou -."},400);
+      if(!/^(latest|1\.\d{1,2}(?:\.\d{1,2})?)$/.test(version))return reply({error:"Escolha uma versão válida do Minecraft."},400);
+      const mc=await minecraftSettings(env);if(!minecraftConfigReady(mc))return reply({code:"minecraft_not_configured",error:"A hospedagem Minecraft ainda está sendo preparada pelo administrador."},503);
+      try{
+        const countRow=await env.DB.prepare("SELECT COUNT(*) AS total FROM minecraft_servers WHERE user_id=? AND state NOT IN ('deleted','error')").bind(auth.user.id).first();
+        const limit=Number(mc.max_servers_per_user||1);
+        let pending=await env.DB.prepare("SELECT * FROM minecraft_servers WHERE user_id=? AND state='creating' ORDER BY created_at DESC LIMIT 1").bind(auth.user.id).first();
+        let localId,externalId;
+        if(pending){
+          if(pending.name!==name||pending.version!==version)return reply({code:"minecraft_creation_pending",error:"Já existe uma criação em andamento. Atualize o status antes de iniciar outra."},409);
+          localId=pending.id;externalId=pending.external_id;
+        }else{
+          if(Number(countRow?.total||0)>=limit)return reply({error:"Você atingiu o limite de servidores da sua conta."},409);
+          localId=randomToken(12);externalId="bz-"+String(auth.user.id).replace(/[^a-z0-9]/gi,"").slice(0,18)+"-"+localId;
+          await env.DB.prepare("INSERT INTO minecraft_servers (id,user_id,external_id,name,version,state,created_at,updated_at) VALUES (?,?,?,?,?,'creating',?,?)")
+            .bind(localId,auth.user.id,externalId,name,version,Date.now(),Date.now()).run();
+        }
+        let panelUser=await env.DB.prepare("SELECT panel_user_id,panel_username FROM minecraft_accounts WHERE user_id=?").bind(auth.user.id).first();
+        if(!panelUser){
+          const existing=await minecraftPanelRequest(mc,env,"/users?filter%5Bemail%5D="+encodeURIComponent(auth.user.email));
+          const attrs=existing.data?.[0]?.attributes||null;
+          let remote=attrs;
+          if(!remote){
+            const base=String(auth.user.username||auth.user.email.split("@")[0]).toLowerCase().replace(/[^a-z0-9_.-]/g,"").slice(0,24)||"player";
+            const suffix=String(auth.user.id).replace(/[^a-z0-9]/gi,"").slice(-4)||"0000";
+            const fullName=String(auth.user.name||"Jogador").trim().split(/\s+/);
+            const created=await minecraftPanelRequest(mc,env,"/users","POST",{
+              email:auth.user.email,username:(base+"_"+suffix).slice(0,32),
+              first_name:(fullName[0]||"Jogador").slice(0,32),last_name:(fullName.slice(1).join(" ")||"Minecraft").slice(0,32),
+              password:randomToken(48),root_admin:false,language:"pt"
+            });
+            remote=created.attributes||created.data?.attributes||created.data;
+          }
+          if(!remote?.id)throw new Error("O painel Minecraft não retornou o usuário criado.");
+          if(remote.root_admin===true)throw new Error("O e-mail já pertence a uma conta administradora do painel. Use outro endereço.");
+          panelUser={panel_user_id:remote.id,panel_username:remote.username||auth.user.username};
+          await env.DB.prepare("INSERT INTO minecraft_accounts (user_id,panel_user_id,panel_username,panel_email,created_at) VALUES (?,?,?,?,?) ON CONFLICT (user_id) DO UPDATE SET panel_user_id=EXCLUDED.panel_user_id,panel_username=EXCLUDED.panel_username,panel_email=EXCLUDED.panel_email")
+            .bind(auth.user.id,remote.id,panelUser.panel_username,auth.user.email,Date.now()).run();
+        }
+        let remoteServer=null;
+        try{const known=await minecraftPanelRequest(mc,env,"/servers/external/"+encodeURIComponent(externalId));remoteServer=known.attributes||known.data?.attributes||known.data||known;}
+        catch(error){if(error.status!==404)throw error;}
+        if(!remoteServer){
+          const baseEnv=typeof mc.environment_json==="string"?JSON.parse(mc.environment_json||"{}"):(mc.environment_json||{});
+          const environment={...baseEnv,[String(mc.version_env||"MINECRAFT_VERSION")]:version};
+          const created=await minecraftPanelRequest(mc,env,"/servers","POST",{
+            external_id:externalId,name,user:panelUser.panel_user_id,egg:Number(mc.egg_id),docker_image:mc.docker_image,
+            startup:mc.startup_command,environment,
+            limits:{memory:Number(mc.memory_mb),swap:0,disk:Number(mc.disk_mb),io:500,cpu:Number(mc.cpu_percent)},
+            feature_limits:{databases:0,backups:1,allocations:1},
+            allocation:{default:Number(mc.allocation_id)}
+          });
+          remoteServer=created.attributes||created.data?.attributes||created.data;
+        }
+        if(!remoteServer?.id)throw new Error("O Pterodactyl não confirmou o identificador do servidor.");
+        const alloc=remoteServer.allocation||{};
+        const ip=alloc.ip||alloc.alias||null,port=alloc.port||null,now=Date.now();
+        await env.DB.prepare("UPDATE minecraft_servers SET panel_server_id=?,state='installing',allocation_ip=?,allocation_port=?,error_message=NULL,updated_at=? WHERE id=? AND user_id=?")
+          .bind(remoteServer.id,ip,port,now,localId,auth.user.id).run();
+        let emailNotice="A conta individual do painel Minecraft foi criada com seu e-mail. Para definir a senha, use “Esqueci minha senha” no painel, caso o administrador tenha habilitado o envio de redefinição.";
+        try{
+          await sendStudioEmail(env,auth.user.email,"Sua conta Minecraft está sendo preparada",
+            '<div style="font-family:Arial,sans-serif;background:#09060e;color:#eee;padding:24px;border-radius:12px"><h2 style="color:#c28aff">BLACK ZONE · MINECRAFT</h2><p>Seu servidor <b>'+name.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))+'</b> foi criado e está em instalação.</p><p>Versão: '+version+'</p><p>Conta do painel: '+auth.user.email+'</p><p>Abra <a style="color:#cf9aff" href="'+String(mc.panel_url).replace(/"/g,"")+'">'+String(mc.panel_url).replace(/"/g,"")+'</a> e use “Esqueci minha senha” para definir seu acesso, se o painel tiver e-mail transacional configurado.</p></div>');
+        }catch(error){emailNotice="O servidor foi solicitado, mas o e-mail de aviso não foi enviado. "+String(error.message||"");}
+        return reply({ok:true,server:{id:localId,name,version,state:"installing",address:ip,port},message:"Conta criada e servidor enviado para instalação. "+emailNotice},202);
+      }catch(error){
+        await env.DB.prepare("UPDATE minecraft_servers SET error_message=?,updated_at=? WHERE user_id=? AND state='creating'").bind(String(error.message||"Falha na criação").slice(0,800),Date.now(),auth.user.id).run().catch(()=>{});
+        return reply({code:"minecraft_creation_failed",error:error.message||"Não foi possível criar o servidor. O pedido foi preservado para evitar duplicidade."},502);
+      }
+    }
+
     if (path === "/login" && request.method === "POST") {
       if (!(await gateOk(request, env))) return reply({ error: "Acesso bloqueado." }, 403);
       const b = await body(request); const identity = String(b.identity || "").trim().toLowerCase(); const password = String(b.password || "");
@@ -6035,6 +6305,37 @@ async function ensureSchema(db) {
       await db.raw("ALTER TABLE discord_link_states ADD COLUMN IF NOT EXISTS code_verifier TEXT");
       await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_username TEXT");
       await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_linked_at BIGINT");
+  await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at BIGINT");
+  await db.raw(\`CREATE TABLE IF NOT EXISTS email_sender_settings (
+    id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, api_key_enc TEXT NOT NULL,
+    from_email TEXT NOT NULL, updated_at BIGINT NOT NULL
+  )\`);
+  await db.raw(\`CREATE TABLE IF NOT EXISTS email_verifications (
+    email TEXT NOT NULL, purpose TEXT NOT NULL, user_id TEXT, code_hash TEXT NOT NULL,
+    payload JSONB, expires_at BIGINT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+    sent_at BIGINT NOT NULL, window_started_at BIGINT NOT NULL,
+    send_count INTEGER NOT NULL DEFAULT 1, created_at BIGINT NOT NULL,
+    PRIMARY KEY (email,purpose)
+  )\`);
+  await db.raw(\`CREATE TABLE IF NOT EXISTS minecraft_settings (
+    id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, panel_url TEXT NOT NULL,
+    application_key_enc TEXT NOT NULL, egg_id BIGINT NOT NULL, allocation_id BIGINT NOT NULL,
+    docker_image TEXT NOT NULL, startup_command TEXT NOT NULL, environment_json JSONB NOT NULL,
+    version_env TEXT NOT NULL, memory_mb INTEGER NOT NULL, disk_mb INTEGER NOT NULL,
+    cpu_percent INTEGER NOT NULL, max_servers_per_user INTEGER NOT NULL,
+    updated_at BIGINT NOT NULL
+  )\`);
+  await db.raw(\`CREATE TABLE IF NOT EXISTS minecraft_accounts (
+    user_id TEXT PRIMARY KEY, panel_user_id BIGINT NOT NULL, panel_username TEXT NOT NULL,
+    panel_email TEXT NOT NULL, created_at BIGINT NOT NULL
+  )\`);
+  await db.raw(\`CREATE TABLE IF NOT EXISTS minecraft_servers (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, panel_server_id BIGINT,
+    external_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, version TEXT NOT NULL,
+    state TEXT NOT NULL, allocation_ip TEXT, allocation_port INTEGER,
+    error_message TEXT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+  )\`);
+
       await db.raw("CREATE INDEX IF NOT EXISTS idx_discord_link_states_expiry ON discord_link_states(expires_at)");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_token_enc TEXT");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_bot_id TEXT");
