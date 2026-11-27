@@ -6335,35 +6335,35 @@ async function ensureSchema(db) {
       await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_username TEXT");
       await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS discord_linked_at BIGINT");
   await db.raw("ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at BIGINT");
-  await db.raw(\`CREATE TABLE IF NOT EXISTS email_sender_settings (
+  await db.raw(`CREATE TABLE IF NOT EXISTS email_sender_settings (
     id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, api_key_enc TEXT NOT NULL,
     from_email TEXT NOT NULL, updated_at BIGINT NOT NULL
-  )\`);
-  await db.raw(\`CREATE TABLE IF NOT EXISTS email_verifications (
+  )`);
+  await db.raw(`CREATE TABLE IF NOT EXISTS email_verifications (
     email TEXT NOT NULL, purpose TEXT NOT NULL, user_id TEXT, code_hash TEXT NOT NULL,
     payload JSONB, expires_at BIGINT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
     sent_at BIGINT NOT NULL, window_started_at BIGINT NOT NULL,
     send_count INTEGER NOT NULL DEFAULT 1, created_at BIGINT NOT NULL,
     PRIMARY KEY (email,purpose)
-  )\`);
-  await db.raw(\`CREATE TABLE IF NOT EXISTS minecraft_settings (
+  )`);
+  await db.raw(`CREATE TABLE IF NOT EXISTS minecraft_settings (
     id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, panel_url TEXT NOT NULL,
     application_key_enc TEXT NOT NULL, egg_id BIGINT NOT NULL, allocation_id BIGINT NOT NULL,
     docker_image TEXT NOT NULL, startup_command TEXT NOT NULL, environment_json JSONB NOT NULL,
     version_env TEXT NOT NULL, memory_mb INTEGER NOT NULL, disk_mb INTEGER NOT NULL,
     cpu_percent INTEGER NOT NULL, max_servers_per_user INTEGER NOT NULL,
     updated_at BIGINT NOT NULL
-  )\`);
-  await db.raw(\`CREATE TABLE IF NOT EXISTS minecraft_accounts (
+  )`);
+  await db.raw(`CREATE TABLE IF NOT EXISTS minecraft_accounts (
     user_id TEXT PRIMARY KEY, panel_user_id BIGINT NOT NULL, panel_username TEXT NOT NULL,
     panel_email TEXT NOT NULL, created_at BIGINT NOT NULL
-  )\`);
-  await db.raw(\`CREATE TABLE IF NOT EXISTS minecraft_servers (
+  )`);
+  await db.raw(`CREATE TABLE IF NOT EXISTS minecraft_servers (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, panel_server_id BIGINT,
     external_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, version TEXT NOT NULL,
     state TEXT NOT NULL, allocation_ip TEXT, allocation_port INTEGER,
     error_message TEXT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
-  )\`);
+  )`);
 
       await db.raw("CREATE INDEX IF NOT EXISTS idx_discord_link_states_expiry ON discord_link_states(expires_at)");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_token_enc TEXT");
