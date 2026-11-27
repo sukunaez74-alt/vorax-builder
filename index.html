@@ -1104,6 +1104,29 @@ async function loadSettingsHostingState(){
  }
 }
 
+async function runCompanionPower(action){
+ const bot=state.bots.find(item=>item.name==="Segunda bot"&&item.projectType==="custom");
+ if(!bot?.id)return toast("A segunda bot ainda não tem um projeto criado.");
+ if(!bot.providerAppId&&!bot.hostingDeploymentId&&action!=="start")return toast("A hospedagem da segunda bot ainda não foi vinculada.");
+ if(action==="stop"&&!window.confirm("Deseja parar somente a segunda bot? O CAOS continuará funcionando normalmente."))return;
+ const buttons=["#companionStartButton","#companionStopButton","#companionUpdateButton","#companionRefreshButton"].map(selector=>$(selector)).filter(Boolean);
+ buttons.forEach(button=>button.disabled=true);
+ const status=$("#companionRuntimeInfo");
+ if(status)status.innerHTML="<strong>"+(action==="stop"?"Enviando comando para parar a segunda bot…":"Enviando comando para iniciar a segunda bot…")+"</strong><small>Somente o projeto da segunda bot será controlado.</small>";
+ try{
+  const result=await api("/bots/"+encodeURIComponent(bot.id)+"/power",{method:"POST",body:JSON.stringify({action})});
+  if(result?.ok===false)throw new Error(result.error||"A hospedagem não confirmou a operação.");
+  toast(result.message||result.hint||(action==="stop"?"Comando de parada enviado à segunda bot.":"Comando de início enviado à segunda bot."));
+  await loadVerificationBotAdmin();
+ }catch(error){
+  toast(error.message||"Não consegui controlar a segunda bot.");
+  if(status)status.innerHTML="<strong>"+escapeHtml(error.message||"Falha ao controlar a segunda bot.")+"</strong><small>O CAOS não foi alterado.</small>";
+  await loadVerificationBotAdmin();
+ }finally{
+  buttons.forEach(button=>{if(button.isConnected)button.disabled=false;});
+ }
+}
+
 async function loadVerificationBotAdmin(){
  const [caosResult,hostingResult,botsResult]=await Promise.allSettled([
   api("/admin/caos/status"),
@@ -1147,17 +1170,34 @@ function verificationAdminView(){
       ? (freeConnected.map(item=>item.detail||item.error||item.name).filter(Boolean).join(" ")||"As hospedagens gratuitas conectadas não confirmaram vaga neste momento.")
       : "O Estúdio vai consultar automaticamente as hospedagens gratuitas já conectadas à sua conta."));
  const companion=state.bots.find(bot=>bot.name==="Segunda bot"&&bot.projectType==="custom")||null;
+ const companionStateValue=String(companion?.state||"draft").toLowerCase();
+ const companionHasServer=!!(companion?.providerAppId||companion?.hostingDeploymentId);
+ const companionIsOnline=["running","online"].includes(companionStateValue);
+ const companionIsStarting=["starting","installing","queued","creating"].includes(companionStateValue);
+ const companionStatus=companionIsOnline?"ONLINE":companionIsStarting?"INICIANDO":(["stopped","offline","terminated"].includes(companionStateValue)?"PARADA":(companionHasServer?"SERVIDOR PRONTO":(companion?.hasDiscordToken?"AGUARDANDO HOSPEDAGEM":"AGUARDANDO CONFIGURAÇÃO")));
+ const companionProviderLabels={discloud:"Discloud Free",cubecloud:"Cube Hosting",sillydev:"Silly Development","bot-hosting":"Hospedagem gratuita automática",aclclouds:"ACLClouds",squarecloud:"Square Cloud"};
+ const companionProviderName=companionProviderLabels[String(companion?.hostingProvider||"").toLowerCase()]||String(companion?.hostingProvider||"A definir");
+ const companionRuntime=String(companion?.runtime||"python").toLowerCase()==="nodejs"?"Node.js":"Python";
  return pageHead("CAOS · ADM","Controle o CAOS e instale a segunda bot usando somente o token Discord e o ZIP.")+
  (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
- '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Segunda bot · token + ZIP</h3><span class="status '+(freeReady.length?"":"off")+'">'+(freeReady.length?"HOSPEDAGEM FREE PRONTA":"VERIFICANDO VAGA FREE")+'</span></div>'+
- '<p class="muted small">Aqui é só colocar o Bot Token do Discord e selecionar o arquivo ZIP do projeto. O Estúdio tenta publicar automaticamente numa hospedagem gratuita já conectada à sua conta. Não precisa colar outra chave de hospedagem e nenhum plano pago será iniciado.</p>'+
- '<div class="project-note" id="companionHostingState"><strong>'+escapeHtml(freeText)+'</strong><br><small>O limite de tamanho e a disponibilidade dependem da vaga gratuita confirmada pelo provedor.</small></div>'+
+ '<section class="card companion-console" style="margin-bottom:16px">'+
+ '<div class="companion-hero"><div class="companion-emblem">☾</div><div class="companion-heading"><span class="companion-eyebrow">CONTROLE INDEPENDENTE</span><h3>Segunda bot</h3><p>Um painel próprio para sua segunda bot, sem misturar os comandos do CAOS.</p></div><span id="companionStatusBadge" class="status '+(companionIsOnline?"":"off")+'">'+companionStatus+'</span></div>'+
+ '<div class="companion-meta"><span>HOSPEDAGEM<strong>'+escapeHtml(companionProviderName)+'</strong></span><span>LINGUAGEM<strong>'+companionRuntime+'</strong></span><span>DISCORD<strong>'+(companion?.hasDiscordToken?"TOKEN PROTEGIDO":"TOKEN PENDENTE")+'</strong></span></div>'+
+ '<div class="companion-controls">'+
+ '<button class="btn companion-start" id="companionStartButton" '+(!companionHasServer||companionIsOnline||companionIsStarting?"disabled":"")+'><span>▶</span> Iniciar</button>'+
+ '<button class="btn danger companion-stop" id="companionStopButton" '+(!companionHasServer||!companionIsOnline?"disabled":"")+'><span>■</span> Parar</button>'+
+ '<button class="btn secondary companion-update" id="companionUpdateButton" '+(!companion?.hasDiscordToken?"disabled":"")+'><span>↻</span> Atualizar</button>'+
+ '<button class="btn secondary companion-refresh" id="companionRefreshButton"><span>⟳</span> Recarregar</button></div>'+
+ '<div class="companion-live-note" id="companionRuntimeInfo"><strong>'+(companionIsOnline?"A segunda bot está marcada como online.":companionIsStarting?"A hospedagem está preparando ou iniciando a segunda bot.":companionHasServer?"Servidor criado. Use Iniciar para ligar a bot.":companion?.hasDiscordToken?"Token protegido. Falta concluir a publicação do ZIP numa vaga gratuita.":"Configure o token do Discord e envie o ZIP para criar a segunda bot.")+'</strong><small>'+escapeHtml(companionProviderName)+' · '+(companionHasServer?"ID vinculado: "+String(companion?.providerAppId||companion?.hostingDeploymentId):"O CAOS permanece separado e não será alterado.")+'</small></div>'+
+ '<div class="companion-setup"><div class="companion-setup-title"><span>CONFIGURAÇÃO E ARQUIVOS</span><small>Token + ZIP</small></div>'+
+ '<p class="muted small">Cole o token uma vez e escolha o ZIP. O Estúdio procura uma vaga gratuita já conectada; não pede outra chave e não inicia plano pago.</p>'+
+ '<div class="project-note" id="companionHostingState"><strong>'+escapeHtml(freeText)+'</strong><br><small>O limite do ZIP e a vaga disponível dependem do provedor gratuito.</small></div>'+
  '<form id="companionDeployForm" class="grid settings-grid" style="margin-top:12px">'+
- '<div class="field" style="grid-column:1/-1"><label>BOT TOKEN DO DISCORD</label><input id="companionBotToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="'+(companion?.hasDiscordToken?"Token já protegido · deixe vazio para manter":"Cole o Bot Token do Discord")+'" '+(companion?.hasDiscordToken?"":"required")+'></div>'+
+ '<div class="field" style="grid-column:1/-1"><label>BOT TOKEN DO DISCORD</label><input id="companionBotToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="'+(companion?.hasDiscordToken?"Token protegido · deixe vazio para manter":"Cole o Bot Token do Discord")+'" '+(companion?.hasDiscordToken?"":"required")+'></div>'+
  '<div class="field" style="grid-column:1/-1"><label>ARQUIVO ZIP DO BOT</label><input id="companionBotZip" type="file" accept=".zip,application/zip,application/x-zip-compressed" required></div>'+
- '<div style="grid-column:1/-1"><button class="btn" id="companionDeployButton" type="submit">'+(companion?.hostingDeploymentId||companion?.providerAppId?"⇧ Enviar / atualizar ZIP da segunda bot":"▶ Validar token e colocar a segunda bot online")+'</button></div></form>'+
- '<div id="companionDeployStatus" class="project-note" style="margin-top:12px">'+(companion?.hostingDeploymentId||companion?.providerAppId?"Já existe um projeto da segunda bot. Envie um ZIP para atualizar os arquivos.":(companion?.hasDiscordToken?"O token já está salvo e protegido. Agora selecione o ZIP.":"O token será validado e protegido antes do envio do ZIP."))+'</div>'+
- '</section>'+
+ '<div style="grid-column:1/-1"><button class="btn" id="companionDeployButton" type="submit">'+(companionHasServer?"⇧ Enviar ZIP manualmente":"▶ Instalar segunda bot")+'</button></div></form>'+
+ '<div id="companionDeployStatus" class="companion-live-note" style="margin-top:12px">'+(companionHasServer?"A bot já tem hospedagem. O botão Atualizar permite enviar uma nova versão do ZIP.":(companion?.hasDiscordToken?"O token já está salvo e protegido. Selecione o ZIP para concluir a instalação.":"O token será validado e protegido antes do envio do ZIP."))+'</div>'+
+ '</div></section>'+
  '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Estado do CAOS</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+escapeHtml(status)+'</span></div>'+
  '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot CAOS")+'</strong><br>'+escapeHtml(note)+
  (r.runtime?.deploymentId?'<br>ID da hospedagem: <b>'+escapeHtml(r.runtime.deploymentId)+'</b>':"")+
@@ -1716,6 +1756,27 @@ const keritForm=$("#keritConnectForm");
   }finally{
    const current=$("#companionDeployButton");
    if(current){current.disabled=false;current.textContent=(state.companionBotId?"⇧ Enviar / atualizar ZIP da segunda bot":"▶ Validar token e colocar a segunda bot online");}
+  }
+ };
+ const companionStartButton=$("#companionStartButton");
+ if(companionStartButton)companionStartButton.onclick=()=>runCompanionPower("start");
+ const companionStopButton=$("#companionStopButton");
+ if(companionStopButton)companionStopButton.onclick=()=>runCompanionPower("stop");
+ const companionRefreshButton=$("#companionRefreshButton");
+ if(companionRefreshButton)companionRefreshButton.onclick=loadVerificationBotAdmin;
+ const companionUpdateButton=$("#companionUpdateButton");
+ if(companionUpdateButton)companionUpdateButton.onclick=()=>{
+  const zip=$("#companionBotZip"),form=$("#companionDeployForm");
+  if(!zip||!form)return;
+  if(zip.files?.length){form.requestSubmit();return;}
+  state.companionUpdatePicker=true;
+  zip.click();
+ };
+ const companionZipInput=$("#companionBotZip");
+ if(companionZipInput)companionZipInput.onchange=()=>{
+  if(state.companionUpdatePicker&&companionZipInput.files?.length){
+   state.companionUpdatePicker=false;
+   $("#companionDeployForm")?.requestSubmit();
   }
  };
  const verifyForm=$("#verificationBotConfigForm");
@@ -2690,11 +2751,12 @@ async function prepareFallbackArchive(file,status,maxBytes=5*1024*1024){
 async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
  const targetBot=state.bots.find(bot=>bot.id===id);
  const provider=String(targetBot?.hostingProvider||"").toLowerCase();
- const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(provider);
+ const existingProvider=!!targetBot?.providerAppId && ["discloud","cubecloud","squarecloud","aclclouds","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1","sillydev"].includes(provider);
  const isAclClouds=existingProvider&&provider==="aclclouds";
- const isPterodactyl=existingProvider&&["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(provider);
- if(!existingProvider){
-  throw new Error("Antes do envio, abra Hospedagem, conecte uma conta gratuita e vincule um servidor ao projeto. Se houver vaga automática Free na Cube Hosting ou Discloud, o Estúdio também poderá tentar usá-la.");
+ const isPterodactyl=existingProvider&&["keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1","sillydev"].includes(provider);
+ const newFreePoolProject=!targetBot?.providerAppId&&!targetBot?.hostingDeploymentId;
+ if(!existingProvider&&!newFreePoolProject){
+  throw new Error("Este projeto ainda não tem uma hospedagem compatível vinculada. Confira a conexão gratuita e tente novamente.");
  }
  const maxZipBytes=(isAclClouds||isPterodactyl)?25*1024*1024:5*1024*1024;
  if(status)status.textContent="Preparando uma cópia limpa do ZIP. O arquivo original no seu computador não será alterado…";
@@ -2716,7 +2778,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   });
   if(status)status.textContent="Enviando ZIP em partes: "+Math.round((index+1)/totalChunks*100)+"% ("+(index+1)+"/"+totalChunks+") · "+(prepared.blob.size/1024/1024).toFixed(2)+" MB";
  }
- if(status)status.textContent="Todas as partes chegaram. Enviando o ZIP à "+(isAclClouds?"ACLClouds Free":"hospedagem conectada")+"…";
+ if(status)status.textContent="Todas as partes chegaram. Procurando uma vaga gratuita e enviando o ZIP"+(existingProvider?" à "+provider:"")+"…";
  const result=await api("/bots/"+encodeURIComponent(id)+"/auto-upload",{
   method:"POST",
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
