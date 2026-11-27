@@ -647,7 +647,6 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
   <div class="nav-group"><div class="nav-title caps">Sistema</div>
    <button class="nav-btn" data-view="overview"><span>◫</span> Estatísticas</button>
    <button class="nav-btn" data-view="logs"><span>≋</span> Logs</button>
-   <button class="nav-btn" data-view="integrations"><span class="bz-nav-icon"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg></span> Hospedagens Free</button>
    <button class="nav-btn" data-view="decoration"><span>✧</span> Decoração</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Ajuda e conta</div>
@@ -838,7 +837,7 @@ $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#regi
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){if(state.adminPortal&&!["verificationAdmin","minecraftAdmin"].includes(view))return;if(!state.adminPortal&&["verificationAdmin","minecraftAdmin"].includes(view))return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();if(view==="minecraft")loadMinecraftStatus();if(view==="minecraftAdmin")loadMinecraftAdminConfig();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",backups:"Backups",docs:"Documentação",integrations:"Provedores",hosting:"Hospedagem",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"CAOS · ADM"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){if(state.adminPortal&&!["verificationAdmin","minecraftAdmin"].includes(view))return;if(!state.adminPortal&&["verificationAdmin","minecraftAdmin"].includes(view))return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();if(view==="minecraft")loadMinecraftStatus();if(view==="minecraftAdmin")loadMinecraftAdminConfig();const labels={overview:"Painel",bots:"Meus Bots",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",backups:"Backups",docs:"Documentação",hosting:"Infraestrutura",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",minecraft:"Minecraft",verificationAdmin:"CAOS · ADM",minecraftAdmin:"Minecraft · Administração"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
 
 function minecraftView(){
@@ -905,7 +904,7 @@ async function loadMinecraftAdminConfig(){
  }catch(error){if(note)note.textContent=error.message||"Não foi possível carregar as configurações.";}
 }
 
-function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,backups:backupsView,docs:docsView,integrations:integrationsView,hosting:hostingView,minecraft:minecraftView,minecraftAdmin:minecraftAdminView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
+function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,backups:backupsView,docs:docsView,hosting:hostingView,minecraft:minecraftView,minecraftAdmin:minecraftAdminView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 
 const DECORATION_OPTIONS=[
  {id:"dragon",name:"Dragão Violeta",tag:"🐉 · DRAGÃO ABISSAL",description:"Dragão roxo, sombras profundas, fumaça e brilho violeta.",symbol:"🐉",scene:"decor-scene-dragon",wallpaper:"/themes/dragon.svg",emojis:"🐉 ⚔️ 🌑 ✦"},
@@ -965,7 +964,7 @@ function overviewView(){
   '<section class="cosmic-hero"><div class="cosmic-hero-copy"><div class="cosmic-kicker"><i></i> CENTRAL DE CONTROLE · BLACK ZONE</div><p>Bem-vindo(a) de volta,</p><h1>BLACK ZONE <em>ESTÚDIO</em></h1><div class="cosmic-subtitle">Sua central de hospedagem e gerenciamento de bots</div>'+
   '<div class="cosmic-badges"><span><b>◈</b>'+online+' online</span><span><b>⚡</b>'+bots.length+' projetos</span><span><b>✧</b>'+activeModules+' módulos ativos</span><span><b>⬡</b>'+"Hospedagem automática"+'</span></div><div class="theme-emoji-line" id="themeEmojiLine"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-fox"></use></svg><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-cat"></use></svg><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-rocket"></use></svg></div></div><div class="cosmic-planet"><div class="planet-ring"></div><div class="planet-core"></div><div class="cosmic-astronaut"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-bot"></use></svg></div><div class="planet-spark spark-a">✦</div><div class="planet-spark spark-b">✧</div></div></section>'+
   '<section class="dashboard-panel quick-panel"><div class="dashboard-panel-head"><div><small>ATALHOS</small><h2>Ações rápidas</h2></div></div><div class="quick-action-grid">'+
-   '<button data-action="create-bot" class="quick-action quick-purple"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-bot"></use></svg></span>Novo bot</button><button data-view="files" class="quick-action quick-blue"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg></span>Arquivos</button><button data-view="logs" class="quick-action quick-cyan"><span>›_</span>Terminal / logs</button><button data-view="templates" class="quick-action quick-orange"><span>▧</span>Modelos</button><button data-view="hosting" class="quick-action quick-violet"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-rocket"></use></svg></span>Hospedagem</button><button data-view="integrations" class="quick-action quick-violet"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-shield"></use></svg></span>Hospedagens Free</button>'+
+   '<button data-action="create-bot" class="quick-action quick-purple"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-bot"></use></svg></span>Novo bot</button><button data-view="files" class="quick-action quick-blue"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg></span>Arquivos</button><button data-view="logs" class="quick-action quick-cyan"><span>›_</span>Terminal / logs</button><button data-view="templates" class="quick-action quick-orange"><span>▧</span>Modelos</button><button data-view="hosting" class="quick-action quick-violet"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-rocket"></use></svg></span>Infraestrutura</button>'+
   '</div></section>'+
   '<section class="dashboard-panel bots-panel"><div class="dashboard-panel-head"><div><small>SEUS PROJETOS</small><h2>Meus bots</h2></div><div class="panel-head-actions"><span class="small-muted">'+bots.length+' cadastrados</span><button class="icon-button" id="refreshBots">↻</button></div></div>'+
    (bots.length?'<div class="dashboard-bot-list">'+bots.map(botCard).join("")+'</div>':'<div class="dashboard-empty empty-create"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-fox"></use></svg></span><b>Seu universo começa aqui</b><p>Crie seu primeiro bot para configurar o token, selecionar módulos e conectar a hospedagem.</p><button class="btn btn-bright" id="addBot">＋ Criar primeiro bot</button></div>')+
@@ -1689,8 +1688,7 @@ function settingsView(){
 function bindView(){
  if(state.view==="settings"){loadSettingsHostingState();}
  
- if(state.view==="fleet")loadFleetProviders();
-  if(state.view==="hosting")loadHostingPoolOverview();
+
  const discloudForm=$("#discloudConnectForm");
  if(discloudForm)discloudForm.onsubmit=async e=>{
   e.preventDefault();
