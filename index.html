@@ -988,10 +988,9 @@ function botStatusLabel(b){
 async function deleteBotProject(id,button){
  const bot=state.bots.find(item=>item.id===id);
  if(!bot)return;
- const externalHostNames={sillydev:"Silly Development",keritcloud:"Kerit Cloud",cogithost:"Cogithost",waifly:"Waifly",xsystems:"X Systems Hosting",torchlite:"Torchlite",daki:"Daki Hosting",unixsys:"Unixsys",consolex1:"ConsoleX1"};
- const retainedHost=externalHostNames[bot.hostingProvider]||"";
- const confirmText=retainedHost
-  ?"Excluir o projeto \""+(bot.name||"Bot")+"\" do Estúdio? O servidor "+retainedHost+" será parado, mas permanecerá na sua conta externa. Para liberar a vaga, exclua-o também no painel do provedor."
+ const externalAccount=["sillydev","keritcloud","cogithost","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(String(bot.hostingProvider||"").toLowerCase());
+ const confirmText=externalAccount
+  ?"Excluir o projeto \""+(bot.name||"Bot")+"\" do Estúdio? O servidor vinculado será parado, mas poderá continuar na conta de execução. Para liberar a vaga, remova-o também no painel dessa conta."
   :"Excluir o projeto \""+(bot.name||"Bot")+"\"? Se a hospedagem for exclusiva, o Estúdio também tentará parar e remover o servidor. Esta ação não pode ser desfeita.";
  if(!window.confirm(confirmText))return;
  const original=button?.textContent||"Excluir";
@@ -1000,8 +999,8 @@ async function deleteBotProject(id,button){
   const result=await api("/bots/"+encodeURIComponent(id),{method:"DELETE"});
   state.activeBot=state.activeBot===id?null:state.activeBot;
   await loadBots();
-  if(result.externalServerRetained)toast("Projeto removido do Estúdio. O servidor externo foi parado e continua na sua conta; exclua-o no painel do provedor se quiser liberar a vaga.");
-  else if(result.sharedDeploymentRetained)toast("Projeto removido do painel. A hospedagem foi mantida porque ainda é compartilhada com outro serviço.");
+  if(result.externalServerRetained)toast("Projeto removido do Estúdio. O servidor vinculado foi parado e continua na conta de execução; remova-o no painel correspondente se quiser liberar a vaga.");
+  else if(result.sharedDeploymentRetained)toast("Projeto removido do painel. A infraestrutura foi mantida porque ainda é compartilhada com outro serviço.");
   else toast(result.deploymentDeleted?"Projeto e hospedagem removidos com sucesso.":"Projeto removido do painel.");
   if(state.view==="overview")loadDashboardPanels();
  }catch(error){
@@ -1247,27 +1246,26 @@ function filesView(){
 function logsView(){
  const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
  if(!bot)return pageHead("Terminal e registros","A saída do processo aparecerá quando houver um bot cadastrado.")+'<div class="dashboard-empty">Nenhum bot cadastrado.</div>';
- return pageHead("Terminal e registros","Consulte os logs e execute comandos no container da hospedagem.",'<button class="btn secondary" id="refreshLogs">↻ Atualizar logs</button>')+
+ const limited=["squarecloud","discloud","cubecloud","cogithost","sillydev"].includes(String(bot.hostingProvider||""));
+ return pageHead("Terminal e registros","Consulte os logs e execute comandos quando a infraestrutura vinculada permitir.",'<button class="btn secondary" id="refreshLogs">↻ Atualizar logs</button>')+
  '<section class="dashboard-panel logs-full"><div class="field"><label>PROJETO</label><select id="logsBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div>'+
  '<div class="terminal-window"><div class="terminal-top"><i></i><i></i><i></i><span>black-zone · logs do processo</span></div><div id="logsArea" class="terminal-content"><div class="dashboard-empty">Selecione um projeto e atualize os logs.</div></div></div>'+
- ((bot.hostingProvider==="squarecloud"||bot.hostingProvider==="discloud"||bot.hostingProvider==="cubecloud"||bot.hostingProvider==="cogithost"||bot.hostingProvider==="sillydev")
-  ? '<div class="project-note">'+(bot.hostingProvider==="sillydev"?'O Estúdio envia ZIPs, consulta recursos e controla a energia do Silly Development. Para acompanhar o console ao vivo, abra o painel Silly Development.':(bot.hostingProvider==="cogithost"?'O gerenciador de arquivos e os controles de energia do Cogithost estão ligados ao Estúdio. O console ao vivo fica no painel Cogithost; a API Client não fornece terminal HTTP.':(bot.hostingProvider==="cubecloud"?'O Estúdio usa a API da Cube Hosting para arquivos (quando o plano permite), logs e controles de iniciar/parar/reiniciar. O terminal interativo não está ligado.':(bot.hostingProvider==="squarecloud"?'A API da Square Cloud não oferece terminal de comandos no painel. Você continua com acesso aos logs, navegador de arquivos, edição, download e controles de iniciar/parar/reiniciar.':'A integração Discloud mantém logs e controles de iniciar/parar. O terminal e o gerenciador de arquivos completos não estão disponíveis pela API pública no Estúdio.'))))+'</div>'
-  : '<div class="shell-panel"><div class="dashboard-panel-head"><div><small>TERMINAL DO CONTAINER</small><h2>Executar comando</h2></div><span class="small-muted">Shell da hospedagem</span></div><div class="shell-command-row"><input id="shellCommand" spellcheck="false" placeholder="Ex.: python --version ou ls -la"><button class="btn" id="shellRun">Executar ↗</button></div><pre class="shell-output" id="shellOutput">O terminal executa comandos no container deste bot; não é o stdin do processo Discord.</pre></div>')+'</section>';
-}function backupsView(){
+ (limited?'<div class="project-note">Esta conexão oferece logs e controles de execução compatíveis. O terminal interativo não está disponível nesta modalidade; os recursos podem variar conforme a infraestrutura vinculada.</div>':'<div class="shell-panel"><div class="dashboard-panel-head"><div><small>TERMINAL DO CONTAINER</small><h2>Executar comando</h2></div><span class="small-muted">Shell da hospedagem</span></div><div class="shell-command-row"><input id="shellCommand" spellcheck="false" placeholder="Ex.: python --version ou ls -la"><button class="btn" id="shellRun">Executar ↗</button></div><pre class="shell-output" id="shellOutput">O terminal executa comandos no container deste bot; não é o stdin do processo Discord.</pre></div>')+'</section>';
+}
+function backupsView(){
  const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
  if(!bot)return pageHead("Backups e restauração","Nenhum bot cadastrado.")+'<div class="dashboard-empty">Crie um bot para usar esta área.</div>';
- if(bot.hostingProvider==="discloud")return pageHead("Backups e restauração","A hospedagem atual é Discloud.")+'<div class="dashboard-empty">Use o <a href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer">Dashboard da Discloud</a> para consultar e criar backups desta aplicação.</div>';
- if(bot.hostingProvider==="squarecloud")return pageHead("Backups e restauração","A hospedagem atual é Square Cloud.")+'<div class="dashboard-empty">Os snapshots da Square Cloud ainda não foram ligados a esta tela. Os arquivos podem ser exportados pelo gerenciador de arquivos do Estúdio; use Arquivos → Exportar ZIP para guardar uma cópia do projeto.</div>';
- if(bot.hostingProvider==="cubecloud")return pageHead("Backups e restauração","A hospedagem atual é Cube Hosting.")+'<div class="dashboard-empty">Backups da Cube Hosting ainda não estão ligados a esta tela. Use o painel Cube para gerenciar cópias; no Free, o explorador de arquivos não está incluído.</div>';
- if(bot.hostingProvider==="cogithost")return pageHead("Backups e restauração","A hospedagem atual é Cogithost.")+'<div class="dashboard-empty">Use o painel Cogithost para criar backups e fazer a verificação periódica do servidor.</div>';
+ const remoteSnapshotsUnsupported=["discloud","squarecloud","cubecloud","cogithost"].includes(String(bot.hostingProvider||""));
+ if(remoteSnapshotsUnsupported)return pageHead("Backups e restauração","Os snapshots automáticos não estão disponíveis nesta conexão.")+'<div class="dashboard-empty">Use Arquivos → ZIP para guardar uma cópia do projeto. Os backups mantidos pelo serviço de execução dependem dos recursos da infraestrutura vinculada.</div>';
  if(!bot.hostingDeploymentId)return pageHead("Backups e restauração","Exporte uma cópia quando a hospedagem estiver preparada.")+'<div class="dashboard-empty">Prepare a hospedagem deste bot primeiro.</div>';
- return pageHead("Backups e restauração","Crie um ZIP para baixar ao seu computador ou restaure um ponto automático do Bot-Hosting.")+
- '<section class="dashboard-panel"><div class="backup-toolbar"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="backup-toolbar-actions"><button class="btn" id="backupManualCreate">↓ Criar e baixar ZIP</button><button class="btn secondary" id="backupRefresh">↻ Atualizar pontos</button></div></div><div id="backupStatus" class="project-note">O ZIP manual é uma cópia dos arquivos atuais. Os pontos de restauração automáticos são fornecidos pelo Bot-Hosting.</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Consultando pontos de restauração…</div></div></section>';
+ return pageHead("Backups e restauração","Crie um ZIP para baixar ao seu computador ou consulte os pontos de restauração disponíveis.")+
+ '<section class="dashboard-panel"><div class="backup-toolbar"><div class="field"><label>PROJETO</label><select id="backupBotSelect">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select></div><div class="backup-toolbar-actions"><button class="btn" id="backupManualCreate">↓ Criar e baixar ZIP</button><button class="btn secondary" id="backupRefresh">↻ Atualizar pontos</button></div></div><div id="backupStatus" class="project-note">O ZIP manual é uma cópia dos arquivos atuais. Os pontos de restauração automáticos dependem da infraestrutura vinculada.</div><div class="backup-list" id="backupList"><div class="dashboard-empty">Consultando pontos de restauração…</div></div></section>';
 }
+
 async function loadSettingsHostingState(){
  const node=$("#settingsHostingState"),discordNode=$("#settingsDiscordOAuthState"),discordButton=$("#connectDiscordAccount");
  if(node){
-  node.innerHTML="<strong>Consultando autorização…</strong><br>Verificando a conexão com o Bot-Hosting.";
+  node.innerHTML="<strong>Consultando autorização…</strong><br>Verificando sua conexão de execução.";
   try{
    const result=await api("/hosting/status");
    state.hosting=!!result.connected;state.hostingCanCreate=!!result.canCreateDeployments;
@@ -1275,10 +1273,10 @@ async function loadSettingsHostingState(){
     node.innerHTML='<strong>Hospedagem conectada com permissão de criação.</strong><br>O Estúdio pode criar, iniciar e controlar os servidores desta conta.';
     node.classList.remove("changes-pending");
    }else if(result.connected){
-    node.innerHTML='<strong>Conexão incompleta: falta liberar a criação de servidores.</strong><br>Reconecte usando o botão abaixo e confira se a tela de autorização inclui <b>credits:spend</b> e <b>deployments:write</b>.';
+    node.innerHTML='<strong>Conexão incompleta: falta liberar a criação de servidores.</strong><br>Reconecte e confira as permissões solicitadas na tela oficial de autorização.';
     node.classList.add("changes-pending");
    }else{
-    node.innerHTML="<strong>Autorização pendente.</strong><br>Conecte sua conta Bot-Hosting para criar e controlar os containers.";
+    node.innerHTML="<strong>Autorização pendente.</strong><br>Autorize sua conta de execução para criar e controlar seus projetos.";
     node.classList.add("changes-pending");
    }
   }catch(error){
