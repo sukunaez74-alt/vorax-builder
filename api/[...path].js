@@ -3916,7 +3916,7 @@ export async function onRequest(context) {
     }
     if (path === "/bots" && request.method === "POST") {
       const b = await body(request);
-      const name = String(b.name || "Novo bot").trim().slice(0, 48);
+      let name = String(b.name || "").trim().slice(0, 48);
       const projectType = b.projectType === "custom" ? "custom" : "standard";
       const runtime = projectType === "custom" && b.runtime === "nodejs" ? "nodejs" : "python";
       if (b.runtime && !["python","nodejs"].includes(b.runtime)) {
@@ -3931,6 +3931,8 @@ export async function onRequest(context) {
         prepared = await prepareDiscordBotToken(rawToken, env);
         if (!prepared.ok) return reply({ error: prepared.error }, prepared.status);
       }
+      if (!name) name = String(prepared?.identity?.botName || "Meu bot").trim().slice(0, 48) || "Meu bot";
+      if (name.length < 2) return reply({ error: "O nome identificado do bot é inválido. Informe um nome com pelo menos 2 caracteres." }, 400);
 
       const id = randomToken(12);
       const now = Date.now();
@@ -5078,18 +5080,47 @@ export async function onRequest(context) {
       }
 
       if (action === "auto-upload" && request.method === "POST") {
-        if (bot.project_type !== "custom" && !bot.custom_project) {
-          return reply({ code: "custom_project_required", error: "Este projeto precisa ser criado como Meu próprio bot antes de importar um ZIP." }, 409);
-        }
         try {
           const b = await body(request);
-          const archiveName = String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
+          const generatedStandard = b.generatedStandard === true &&
+            bot.project_type !== "custom" && !bot.custom_project;
+          if (!generatedStandard && bot.project_type !== "custom" && !bot.custom_project) {
+            return reply({ code: "custom_project_required", error: "Este projeto precisa ser um bot padrão gerado pelo Estúdio ou um projeto próprio com ZIP." }, 409);
+          }
+          if (generatedStandard && !bot.discord_token_enc) {
+            return reply({ code: "discord_token_missing", error: "Salve e valide primeiro o Bot Token do Discord." }, 409);
+          }
+          const archiveName = generatedStandard
+            ? "black-zone-caos.zip"
+            : String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
           const isPterodactylTarget = ["cogithost","sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(String(bot.hosting_provider || "").toLowerCase()) && !!bot.provider_app_id;
           const sillydevConnection = await env.DB.prepare("SELECT id FROM provider_connections WHERE user_id IN (?,?) AND provider='sillydev' LIMIT 1").bind(user.id, SHARED_HOSTING_OWNER_ID).first();
           const maxArchiveBytes = (isAclCloudsTarget || isPterodactylTarget || !!sillydevConnection) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
+          if (generatedStandard) {
+            if (!CAOS_MAIN_PY || CAOS_MAIN_PY.length < 10000 || !CAOS_REQUIREMENTS) {
+              return reply({ code: "standard_template_missing", error: "O modelo padrão do bot não está disponível nesta publicação. Atualize o Estúdio e tente novamente." }, 503);
+            }
+            const template = new JSZip();
+            template.file("main.py", CAOS_MAIN_PY);
+            template.file("requirements.txt", CAOS_REQUIREMENTS);
+            template.file(".env", [
+              "CAOS_MODULES={}",
+              "CAOS_SCHEDULE_ENABLED=0",
+              "CAOS_SCHEDULE_START=00:00",
+              "CAOS_SCHEDULE_END=23:59",
+              "TZ=America/Bahia",
+              "APP_URL=https://black-zone-estudio.vercel.app",
+              "BOT_NAME=" + String(bot.name || "Meu bot").replace(/[\\r\\n]/g, " ").slice(0, 80)
+            ].join("\\n") + "\\n");
+            archiveBytes = await template.generateAsync({
+              type: "uint8array",
+              compression: "DEFLATE",
+              compressionOptions: { level: 6 }
+            });
+          } else {
           const uploadId = String(b.uploadId || "");
           if (uploadId) {
             if (!/^[A-Za-z0-9_-]{16,80}$/.test(uploadId)) return reply({ error: "Identificador de envio inválido." }, 400);
@@ -5121,6 +5152,7 @@ export async function onRequest(context) {
           } else {
             archiveBytes = decodeBase64Bytes(b.archiveBase64);
           }
+          }
           if (archiveBytes.byteLength > maxArchiveBytes) {
             return reply({
               code: "fallback_zip_too_large",
@@ -5131,9 +5163,11 @@ export async function onRequest(context) {
           const currentProvider = String(bot.hosting_provider || "bot-hosting");
           const currentAppId = bot.provider_app_id ? String(bot.provider_app_id) : "";
           const squareToken = await providerToken(user.id, "squarecloud", env);
-          const discloudToken = await providerToken(user.id, "discloud", env);
-          const cubeToken = await providerToken(user.id, "cubecloud", env);
-          const sillydevToken = await providerToken(user.id, "sillydev", env);
+          // Para a frota compartilhada, tente primeiro as credenciais privadas
+          // do Estúdio quando o membro ainda não conectou uma conta própria.
+          const discloudToken = await providerTokenForPool(user.id, "discloud", env);
+          const cubeToken = await providerTokenForPool(user.id, "cubecloud", env);
+          const sillydevToken = await providerTokenForPool(user.id, "sillydev", env);
 
           // Preserve projetos existentes no provedor atual. Para novos projetos,
           // use somente provedores gratuitos autorizados e com vaga real.
