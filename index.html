@@ -838,10 +838,26 @@ document.addEventListener("change",async event=>{
   state.minecraftModServerId=event.target.value;
   state.minecraftSelectedMods={};
   await loadMinecraftModResults(true);
-  const server=(state.minecraftServers||[]).find(item=>item.id===state.minecraftModServerId),installedTarget=$("#minecraftModsInstalled");
+   const server=(state.minecraftServers||[]).find(item=>item.id===state.minecraftModServerId),installedTarget=$("#minecraftModsInstalled");
   const installed=Array.isArray(server?.installed_mods)?server.installed_mods:(typeof server?.installed_mods==="string"?JSON.parse(server.installed_mods||"[]"):[]);
+  state.minecraftModsInstalledCount=installed.length;
+  state.minecraftModsServerReady=["ready","running","stopped"].includes(String(server?.state||""));
   if(installedTarget)installedTarget.innerHTML=installed.length?'<div class="mc-installed-heading">Mods já registrados neste servidor</div><div class="mc-installed-list">'+installed.map(item=>'<span>'+escapeHtml(item.title||item.filename||"Mod")+'</span>').join("")+'</div>':'<div class="mc-installed-heading">Nenhum mod registrado ainda.</div>';
+  renderMinecraftModResults();
  }
+});
+
+document.addEventListener("click",async event=>{
+ const button=event.target.closest("#minecraftModsRestart");if(!button)return;
+ const serverId=state.minecraftModServerId,note=$("#minecraftModsNotice");
+ if(!serverId)return;
+ button.disabled=true;button.textContent="Enviando comando…";
+ if(note){note.className="notice";note.classList.remove("hidden");note.textContent="Consultando estado e enviando comando ao servidor…";}
+ try{
+  const result=await api("/minecraft/mods/power",{method:"POST",body:JSON.stringify({serverId})});
+  if(note){note.className="notice ok";note.textContent=result.message||"Comando enviado ao servidor.";}
+ }catch(error){if(note){note.className="notice error";note.textContent=error.message||"Não foi possível iniciar ou reiniciar o servidor."}}
+ finally{button.disabled=false;button.textContent="Iniciar / Reiniciar";}
 });
 
 async function boot(){const route=window.location.pathname.replace(/\/+$/,"")||"/";const portalEntry=route==="/app"||route==="/admin";try{const me=await api("/me");if(!me.gate){if(portalEntry)showGate();else showLanding();return}if(me.user){state.user=me.user;showApp()}else if(portalEntry)showAuth();else showLanding()}catch{if(portalEntry)showGate();else showLanding()}}
@@ -1001,7 +1017,7 @@ function minecraftModsView(){
  '<div id="minecraftModsWorkspace" class="hidden">'+
  '<div class="mc-mods-context" id="minecraftModsContext"></div>'+
  '<form id="minecraftModsSearchForm" class="mc-mods-search"><input id="minecraftModsQuery" type="search" placeholder="Pesquisar mods, por exemplo: minimap, biomes, storage…"><button class="btn" type="submit">Buscar mods</button></form>'+
- '<div class="mc-mods-selection"><span id="minecraftModsSelectedCount">0 mods selecionados</span><button class="btn" id="minecraftModsInstall" type="button" disabled>Instalar selecionados</button></div>'+
+ '<div class="mc-mods-selection"><span id="minecraftModsSelectedCount">0 mods selecionados</span><div class="mc-mods-actions"><button class="btn secondary" id="minecraftModsRestart" type="button" disabled>Iniciar / Reiniciar</button><button class="btn" id="minecraftModsInstall" type="button" disabled>Instalar selecionados</button></div></div>'+
  '<div id="minecraftModsNotice" class="notice hidden"></div>'+
  '<div id="minecraftModsInstalled" class="mc-mods-installed"></div>'+
  '<div id="minecraftModsResults" class="mc-mods-grid"><div class="dashboard-empty">Consultando o catálogo…</div></div>'+
@@ -1041,7 +1057,8 @@ function renderMinecraftModResults(){
  }).join(""):'<div class="dashboard-empty">Nenhum mod compatível encontrado com esses filtros.</div>';
  const count=Object.keys(selected).length, countNode=$("#minecraftModsSelectedCount"),install=$("#minecraftModsInstall");
  if(countNode)countNode.textContent=count+" mod(s) selecionado(s)";
- if(install){install.disabled=!count||!state.minecraftModsConfigured;install.textContent=count?(state.minecraftModsConfigured?"Instalar "+count+" mod(s) selecionado(s)":"Client API pendente no ADM"):"Instalar selecionados";}
+ if(install){install.disabled=!count||!state.minecraftModsConfigured||!state.minecraftModsServerReady;install.textContent=count?(state.minecraftModsConfigured?"Instalar "+count+" mod(s) selecionado(s)":"Client API pendente no ADM"):"Instalar selecionados";}
+ const restart=$("#minecraftModsRestart");if(restart){restart.disabled=!state.minecraftModsConfigured||!state.minecraftModsServerReady||!state.minecraftModsInstalledCount;restart.textContent=state.minecraftModsInstalledCount?"Iniciar / Reiniciar para aplicar":"Iniciar / Reiniciar";}
 }
 async function loadMinecraftMods(){
  const status=$("#minecraftModsStatus"),workspace=$("#minecraftModsWorkspace"),select=$("#minecraftModsServer");
@@ -1063,10 +1080,12 @@ async function loadMinecraftMods(){
   const current=servers.find(item=>item.id===state.minecraftModServerId)||servers[0];
   state.minecraftModServerId=current.id;select.value=current.id;
   state.minecraftSelectedMods=state.minecraftSelectedMods||{};
+  state.minecraftModsServerReady=["ready","running","stopped"].includes(String(current.state||""));
   workspace.classList.remove("hidden");
   status.className=data.modsConfigured?"notice ok":"notice warning";
   status.textContent=data.modsConfigured?"Escolha um servidor, pesquise e selecione os mods que deseja instalar.":"O catálogo está disponível, mas o ADM ainda precisa configurar a Client API para enviar arquivos ao servidor.";
   const installed=Array.isArray(current.installed_mods)?current.installed_mods:(typeof current.installed_mods==="string"?JSON.parse(current.installed_mods||"[]"):[]);
+  state.minecraftModsInstalledCount=installed.length;
   const installedTarget=$("#minecraftModsInstalled");
   if(installedTarget)installedTarget.innerHTML=installed.length?'<div class="mc-installed-heading">Mods já registrados neste servidor</div><div class="mc-installed-list">'+installed.map(item=>'<span>'+escapeHtml(item.title||item.filename||"Mod")+(item.dependencyOf?' <small>(dependência)</small>':'')+'</span>').join("")+'</div>':'<div class="mc-installed-heading">Nenhum mod registrado ainda.</div>';
   await loadMinecraftModResults(true);
