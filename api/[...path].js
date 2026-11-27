@@ -3028,22 +3028,36 @@ export async function onRequest(context) {
       if(!auth.user.email_verified_at)return reply({code:"email_verification_required",error:"Confirme seu e-mail antes de criar uma conta Minecraft."},403);
       const b=await body(request);if(b.consent!==true)return reply({error:"Confirme a criação da sua conta Minecraft para continuar."},400);
       const name=String(b.name||"").trim().replace(/\s+/g," ").slice(0,32),version=String(b.version||"").trim();
+      const serverType=b.serverType==="modded"?"modded":"vanilla";
+      const loader=serverType==="modded"?String(b.loader||"").toLowerCase():"";
       if(name.length<3||!/^[A-Za-z0-9 _-]{3,32}$/.test(name))return reply({error:"O nome do servidor deve ter de 3 a 32 caracteres e usar letras, números, espaço, _ ou -."},400);
-      if(!/^(latest|1\.\d{1,2}(?:\.\d{1,2})?)$/.test(version))return reply({error:"Escolha uma versão válida do Minecraft."},400);
+      if(!/^(latest|\d{1,2}(?:\.\d{1,2}){1,2})$/.test(version))return reply({error:"Escolha uma versão válida do Minecraft."},400);
+      if(serverType==="modded"&&(!MODRINTH_LOADERS.has(loader)||version==="latest"))return reply({error:"Para servidor com mods, escolha Fabric, Forge, NeoForge ou Quilt e uma versão específica do Minecraft."},400);
       const mc=await minecraftSettings(env);if(!minecraftConfigReady(mc))return reply({code:"minecraft_not_configured",error:"A hospedagem Minecraft ainda está sendo preparada pelo administrador."},503);
+      const loaderConfigs=mc?.loader_configs||{};
+      const loaderConfig=serverType==="modded"?loaderConfigs[loader]:null;
+      if(serverType==="modded"&&(!loaderConfig||Number(loaderConfig.eggId)<1))return reply({code:"minecraft_loader_not_configured",error:"O ADM ainda não preparou a instalação de "+loader+" para servidores com mods."},503);
+      const selectedConfig=loaderConfig||{};
+      const selectedEgg=Number(selectedConfig.eggId||mc.egg_id);
+      const selectedDocker=String(selectedConfig.dockerImage||mc.docker_image);
+      const selectedStartup=String(selectedConfig.startupCommand||mc.startup_command);
+      const selectedVersionEnv=String(selectedConfig.versionEnv||mc.version_env||"MINECRAFT_VERSION");
+      const baseEnvironment=typeof mc.environment_json==="string"?JSON.parse(mc.environment_json||"{}"):(mc.environment_json||{});
+      const loaderEnvironment=selectedConfig.environment&&typeof selectedConfig.environment==="object"?selectedConfig.environment:{};
+      const selectedEnvironment={...baseEnvironment,...loaderEnvironment};
       try{
         const countRow=await env.DB.prepare("SELECT COUNT(*) AS total FROM minecraft_servers WHERE user_id=? AND state NOT IN ('deleted','error')").bind(auth.user.id).first();
         const limit=Number(mc.max_servers_per_user||1);
         let pending=await env.DB.prepare("SELECT * FROM minecraft_servers WHERE user_id=? AND state='creating' ORDER BY created_at DESC LIMIT 1").bind(auth.user.id).first();
         let localId,externalId;
         if(pending){
-          if(pending.name!==name||pending.version!==version)return reply({code:"minecraft_creation_pending",error:"Já existe uma criação em andamento. Atualize o status antes de iniciar outra."},409);
+          if(pending.name!==name||pending.version!==version||pending.server_type!==serverType||String(pending.mod_loader||"")!==loader)return reply({code:"minecraft_creation_pending",error:"Já existe uma criação em andamento com outra configuração. Atualize o status antes de iniciar outra."},409);
           localId=pending.id;externalId=pending.external_id;
         }else{
           if(Number(countRow?.total||0)>=limit)return reply({error:"Você atingiu o limite de servidores da sua conta."},409);
           localId=randomToken(12);externalId="bz-"+String(auth.user.id).replace(/[^a-z0-9]/gi,"").slice(0,18)+"-"+localId;
-          await env.DB.prepare("INSERT INTO minecraft_servers (id,user_id,external_id,name,version,state,created_at,updated_at) VALUES (?,?,?,?,?,'creating',?,?)")
-            .bind(localId,auth.user.id,externalId,name,version,Date.now(),Date.now()).run();
+          await env.DB.prepare("INSERT INTO minecraft_servers (id,user_id,external_id,name,version,server_type,mod_loader,state,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'creating',?,?)")
+            .bind(localId,auth.user.id,externalId,name,version,serverType,loader||null,Date.now(),Date.now()).run();
         }
         let panelUser=await env.DB.prepare("SELECT panel_user_id,panel_username FROM minecraft_accounts WHERE user_id=?").bind(auth.user.id).first();
         if(!panelUser){
@@ -3071,11 +3085,10 @@ export async function onRequest(context) {
         try{const known=await minecraftPanelRequest(mc,env,"/servers/external/"+encodeURIComponent(externalId));remoteServer=known.attributes||known.data?.attributes||known.data||known;}
         catch(error){if(error.status!==404)throw error;}
         if(!remoteServer){
-          const baseEnv=typeof mc.environment_json==="string"?JSON.parse(mc.environment_json||"{}"):(mc.environment_json||{});
-          const environment={...baseEnv,[String(mc.version_env||"MINECRAFT_VERSION")]:version};
+          const environment={...selectedEnvironment,[selectedVersionEnv]:version};
           const created=await minecraftPanelRequest(mc,env,"/servers","POST",{
-            external_id:externalId,name,user:panelUser.panel_user_id,egg:Number(mc.egg_id),docker_image:mc.docker_image,
-            startup:mc.startup_command,environment,
+            external_id:externalId,name,user:panelUser.panel_user_id,egg:selectedEgg,docker_image:selectedDocker,
+            startup:selectedStartup,environment,
             limits:{memory:Number(mc.memory_mb),swap:0,disk:Number(mc.disk_mb),io:500,cpu:Number(mc.cpu_percent)},
             feature_limits:{databases:0,backups:1,allocations:1},
             allocation:{default:Number(mc.allocation_id)},
@@ -3086,14 +3099,14 @@ export async function onRequest(context) {
         if(!remoteServer?.id)throw new Error("O Pterodactyl não confirmou o identificador do servidor.");
         const alloc=remoteServer.allocation||{};
         const ip=alloc.ip||alloc.alias||null,port=alloc.port||null,now=Date.now();
-        await env.DB.prepare("UPDATE minecraft_servers SET panel_server_id=?,state='installing',allocation_ip=?,allocation_port=?,error_message=NULL,updated_at=? WHERE id=? AND user_id=?")
-          .bind(remoteServer.id,ip,port,now,localId,auth.user.id).run();
+        await env.DB.prepare("UPDATE minecraft_servers SET panel_server_id=?,panel_server_identifier=?,state='installing',allocation_ip=?,allocation_port=?,error_message=NULL,updated_at=? WHERE id=? AND user_id=?")
+          .bind(remoteServer.id,remoteServer.identifier||remoteServer.uuid||null,ip,port,now,localId,auth.user.id).run();
         let emailNotice="A conta individual do painel Minecraft foi criada com seu e-mail. Para definir a senha, use “Esqueci minha senha” no painel, caso o administrador tenha habilitado o envio de redefinição.";
         try{
           await sendStudioEmail(env,auth.user.email,"Sua conta Minecraft está sendo preparada",
             '<div style="font-family:Arial,sans-serif;background:#09060e;color:#eee;padding:24px;border-radius:12px"><h2 style="color:#c28aff">BLACK ZONE · MINECRAFT</h2><p>Seu servidor <b>'+name.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))+'</b> foi criado e está em instalação.</p><p>Versão: '+version+'</p><p>Conta do painel: '+auth.user.email+'</p><p>Abra <a style="color:#cf9aff" href="'+String(mc.panel_url).replace(/"/g,"")+'">'+String(mc.panel_url).replace(/"/g,"")+'</a> e use “Esqueci minha senha” para definir seu acesso, se o painel tiver e-mail transacional configurado.</p></div>');
         }catch(error){emailNotice="O servidor foi solicitado, mas o e-mail de aviso não foi enviado. "+String(error.message||"");}
-        return reply({ok:true,server:{id:localId,name,version,state:"installing",address:ip,port},message:"Conta criada e servidor enviado para instalação. "+emailNotice},202);
+        return reply({ok:true,server:{id:localId,name,version,serverType,loader:loader||null,state:"installing",address:ip,port},message:"Conta criada e servidor enviado para instalação. "+emailNotice},202);
       }catch(error){
         await env.DB.prepare("UPDATE minecraft_servers SET error_message=?,updated_at=? WHERE user_id=? AND state='creating'").bind(String(error.message||"Falha na criação").slice(0,800),Date.now(),auth.user.id).run().catch(()=>{});
         return reply({code:"minecraft_creation_failed",error:error.message||"Não foi possível criar o servidor. O pedido foi preservado para evitar duplicidade."},502);
