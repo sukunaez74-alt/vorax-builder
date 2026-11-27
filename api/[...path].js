@@ -3020,6 +3020,10 @@ export async function onRequest(context) {
         for(const projectId of modIds)await resolveMinecraftMod(projectId,mcVersion,String(server.mod_loader),ctx);
         const pending=ctx.files.filter(file=>!existingVersions.has(String(file.versionId)));
         if(!pending.length)return reply({ok:true,installed:0,message:"Todos os mods selecionados já aparecem como instalados neste servidor.",mods:installed});
+        const rootFiles=await minecraftClientRequest(mc,env,"/servers/"+encodeURIComponent(identifier)+"/files/list?directory=%2F");
+        const rootItems=Array.isArray(rootFiles.data)?rootFiles.data:[];
+        const modsFolder=rootItems.some(item=>item.attributes?.name==="mods"&&item.attributes?.is_file===false);
+        if(!modsFolder)await minecraftClientRequest(mc,env,"/servers/"+encodeURIComponent(identifier)+"/files/create-folder","POST",{root:"/",name:"mods"});
         const completed=[];
         for(const file of pending){
           await minecraftClientRequest(mc,env,"/servers/"+encodeURIComponent(identifier)+"/files/pull","POST",{
