@@ -4012,7 +4012,7 @@ export async function onRequest(context) {
           const savedChunks = await env.DB.prepare(
             "SELECT chunk_index,total_chunks,chunk_base64 FROM bot_upload_chunks WHERE user_id=? AND bot_id=? AND upload_id=? ORDER BY chunk_index ASC"
           ).bind(user.id, id, uploadId).all();
-          const savedRows = Array.isArray(savedChunks) ? savedChunks : [];
+          const savedRows = Array.isArray(savedChunks) ? savedChunks : (Array.isArray(savedChunks?.results) ? savedChunks.results : []);
           if (savedRows.length === totalChunks && savedRows.every((part, position) =>
             Number(part.chunk_index) === position && Number(part.total_chunks) === totalChunks
           )) {
