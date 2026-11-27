@@ -729,10 +729,11 @@ document.addEventListener("submit",async e=>{
  e.preventDefault();const form=e.target,fd=new FormData(form),note=$("#mcAdminNotice");
  try{
   const environment=JSON.parse(String(fd.get("environment")||"{}"));
-  const payload={resendApiKey:fd.get("resendApiKey"),fromEmail:fd.get("fromEmail"),panelUrl:fd.get("panelUrl"),panelApplicationKey:fd.get("panelApplicationKey"),eggId:Number(fd.get("eggId")),allocationId:Number(fd.get("allocationId")),dockerImage:fd.get("dockerImage"),startupCommand:fd.get("startupCommand"),environment,versionEnv:fd.get("versionEnv"),memoryMb:Number(fd.get("memoryMb")),diskMb:Number(fd.get("diskMb")),cpuPercent:Number(fd.get("cpuPercent")),maxServersPerUser:Number(fd.get("maxServersPerUser"))};
+  const loaderConfigs=JSON.parse(String(fd.get("loaderConfigs")||"{}"));
+  const payload={resendApiKey:fd.get("resendApiKey"),fromEmail:fd.get("fromEmail"),panelUrl:fd.get("panelUrl"),panelApplicationKey:fd.get("panelApplicationKey"),panelClientApiKey:fd.get("panelClientApiKey"),loaderConfigs,eggId:Number(fd.get("eggId")),allocationId:Number(fd.get("allocationId")),dockerImage:fd.get("dockerImage"),startupCommand:fd.get("startupCommand"),environment,versionEnv:fd.get("versionEnv"),memoryMb:Number(fd.get("memoryMb")),diskMb:Number(fd.get("diskMb")),cpuPercent:Number(fd.get("cpuPercent")),maxServersPerUser:Number(fd.get("maxServersPerUser"))};
   await api("/admin/minecraft/config",{method:"POST",body:JSON.stringify(payload)});
   if(note){note.className="notice ok mc-full";note.textContent="Configurações salvas com segurança. Agora execute os testes.";}
-  form.elements.namedItem("resendApiKey").value="";form.elements.namedItem("panelApplicationKey").value="";
+  form.elements.namedItem("resendApiKey").value="";form.elements.namedItem("panelApplicationKey").value="";form.elements.namedItem("panelClientApiKey").value="";
  }catch(error){if(note){note.className="notice error mc-full";note.textContent=error.message||"Falha ao salvar.";} }
 });
 document.addEventListener("click",async e=>{
@@ -996,7 +997,6 @@ async function loadMinecraftMods(){
   await loadMinecraftModResults(true);
  }catch(error){workspace.classList.add("hidden");status.className="notice error";status.textContent=error.message||"Não foi possível carregar os servidores com mods.";}
 }
-async function loadMinecraftAdminConfig()
 async function loadMinecraftAdminConfig(){
  const form=$("#mcAdminConfigForm");if(!form)return;
  const note=$("#mcAdminNotice");
@@ -1006,9 +1006,10 @@ async function loadMinecraftAdminConfig(){
    fromEmail:c.fromEmail||"",panelUrl:c.panelUrl||"",eggId:c.eggId||"",allocationId:c.allocationId||"",
    dockerImage:c.dockerImage||"ghcr.io/pterodactyl/yolks:java_21",startupCommand:c.startupCommand||"java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar {{SERVER_JARFILE}}",
    environment:JSON.stringify(c.environment||{},null,2),versionEnv:c.versionEnv||"MINECRAFT_VERSION",
+   panelClientApiKey:"",loaderConfigs:JSON.stringify(c.loaderConfigs||{},null,2),
    memoryMb:c.memoryMb||2048,diskMb:c.diskMb||10240,cpuPercent:c.cpuPercent||200,maxServersPerUser:c.maxServersPerUser||1
   })){const field=form.elements.namedItem(name);if(field)field.value=value;}
-  if(note)note.textContent="E-mail: "+(c.emailConfigured?"configurado":"pendente")+" · Pterodactyl: "+(c.minecraftConfigured?"configurado":"pendente")+". As chaves salvas ficam ocultas.";
+  if(note)note.textContent="E-mail: "+(c.emailConfigured?"configurado":"pendente")+" · Pterodactyl: "+(c.minecraftConfigured?"configurado":"pendente")+" · Client API de arquivos: "+(c.clientApiKeyConfigured?"configurada":"pendente")+" · Loaders: "+(c.moddedLoaders||[]).join(", ").toUpperCase()+". As chaves salvas ficam ocultas.";
  }catch(error){if(note)note.textContent=error.message||"Não foi possível carregar as configurações.";}
 }
 
