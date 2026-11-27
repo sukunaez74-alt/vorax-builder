@@ -597,8 +597,14 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
    <form id="loginForm"><div class="field"><label>E-MAIL OU USUÁRIO</label><input name="identity" autocomplete="username" required placeholder="Seu e-mail ou usuário"></div><div class="field"><label>SENHA</label><input name="password" type="password" autocomplete="current-password" required placeholder="Sua senha"></div><button class="btn wide">Entrar na conta</button></form>
    <div class="auth-links"><button class="link" id="showRegister">Criar uma conta</button><span class="muted">Acesso pelo estúdio</span></div>
   </div>
-  <div id="registerPane" class="hidden"><h1>Crie seu acesso.</h1><p>Seus dados ficam vinculados à sua conta do estúdio.</p>
+  <div id="registerPane" class="hidden"><h1>Crie seu acesso.</h1><p>Seu e-mail é obrigatório. Enviaremos um código para confirmar que ele é seu antes de criar a conta.</p>
    <form id="registerForm"><div class="field"><label>NOME COMPLETO</label><input name="name" required autocomplete="name"></div><div class="field"><label>NOME DE USUÁRIO</label><input name="username" required minlength="3" autocomplete="username"></div><div class="field"><label>E-MAIL</label><input name="email" type="email" required autocomplete="email"></div><div class="field"><label>SENHA</label><input name="password" type="password" minlength="10" required autocomplete="new-password"></div><div class="field"><label>CONFIRMAR SENHA</label><input name="confirm" type="password" minlength="10" required autocomplete="new-password"></div><button class="btn wide">Criar minha conta</button></form>
+   <div id="registerCodePane" class="hidden">
+    <div class="notice ok" id="registerCodeMessage">Enviamos um código para seu e-mail. Digite os 6 números para confirmar.</div>
+    <p id="registerCodeTarget" class="muted small"></p>
+    <form id="registerVerifyForm"><div class="field"><label>CÓDIGO DE 6 DÍGITOS</label><input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" minlength="6" pattern="[0-9]{6}" required placeholder="000000"></div><button class="btn wide">Confirmar e criar minha conta</button></form>
+    <div class="auth-links"><button class="link" type="button" id="resendRegisterCode">Reenviar código</button><button class="link" type="button" id="cancelRegisterCode">Cancelar</button></div>
+   </div>
    <div class="auth-links"><button class="link" id="showLogin">Já tenho uma conta</button><span class="muted">Cadastro do estúdio</span></div>
   </div><div id="authNotice" class="notice hidden"></div>
  </div>
@@ -609,9 +615,9 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
   <div class="brand"><div class="brand-mark">✦</div><div class="brand-name">ʙʟᴀᴄᴋ ᴢᴏɴᴇ<br><span class="caps">ESTÚDIO</span></div></div>
   <div class="nav-group"><div class="nav-title caps">Principal</div>
    <button class="nav-btn active" data-view="overview"><span>⌂</span> Painel</button>
-   <button class="nav-btn" data-view="bots"><span>◈</span> Meus Bots</button>
-   <button class="nav-btn" data-view="fleet"><span>▦</span> Frota em lote</button>
-   <button class="nav-btn" data-view="hosting"><span>⌁</span> Hospedagem</button>
+   <button class="nav-btn" data-view="bots"><span>◈</span> Meus Bots</button><button class="nav-btn" data-view="minecraft"><span>⛏</span> Minecraft</button>
+   
+   
    <button class="nav-btn" data-view="files"><span>▤</span> Arquivos</button>
    <button class="nav-btn" data-view="logs"><span>›_</span> Terminal / Logs</button>
    <button class="nav-btn" data-view="settings"><span class="bz-nav-icon"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-shield"></use></svg></span> Minha conta</button>
@@ -693,16 +699,164 @@ const siteMenu=$("#siteMenuBtn");if(siteMenu)siteMenu.onclick=()=>$(".site-nav")
 document.addEventListener("keydown",event=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"){event.preventDefault();$("#dashboardSearch")?.focus()}});
 document.addEventListener("input",event=>{if(event.target?.id==="dashboardSearch"){const q=event.target.value.toLowerCase();document.querySelectorAll("[data-search-bot]").forEach(card=>card.classList.toggle("search-hidden",!card.dataset.searchBot.toLowerCase().includes(q)))}});
 document.querySelectorAll(".site-nav a").forEach(a=>a.addEventListener("click",()=>$(".site-nav").classList.remove("open")));
+
+/* data-minecraft-delegates */
+document.addEventListener("submit",async e=>{
+ if(e.target?.id!=="mcAdminConfigForm")return;
+ e.preventDefault();const form=e.target,fd=new FormData(form),note=$("#mcAdminNotice");
+ try{
+  const environment=JSON.parse(String(fd.get("environment")||"{}"));
+  const payload={resendApiKey:fd.get("resendApiKey"),fromEmail:fd.get("fromEmail"),panelUrl:fd.get("panelUrl"),panelApplicationKey:fd.get("panelApplicationKey"),eggId:Number(fd.get("eggId")),allocationId:Number(fd.get("allocationId")),dockerImage:fd.get("dockerImage"),startupCommand:fd.get("startupCommand"),environment,versionEnv:fd.get("versionEnv"),memoryMb:Number(fd.get("memoryMb")),diskMb:Number(fd.get("diskMb")),cpuPercent:Number(fd.get("cpuPercent")),maxServersPerUser:Number(fd.get("maxServersPerUser"))};
+  await api("/admin/minecraft/config",{method:"POST",body:JSON.stringify(payload)});
+  if(note){note.className="notice ok mc-full";note.textContent="Configurações salvas com segurança. Agora execute os testes.";}
+  form.elements.namedItem("resendApiKey").value="";form.elements.namedItem("panelApplicationKey").value="";
+ }catch(error){if(note){note.className="notice error mc-full";note.textContent=error.message||"Falha ao salvar.";} }
+});
+document.addEventListener("click",async e=>{
+ const button=e.target.closest("[data-minecraft-action],#mcAdminTestEmail,#mcAdminTestPanel");
+ if(!button)return;
+ if(button.id==="mcAdminTestEmail"||button.id==="mcAdminTestPanel"){
+  const note=$("#mcAdminNotice");button.disabled=true;
+  try{const result=await api(button.id==="mcAdminTestEmail"?"/admin/minecraft/test-email":"/admin/minecraft/test-panel",{method:"POST",body:"{}"});if(note){note.className="notice ok mc-full";note.textContent=result.message;}}
+  catch(error){if(note){note.className="notice error mc-full";note.textContent=error.message||"Falha no teste.";}}
+  finally{button.disabled=false;}
+  return;
+ }
+ const action=button.dataset.minecraftAction;
+ if(action==="send-code"){
+  button.disabled=true;
+  try{const result=await api("/email/verify/start",{method:"POST",body:"{}"});const form=$("#mcVerifyForm");if(form)form.classList.remove("hidden");const parent=button.parentElement;if(parent)parent.insertAdjacentHTML("beforeend",'<small class="mc-sent-note">Código enviado para '+escapeHtml(result.maskedEmail||"seu e-mail")+'. Confira também o spam.</small>');}
+  catch(error){const target=$("#minecraftStatus");if(target)target.insertAdjacentHTML("beforeend",'<div class="notice error">'+escapeHtml(error.message)+'</div>');}
+  finally{button.disabled=false;}
+ }else if(action==="confirm-code"){
+  const code=$("#mcVerifyCode")?.value||"";
+  try{await api("/email/verify/confirm",{method:"POST",body:JSON.stringify({code})});await loadMinecraftStatus();}
+  catch(error){const target=$("#minecraftStatus");if(target)target.insertAdjacentHTML("beforeend",'<div class="notice error">'+escapeHtml(error.message)+'</div>');}
+ }else if(action==="request-create"){
+  const data=await api("/minecraft/status").catch(()=>null);
+  if(!data?.emailVerified){await loadMinecraftStatus();return;}
+  const name=$("#minecraftName")?.value||"",version=$("#minecraftVersion")?.value||"latest";
+  if(name.trim().length<3){const target=$("#minecraftStatus");if(target)target.insertAdjacentHTML("beforeend",'<div class="notice error">Digite um nome com pelo menos 3 caracteres.</div>');return;}
+  const modal=$("#minecraftConsent");if(modal){modal.dataset.name=name;modal.dataset.version=version;modal.classList.remove("hidden");}
+ }else if(action==="cancel-consent"){
+  $("#minecraftConsent")?.classList.add("hidden");
+ }else if(action==="confirm-create"){
+  const modal=$("#minecraftConsent"),note=$("#minecraftCreateNotice");if(!modal)return;
+  const name=modal.dataset.name||"",version=modal.dataset.version||"latest";
+  button.disabled=true;button.textContent="Criando sua conta e solicitando servidor…";
+  try{
+   const result=await api("/minecraft/create",{method:"POST",body:JSON.stringify({name,version,consent:true})});
+   if(note){note.className="notice ok";note.textContent=result.message||"Solicitação recebida. Atualize o status para acompanhar.";}
+   await loadMinecraftStatus();
+  }catch(error){if(note){note.className="notice error";note.textContent=error.message||"Não foi possível criar o servidor.";} }
+  finally{button.disabled=false;button.textContent="Continuar e criar conta";}
+ }
+});
+
 async function boot(){const route=window.location.pathname.replace(/\/+$/,"")||"/";const portalEntry=route==="/app"||route==="/admin";try{const me=await api("/me");if(!me.gate){if(portalEntry)showGate();else showLanding();return}if(me.user){state.user=me.user;showApp()}else if(portalEntry)showAuth();else showLanding()}catch{if(portalEntry)showGate();else showLanding()}}
 $("#loginForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api("/login",{method:"POST",body:JSON.stringify({identity:f.get("identity"),password:f.get("password")})});state.user=r.user;showApp()}catch(err){notice($("#authNotice"),err.message,"error")}});
-$("#registerForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.currentTarget);if(f.get("password")!==f.get("confirm"))return notice($("#authNotice"),"As senhas não coincidem.","error");try{const r=await api("/register",{method:"POST",body:JSON.stringify({name:f.get("name"),username:f.get("username"),email:f.get("email"),password:f.get("password")})});state.user=r.user;showApp()}catch(err){notice($("#authNotice"),err.message,"error")}});
+
+let pendingRegistrationEmail="";
+$("#registerForm").addEventListener("submit",async e=>{
+ e.preventDefault();const f=new FormData(e.currentTarget);
+ if(f.get("password")!==f.get("confirm"))return notice($("#authNotice"),"As senhas não coincidem.","error");
+ pendingRegistrationEmail=String(f.get("email")||"").trim().toLowerCase();
+ try{
+  const r=await api("/register/start",{method:"POST",body:JSON.stringify({name:f.get("name"),username:f.get("username"),email:pendingRegistrationEmail,password:f.get("password")})});
+  $("#registerForm").classList.add("hidden");
+  $("#registerCodePane").classList.remove("hidden");
+  $("#registerCodeTarget").textContent="Código enviado para "+(r.maskedEmail||pendingRegistrationEmail)+". Ele expira em 10 minutos.";
+  $("#authNotice").classList.add("hidden");
+ }catch(err){notice($("#authNotice"),err.message,"error");}
+});
+$("#registerVerifyForm").addEventListener("submit",async e=>{
+ e.preventDefault();const f=new FormData(e.currentTarget);
+ try{
+  const r=await api("/register/verify",{method:"POST",body:JSON.stringify({email:pendingRegistrationEmail,code:f.get("code")})});
+  state.user=r.user;showApp();
+ }catch(err){notice($("#registerCodeMessage"),err.message,"error");}
+});
+$("#resendRegisterCode").onclick=async()=>{
+ try{const r=await api("/register/resend",{method:"POST",body:JSON.stringify({email:pendingRegistrationEmail})});$("#registerCodeTarget").textContent="Novo código enviado para "+(r.maskedEmail||pendingRegistrationEmail)+".";
+ $("#registerCodeMessage").textContent="Confira sua caixa de entrada e o spam.";$("#registerCodeMessage").className="notice ok";
+ }catch(err){$("#registerCodeMessage").textContent=err.message;$("#registerCodeMessage").className="notice error";}
+};
+$("#cancelRegisterCode").onclick=()=>{
+ $("#registerCodePane").classList.add("hidden");$("#registerForm").classList.remove("hidden");
+ $("#registerVerifyForm").reset();pendingRegistrationEmail="";
+};
 $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#registerPane").classList.remove("hidden");$("#authNotice").classList.add("hidden")};$("#showLogin").onclick=()=>{$("#registerPane").classList.add("hidden");$("#loginPane").classList.remove("hidden");$("#authNotice").classList.add("hidden")};
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){if(state.adminPortal&&view!=="verificationAdmin")return;if(!state.adminPortal&&view==="verificationAdmin")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",backups:"Backups",docs:"Documentação",integrations:"Provedores",hosting:"Hospedagem",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"CAOS · ADM"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){if(state.adminPortal&&!["verificationAdmin","minecraftAdmin"].includes(view))return;if(!state.adminPortal&&["verificationAdmin","minecraftAdmin"].includes(view))return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();if(view==="minecraft")loadMinecraftStatus();if(view==="minecraftAdmin")loadMinecraftAdminConfig();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",backups:"Backups",docs:"Documentação",integrations:"Provedores",hosting:"Hospedagem",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"CAOS · ADM"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
-function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,backups:backupsView,docs:docsView,integrations:integrationsView,hosting:hostingView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
+
+function minecraftView(){
+ return pageHead("Minecraft","Crie seu servidor individual com seu e-mail confirmado. A conta e o servidor só serão solicitados depois da sua autorização.")+
+ '<section class="dashboard-panel mc-main-card"><div class="dashboard-panel-head"><div><small>BLACK ZONE · GAME HOSTING</small><h2>Seu espaço no Minecraft</h2></div><span class="mc-crystal">⛏</span></div>'+
+ '<div id="minecraftStatus" class="mc-status"><div class="notice">Consultando sua confirmação de e-mail e a infraestrutura…</div></div></section>'+
+ '<div class="mc-consent hidden" id="minecraftConsent" role="dialog" aria-modal="true" aria-labelledby="mcConsentTitle"><div class="mc-consent-card"><div class="mc-kicker">CONFIRMAÇÃO NECESSÁRIA</div><h2 id="mcConsentTitle">Vamos criar sua conta Minecraft?</h2><p>Ao continuar, você autoriza o BLACK ZONE Estúdio a criar uma conta individual no painel Minecraft usando seu nome e o e-mail que você confirmou.</p><p>Também será solicitado um servidor com o nome e a versão escolhidos. Ele ficará em uma infraestrutura administrada pelo Estúdio e seguirá os limites informados na plataforma. Não vamos acessar sua caixa de e-mail nem pedir sua senha de outros serviços.</p><p>O acesso ao painel será separado da conta administrativa do Estúdio. Depois, você poderá definir sua senha pela opção de recuperação do próprio painel, conforme a configuração de e-mail dele.</p><div class="mc-actions"><button class="btn secondary" type="button" data-minecraft-action="cancel-consent">Cancelar</button><button class="btn" type="button" data-minecraft-action="confirm-create">Continuar e criar conta</button></div><div id="minecraftCreateNotice" class="notice hidden"></div></div></div>';
+}
+function minecraftAdminView(){
+ return pageHead("Minecraft · Administração","Configuração privada do servidor, do envio de e-mails e dos limites por membro.")+
+ '<section class="dashboard-panel mc-admin-panel"><div class="dashboard-panel-head"><div><small>CONFIGURAÇÃO PRIVADA</small><h2>Verificação por e-mail</h2></div><span class="status">ADM</span></div>'+
+ '<form id="mcAdminConfigForm" class="mc-admin-grid">'+
+ '<label class="field"><span>CHAVE DE API RESEND</span><input type="password" name="resendApiKey" autocomplete="new-password" placeholder="re_..."></label>'+
+ '<label class="field"><span>REMETENTE VERIFICADO</span><input name="fromEmail" type="text" placeholder="BLACK ZONE <noreply@seudominio.com>"></label>'+
+ '<div class="mc-admin-note">A chave fica criptografada. Use um domínio remetente verificado no Resend. O cadastro novo só será liberado quando o teste de envio passar.</div>'+
+ '<div class="dashboard-panel-head mc-admin-subhead"><div><small>PAINEL DE JOGOS</small><h2>Pterodactyl 1.x</h2></div></div>'+
+ '<label class="field"><span>URL DO PAINEL</span><input name="panelUrl" type="url" placeholder="https://painel.seudominio.com"></label>'+
+ '<label class="field"><span>CHAVE APPLICATION API</span><input name="panelApplicationKey" type="password" autocomplete="new-password" placeholder="ptla_..."></label>'+
+ '<label class="field"><span>EGG ID</span><input name="eggId" type="number" min="1" required></label>'+
+ '<label class="field"><span>ALLOCATION ID</span><input name="allocationId" type="number" min="1" required></label>'+
+ '<label class="field"><span>DOCKER IMAGE</span><input name="dockerImage" placeholder="ghcr.io/pterodactyl/yolks:java_21"></label>'+
+ '<label class="field"><span>VARIÁVEL DA VERSÃO</span><input name="versionEnv" placeholder="MINECRAFT_VERSION"></label>'+
+ '<label class="field mc-full"><span>COMANDO DE INÍCIO</span><input name="startupCommand" required></label>'+
+ '<label class="field mc-full"><span>VARIÁVEIS DE AMBIENTE (JSON)</span><textarea name="environment" rows="5" placeholder="{&quot;SERVER_JARFILE&quot;:&quot;server.jar&quot;}"></textarea></label>'+
+ '<label class="field"><span>RAM POR SERVIDOR (MB)</span><input name="memoryMb" type="number" min="512" required></label>'+
+ '<label class="field"><span>DISCO POR SERVIDOR (MB)</span><input name="diskMb" type="number" min="1024" required></label>'+
+ '<label class="field"><span>CPU (%)</span><input name="cpuPercent" type="number" min="50" required></label>'+
+ '<label class="field"><span>SERVIDORES POR USUÁRIO</span><input name="maxServersPerUser" type="number" min="1" max="20" required></label>'+
+ '<div class="mc-actions mc-full"><button class="btn" type="submit">Salvar configurações</button><button class="btn secondary" type="button" id="mcAdminTestEmail">Testar e-mail</button><button class="btn secondary" type="button" id="mcAdminTestPanel">Testar painel</button></div>'+
+ '<div id="mcAdminNotice" class="notice mc-full">As chaves nunca serão exibidas novamente depois de salvas.</div></form></section>';
+}
+async function loadMinecraftStatus(){
+ const target=$("#minecraftStatus");if(!target)return;
+ target.innerHTML='<div class="notice">Verificando conta e disponibilidade…</div>';
+ try{
+  const data=await api("/minecraft/status");
+  let html='<div class="mc-email-line"><span class="mc-status-icon">✉</span><div><b>E-mail da sua conta</b><small>'+escapeHtml(data.email||state.user?.email||"")+'</small></div><span class="status '+(data.emailVerified?"":"off")+'">'+(data.emailVerified?"CONFIRMADO":"PENDENTE")+'</span></div>';
+  if(!data.emailVerified){
+   html+='<div class="notice warning">Antes de criar seu servidor, confirme seu e-mail. Vamos enviar um código de 6 dígitos para '+escapeHtml(data.email||"seu endereço cadastrado")+'.</div><div class="mc-verify-row"><button class="btn" data-minecraft-action="send-code">Enviar código de verificação</button><div id="mcVerifyForm" class="hidden"><input id="mcVerifyCode" inputmode="numeric" maxlength="6" placeholder="Código de 6 dígitos"><button class="btn secondary" data-minecraft-action="confirm-code">Confirmar e-mail</button></div></div>';
+  }else if(!data.configured){
+   html+='<div class="notice warning">Sua conta está confirmada. A infraestrutura Minecraft ainda está sendo preparada. Você não precisa conectar nem informar uma conta de hospedagem.</div>';
+  }else{
+   html+='<div class="mc-create-grid"><label class="field"><span>NOME DO SERVIDOR</span><input id="minecraftName" maxlength="32" minlength="3" placeholder="Meu Mundo"></label><label class="field"><span>VERSÃO</span><select id="minecraftVersion"><option value="latest">Mais recente (configurada no painel)</option><option value="1.21.10">1.21.10</option><option value="1.21.8">1.21.8</option><option value="1.21.4">1.21.4</option><option value="1.20.6">1.20.6</option></select></label><button class="btn mc-create-button" data-minecraft-action="request-create">Criar meu servidor</button></div>';
+  }
+  const servers=Array.isArray(data.servers)?data.servers:[];
+  if(servers.length){
+   html+='<div class="mc-server-list"><h3>Seus servidores</h3>'+servers.map(server=>'<div class="mc-server-row"><div><b>'+escapeHtml(server.name)+'</b><small>'+escapeHtml(server.version)+' · '+escapeHtml(server.allocation_ip||"Endereço em preparação")+(server.allocation_port?":"+escapeHtml(server.allocation_port):"")+'</small></div><span class="status '+(server.state==="running"?"":"off")+'">'+escapeHtml(String(server.state||"").toUpperCase())+'</span></div>').join("")+'</div>';
+  }
+  target.innerHTML=html;
+ }catch(error){target.innerHTML='<div class="notice error">'+escapeHtml(error.message||"Falha ao consultar Minecraft.")+'</div>';}
+}
+async function loadMinecraftAdminConfig(){
+ const form=$("#mcAdminConfigForm");if(!form)return;
+ const note=$("#mcAdminNotice");
+ try{
+  const c=await api("/admin/minecraft/config");
+  for(const [name,value] of Object.entries({
+   fromEmail:c.fromEmail||"",panelUrl:c.panelUrl||"",eggId:c.eggId||"",allocationId:c.allocationId||"",
+   dockerImage:c.dockerImage||"ghcr.io/pterodactyl/yolks:java_21",startupCommand:c.startupCommand||"java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar {{SERVER_JARFILE}}",
+   environment:JSON.stringify(c.environment||{},null,2),versionEnv:c.versionEnv||"MINECRAFT_VERSION",
+   memoryMb:c.memoryMb||2048,diskMb:c.diskMb||10240,cpuPercent:c.cpuPercent||200,maxServersPerUser:c.maxServersPerUser||1
+  })){const field=form.elements.namedItem(name);if(field)field.value=value;}
+  if(note)note.textContent="E-mail: "+(c.emailConfigured?"configurado":"pendente")+" · Pterodactyl: "+(c.minecraftConfigured?"configurado":"pendente")+". As chaves salvas ficam ocultas.";
+ }catch(error){if(note)note.textContent=error.message||"Não foi possível carregar as configurações.";}
+}
+
+function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,backups:backupsView,docs:docsView,integrations:integrationsView,hosting:hostingView,minecraft:minecraftView,minecraftAdmin:minecraftAdminView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 
 const DECORATION_OPTIONS=[
  {id:"dragon",name:"Dragão Violeta",tag:"🐉 · DRAGÃO ABISSAL",description:"Dragão roxo, sombras profundas, fumaça e brilho violeta.",symbol:"🐉",scene:"decor-scene-dragon",wallpaper:"/themes/dragon.svg",emojis:"🐉 ⚔️ 🌑 ✦"},
