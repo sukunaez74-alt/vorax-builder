@@ -640,7 +640,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
   </div>
   <div class="nav-group"><div class="nav-title caps">Minecraft</div>
    <button class="nav-btn" data-view="minecraft"><span>⛏</span> Servidores</button>
-   <button class="nav-btn" data-view="minecraftMods"><span>✦</span> Mods e modpacks</button>
+   <button class="nav-btn" data-view="minecraftMods"><span>✦</span> Mods de Minecraft</button>
    <button class="nav-btn owner-only hidden" data-view="minecraftAdmin"><span>⚙</span> Minecraft · ADM</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Roblox</div>
@@ -982,10 +982,20 @@ async function loadMinecraftStatus(){
    }).join("")+'</div>';
   }
   target.innerHTML=view;
+  const versionSelect=$("#minecraftVersion");
+  if(versionSelect){
+   const chosen=versionSelect.value;
+   try{
+    const versionData=await api("/minecraft/versions");
+    const releases=(versionData.versions||[]).filter(value=>/^1\./.test(value)).slice(0,30);
+    if(releases.length)versionSelect.innerHTML=releases.map(value=>'<option value="'+escapeHtml(value)+'">'+escapeHtml(value)+'</option>').join("");
+    if(releases.includes(chosen))versionSelect.value=chosen;
+   }catch{}
+  }
  }catch(error){target.innerHTML='<div class="notice error">'+escapeHtml(error.message||"Falha ao consultar Minecraft.")+'</div>';}
 }
 function minecraftModsView(){
- return pageHead("Mods e modpacks","Catálogo Modrinth integrado ao Minecraft. Os resultados são filtrados pela versão e pelo loader do servidor selecionado.")+
+ return pageHead("Mods de Minecraft","Catálogo Modrinth integrado ao Minecraft. Os resultados são filtrados pela versão e pelo loader do servidor selecionado.")+
  '<section class="dashboard-panel mc-mods-panel"><div class="mc-mods-toolbar"><div class="field"><span>SERVIDOR COM MODS</span><select id="minecraftModsServer"><option value="">Carregando servidores…</option></select></div><div class="mc-mods-source"><span>CATÁLOGO</span><b>Modrinth</b></div></div>'+
  '<div id="minecraftModsStatus" class="notice">Carregando seus servidores com mods…</div>'+
  '<div id="minecraftModsWorkspace" class="hidden">'+
@@ -1031,7 +1041,7 @@ function renderMinecraftModResults(){
  }).join(""):'<div class="dashboard-empty">Nenhum mod compatível encontrado com esses filtros.</div>';
  const count=Object.keys(selected).length, countNode=$("#minecraftModsSelectedCount"),install=$("#minecraftModsInstall");
  if(countNode)countNode.textContent=count+" mod(s) selecionado(s)";
- if(install){install.disabled=!count;install.textContent=count?"Instalar "+count+" mod(s) selecionado(s)":"Instalar selecionados";}
+ if(install){install.disabled=!count||!state.minecraftModsConfigured;install.textContent=count?(state.minecraftModsConfigured?"Instalar "+count+" mod(s) selecionado(s)":"Client API pendente no ADM"):"Instalar selecionados";}
 }
 async function loadMinecraftMods(){
  const status=$("#minecraftModsStatus"),workspace=$("#minecraftModsWorkspace"),select=$("#minecraftModsServer");
@@ -1041,11 +1051,12 @@ async function loadMinecraftMods(){
   const data=await api("/minecraft/status");
   const servers=(Array.isArray(data.servers)?data.servers:[]).filter(item=>item.server_type==="modded"&&item.mod_loader);
   state.minecraftServers=Array.isArray(data.servers)?data.servers:[];
+  state.minecraftModsConfigured=!!data.modsConfigured;
   if(!servers.length){
    workspace.classList.add("hidden");
    status.className="notice warning";
    status.innerHTML='Você ainda não tem um servidor criado como <b>servidor com mods</b>. Crie um na área de Servidores para liberar o catálogo compatível.';
-   status.insertAdjacentHTML("beforeend",'<div style="margin-top:12px"><button class="btn" type="button" data-view="minecraft">Criar servidor com mods</button></div>');
+   status.insertAdjacentHTML("beforeend",'<div style="margin-top:12px"><button class="btn" type="button" data-mc-create-server>Criar servidor com mods</button></div>');
    return;
   }
   select.innerHTML=servers.map(server=>'<option value="'+escapeHtml(server.id)+'">'+escapeHtml(server.name)+' · '+escapeHtml(server.version)+' · '+escapeHtml(String(server.mod_loader).toUpperCase())+'</option>').join("");
