@@ -592,7 +592,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 <div id="modalRoot"></div><div id="toastRoot"></div>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
-const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,bulkSelected:[],adminPortal:false,verificationAdmin:null,altareAdmin:null,view:"overview",modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,hostingCanCreate:false,logs:[]};
+const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,bulkSelected:[],adminPortal:false,verificationAdmin:null,companionHosting:null,companionBotId:null,view:"overview",modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,hostingCanCreate:false,logs:[]};
 const moduleNames={music:"Música",tickets:"Tickets",attendance:"Bate-ponto",team:"Equipe e cargos",goals:"Metas e ranking",warnings:"Advertências",recruitment:"Recrutamento",logs:"Logs"};
 function displayErrorText(value,depth=0){
  if(value===null||value===undefined)return "";
@@ -1105,19 +1105,25 @@ async function loadSettingsHostingState(){
 }
 
 async function loadVerificationBotAdmin(){
- const [caosResult,altareResult]=await Promise.allSettled([
+ const [caosResult,hostingResult,botsResult]=await Promise.allSettled([
   api("/admin/caos/status"),
-  api("/admin/altare/status")
+  api("/hosting/pool/status"),
+  api("/bots")
  ]);
  if(caosResult.status==="fulfilled")state.verificationAdmin=caosResult.value;
  else state.verificationAdmin={loadError:caosResult.reason?.message||"Não foi possível consultar o painel CAOS."};
- if(altareResult.status==="fulfilled")state.altareAdmin=altareResult.value;
- else state.altareAdmin={loadError:altareResult.reason?.message||"Não foi possível consultar Altare."};
+ if(hostingResult.status==="fulfilled")state.companionHosting=hostingResult.value;
+ else state.companionHosting={loadError:hostingResult.reason?.message||"Não foi possível consultar as hospedagens gratuitas."};
+ if(botsResult.status==="fulfilled"){
+  state.bots=Array.isArray(botsResult.value?.deployments)?botsResult.value.deployments:[];
+  const companion=state.bots.find(bot=>bot.name==="Segunda bot"&&bot.projectType==="custom");
+  state.companionBotId=companion?.id||null;
+ }
  if(state.view==="verificationAdmin"&&state.adminPortal)render();
  if(state.verificationAdmin?.loadError)toast(state.verificationAdmin.loadError);
 }
 function verificationAdminView(){
- const r=state.verificationAdmin||{},a=state.altareAdmin||{},runtime=r.runtime||{},live=runtime.online===true;
+ const r=state.verificationAdmin||{},runtime=r.runtime||{},live=runtime.online===true;
  const status=live?(runtime.discordReady?"DISCORD ONLINE":"SERVIDOR LIGADO"):runtime.state==="not_deployed"?"NÃO INICIADO":String(runtime.state||"AGUARDANDO").toUpperCase();
  const hostingReady=!!r.hostingCanCreate,hostingApiOk=r.hostingDiagnostic?.ok===true;
  const canInstall=!!r.configured&&hostingReady&&hostingApiOk&&!r.packageUploaded;
@@ -1128,20 +1134,31 @@ function verificationAdminView(){
   :(!r.configured?"Cole e salve o token do bot Discord."
   :(!r.packageUploaded?(r.packageReplacementPending?"Backup do banco protegido. Selecione o ZIP novo para concluir a substituição.":"Token salvo. Falta enviar o ZIP CAOS."):"Pacote CAOS instalado. Você já pode iniciar o bot."))));
  const packageStatus=r.packageUploaded?"INSTALADO":(r.packageReplacementPending?"AGUARDANDO ZIP NOVO":"ZIP NECESSÁRIO");
- return pageHead("CAOS · ADM","Painel privado para instalar o CAOS e gerenciar a segunda hospedagem.")+
+ const pool=state.companionHosting||{};
+ const poolProviders=Array.isArray(pool.providers)?pool.providers:[];
+ const freeIds=["discloud","cubecloud","sillydev"];
+ const freeReady=poolProviders.filter(item=>freeIds.includes(item.id)&&item.connected&&item.valid!==false&&item.canCreate===true);
+ const freeConnected=poolProviders.filter(item=>freeIds.includes(item.id)&&item.connected);
+ const freeText=pool.loadError
+  ? pool.loadError
+  : (freeReady.length
+    ? "Vaga gratuita confirmada: "+freeReady.map(item=>item.name||item.id).join(", ")+"."
+    : (freeConnected.length
+      ? (freeConnected.map(item=>item.detail||item.error||item.name).filter(Boolean).join(" ")||"As hospedagens gratuitas conectadas não confirmaram vaga neste momento.")
+      : "O Estúdio vai consultar automaticamente as hospedagens gratuitas já conectadas à sua conta."));
+ const companion=state.bots.find(bot=>bot.name==="Segunda bot"&&bot.projectType==="custom")||null;
+ return pageHead("CAOS · ADM","Controle o CAOS e instale a segunda bot usando somente o token Discord e o ZIP.")+
  (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
- '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Altare · hospedagem da segunda bot</h3><span class="status '+(a.valid?"":"off")+'">'+(a.valid?"CONECTADO":(a.connected?"REVISAR CONEXÃO":"NÃO CONECTADO"))+'</span></div>'+
- '<p class="muted small">Conecte a equipe Altare para listar os aplicativos e controlar iniciar, parar e reiniciar. O token fica criptografado e esta área aparece somente no ADM privado.</p>'+
- '<div class="project-note" id="altareConnectionState"><strong>'+(a.valid?"Equipe: "+escapeHtml(a.accountLabel||"Altare"):"Ainda não conectada.")+'</strong><br>'+
- (a.loadError?escapeHtml(a.loadError):(a.error?escapeHtml(a.error):(a.valid?(Number(a.servers?.length||0)+" aplicativo(s) encontrado(s)."): "Crie um aplicativo no console Altare; o token de API não cria aplicativos por conta própria.")))+
- (a.valid&&Array.isArray(a.missingScopes)&&a.missingScopes.length?'<br><small>Permissões ainda não liberadas para recursos futuros: '+escapeHtml(a.missingScopes.join(", "))+'</small>':"")+
- '</div>'+
- '<form id="altareConnectForm" class="settings-grid" style="margin-top:12px"><div class="field" style="grid-column:1/-1"><label>ALTARE · TEAM API TOKEN</label><input id="altareApiToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="'+(a.valid?"Token já protegido · cole outro apenas para substituir":"Cole o token alt_… gerado no Altare")+'" minlength="24" maxlength="2048"></div>'+
- '<div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="altareConnectButton" type="submit">Validar e conectar Altare</button><button class="btn secondary" id="altareRefresh" type="button">↻ Atualizar aplicativos</button><a class="btn secondary" href="https://console.altare.gg/" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Abrir console Altare ↗</a><a class="btn secondary" href="https://docs.altare.gg/altare-api/tokens" target="_blank" rel="noopener noreferrer" style="text-decoration:none;display:inline-flex;align-items:center">Como criar o token ↗</a></div></form>'+
- '<div class="project-note" style="margin-top:12px"><strong>Permissões recomendadas para o token:</strong><br><code>servers:view</code>, <code>servers:power</code>, <code>servers:console</code>, <code>servers:files</code>, <code>servers:startup</code> e <code>servers:settings</code>. Restrinja-o somente ao aplicativo da nova bot, quando essa opção estiver disponível. O ADM exige pelo menos <code>servers:view</code> e <code>servers:power</code> para listar e controlar.</div>'+
- '<div class="list" style="margin-top:14px">'+(Array.isArray(a.servers)&&a.servers.length?a.servers.map(server=>'<div class="bot-row"><div class="bot-logo">◈</div><div class="bot-info"><strong>'+escapeHtml(server.name)+'</strong><span>'+Number(server.memoryMb||0)+' MB RAM · '+Number(server.diskMb||0)+' MB disco · '+Number(server.cpuPercent||0)+'% CPU · ID '+escapeHtml(server.id)+'</span></div><div class="hero-actions" style="gap:6px"><button class="btn secondary" data-altare-power="start" data-altare-server="'+escapeHtml(server.id)+'">▶ Iniciar</button><button class="btn danger" data-altare-power="stop" data-altare-server="'+escapeHtml(server.id)+'">■ Parar</button><button class="btn ghost" data-altare-power="restart" data-altare-server="'+escapeHtml(server.id)+'">↻ Reiniciar</button></div></div>').join(""):'<div class="empty"><b>Nenhum aplicativo visível no token</b>Crie primeiro um aplicativo no console Altare ou confira se o token está limitado ao aplicativo correto.</div>')+'</div>'+
+ '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Segunda bot · token + ZIP</h3><span class="status '+(freeReady.length?"":"off")+'">'+(freeReady.length?"HOSPEDAGEM FREE PRONTA":"VERIFICANDO VAGA FREE")+'</span></div>'+
+ '<p class="muted small">Aqui é só colocar o Bot Token do Discord e selecionar o arquivo ZIP do projeto. O Estúdio tenta publicar automaticamente numa hospedagem gratuita já conectada à sua conta. Não precisa colar outra chave de hospedagem e nenhum plano pago será iniciado.</p>'+
+ '<div class="project-note" id="companionHostingState"><strong>'+escapeHtml(freeText)+'</strong><br><small>O limite de tamanho e a disponibilidade dependem da vaga gratuita confirmada pelo provedor.</small></div>'+
+ '<form id="companionDeployForm" class="grid settings-grid" style="margin-top:12px">'+
+ '<div class="field" style="grid-column:1/-1"><label>BOT TOKEN DO DISCORD</label><input id="companionBotToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="'+(companion?.hasDiscordToken?"Token já protegido · deixe vazio para manter":"Cole o Bot Token do Discord")+'" '+(companion?.hasDiscordToken?"":"required")+'></div>'+
+ '<div class="field" style="grid-column:1/-1"><label>ARQUIVO ZIP DO BOT</label><input id="companionBotZip" type="file" accept=".zip,application/zip,application/x-zip-compressed" required></div>'+
+ '<div style="grid-column:1/-1"><button class="btn" id="companionDeployButton" type="submit">'+(companion?.hostingDeploymentId||companion?.providerAppId?"⇧ Enviar / atualizar ZIP da segunda bot":"▶ Validar token e colocar a segunda bot online")+'</button></div></form>'+
+ '<div id="companionDeployStatus" class="project-note" style="margin-top:12px">'+(companion?.hostingDeploymentId||companion?.providerAppId?"Já existe um projeto da segunda bot. Envie um ZIP para atualizar os arquivos.":(companion?.hasDiscordToken?"O token já está salvo e protegido. Agora selecione o ZIP.":"O token será validado e protegido antes do envio do ZIP."))+'</div>'+
  '</section>'+
- '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Estado do CAOS</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+escapeHtml(status)+'</span></div>'+
+ '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Estado do CAOS</h3> '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Estado do CAOS</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+escapeHtml(status)+'</span></div>'+
  '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot CAOS")+'</strong><br>'+escapeHtml(note)+
  (r.runtime?.deploymentId?'<br>ID da hospedagem: <b>'+escapeHtml(r.runtime.deploymentId)+'</b>':"")+
  (r.runtime?.discordReady?'<br><b>O log confirmou conexão com o Discord.</b>':(live?'<br>O servidor está ligado; confira os logs para confirmar o login no Discord.':""))+
@@ -1657,6 +1674,50 @@ const keritForm=$("#keritConnectForm");
   }catch(error){toast(error.message||"Não consegui conectar a Square Cloud.");}
   finally{button.disabled=false;button.textContent="Validar e conectar Square Cloud"}
  };
+ const companionForm=$("#companionDeployForm");
+ if(companionForm)companionForm.onsubmit=async e=>{
+  e.preventDefault();
+  const tokenInput=$("#companionBotToken"),zipInput=$("#companionBotZip"),button=$("#companionDeployButton"),status=$("#companionDeployStatus");
+  const file=zipInput?.files?.[0];
+  const token=String(tokenInput?.value||"").trim();
+  if(!file||!/\.zip$/i.test(file.name)){toast("Selecione o arquivo ZIP do bot.");zipInput?.focus();return;}
+  if(file.size>25*1024*1024){toast("O ZIP original ultrapassa 25 MB. Reduza apenas arquivos desnecessários e tente novamente.");return;}
+  let bot=state.bots.find(item=>item.name==="Segunda bot"&&item.projectType==="custom")||null;
+  if(!bot?.hasDiscordToken&&!token){toast("Cole o Bot Token do Discord.");tokenInput?.focus();return;}
+  button.disabled=true;button.textContent=bot?"Preparando envio do ZIP…":"Validando token Discord…";
+  try{
+   const runtime=await detectZipRuntime(file).catch(()=>bot?.runtime||"python");
+   if(!bot){
+    const created=await api("/bots",{method:"POST",body:JSON.stringify({
+     name:"Segunda bot",projectType:"custom",runtime,discordToken:token
+    })});
+    bot={...created,projectType:"custom",runtime,customProject:null,hasDiscordToken:true,
+     hostingDeploymentId:null,providerAppId:null,hostingProvider:"bot-hosting",state:"draft"};
+    state.bots.unshift(bot);state.companionBotId=bot.id;
+    tokenInput.value="";tokenInput.required=false;
+    tokenInput.placeholder="Token validado e protegido · não precisa colar novamente";
+    if(status)status.textContent="Token validado e salvo com segurança. Preparando o ZIP…";
+   }else if(token){
+    const saved=await api("/bot-token",{method:"POST",body:JSON.stringify({botId:bot.id,discordToken:token})});
+    bot.hasDiscordToken=true;bot.discordBotId=saved.discordBotId||bot.discordBotId;
+    bot.discordBotName=saved.discordBotName||bot.discordBotName;
+    tokenInput.value="";
+    tokenInput.placeholder="Token validado e protegido · deixe vazio para manter";
+   }
+   button.textContent="Enviando ZIP e iniciando…";
+   if(status)status.textContent="Limpando apenas caches e dependências locais desnecessárias, enviando o ZIP e procurando uma vaga gratuita. O ZIP original no seu computador não será alterado.";
+   await uploadZipToFreeHosting(bot.id,file,runtime,"segunda-bot",status);
+   if(status)status.textContent="ZIP enviado. Confira o status do projeto e os logs para confirmar a conexão com o Discord.";
+   toast("Envio concluído. O Estúdio solicitou a inicialização da segunda bot.");
+   await loadVerificationBotAdmin();
+  }catch(error){
+   if(status)status.textContent=(error.message||"Não consegui instalar a segunda bot.")+" O token já salvo permanece protegido e o projeto não foi apagado.";
+   toast(error.message||"Não consegui instalar a segunda bot.");
+  }finally{
+   const current=$("#companionDeployButton");
+   if(current){current.disabled=false;current.textContent=(state.companionBotId?"⇧ Enviar / atualizar ZIP da segunda bot":"▶ Validar token e colocar a segunda bot online");}
+  }
+ };
  const verifyForm=$("#verificationBotConfigForm");
  if(verifyForm)verifyForm.onsubmit=async e=>{
   e.preventDefault();const button=$("#verificationSave");if(button){button.disabled=true;button.textContent="Validando token…"}
@@ -1678,33 +1739,6 @@ const keritForm=$("#keritConnectForm");
   try{await api("/admin/caos/power",{method:"POST",body:JSON.stringify({action:"stop"})});toast("Bot CAOS parado.");await loadVerificationBotAdmin()}
   catch(error){toast(error.message)}finally{if($("#verificationStop"))$("#verificationStop").disabled=false}
  };
- const altareForm=$("#altareConnectForm");
- if(altareForm)altareForm.onsubmit=async e=>{
-  e.preventDefault();
-  const input=$("#altareApiToken"),button=$("#altareConnectButton"),token=String(input?.value||"").trim();
-  if(!token){toast("Cole o Team API Token do Altare.");input?.focus();return;}
-  button.disabled=true;button.textContent="Validando token…";
-  try{
-   const result=await api("/admin/altare/connect",{method:"POST",body:JSON.stringify({apiToken:token})});
-   input.value="";
-   toast(result.message||"Altare conectado com segurança.");
-   await loadVerificationBotAdmin();
-  }catch(error){toast(error.message||"Não consegui conectar Altare.");}
-  finally{if($("#altareConnectButton")){$("#altareConnectButton").disabled=false;$("#altareConnectButton").textContent="Validar e conectar Altare";}}
- };
- const altareRefresh=$("#altareRefresh");if(altareRefresh)altareRefresh.onclick=loadVerificationBotAdmin;
- document.querySelectorAll("[data-altare-power]").forEach(button=>button.onclick=async()=>{
-  const action=button.dataset.altarePower,serverId=button.dataset.altareServer;
-  if(action==="stop"&&!window.confirm("Deseja parar este aplicativo Altare?"))return;
-  button.disabled=true;const old=button.textContent;button.textContent="Enviando…";
-  try{
-   const result=await api("/admin/altare/power",{method:"POST",body:JSON.stringify({serverId,action})});
-   toast(result.message||"Comando enviado ao Altare.");
-   if(result.queued&&result.position!=null)toast("Aplicativo colocado na fila de inicialização, posição "+result.position+".");
-   await loadVerificationBotAdmin();
-  }catch(error){toast(error.message||"Não consegui controlar o aplicativo Altare.");}
-  finally{button.disabled=false;button.textContent=old;}
- });
  const verifyRefresh=$("#verificationRefresh");if(verifyRefresh)verifyRefresh.onclick=loadVerificationBotAdmin;
  const verifyConnect=$("#verificationConnectHosting");if(verifyConnect)verifyConnect.onclick=async()=>{
   verifyConnect.disabled=true;verifyConnect.textContent="Preparando autorização…";
