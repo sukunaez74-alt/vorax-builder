@@ -4439,11 +4439,9 @@ export async function onRequest(context) {
           const discordStatus = signal === "stop" || customProjectMode
             ? null
             : await readDiscordRuntimeStatus(user.id, env, deploymentId);
-          const scheduleAllowed = !bot.schedule_enabled ||
-            isInsideSchedule(bot.schedule_start || "00:00", bot.schedule_end || "23:59", bot.schedule_timezone || "America/Bahia");
+          const scheduleAllowed = true;
           const discordOnline = signal !== "stop" &&
             actualState === "running" &&
-            scheduleAllowed &&
             recentDiscordStatus(discordStatus, requestStartedAt);
 
           const logs = (Array.isArray(result.logs) ? result.logs : []).slice(-100);
@@ -4483,7 +4481,7 @@ export async function onRequest(context) {
             commandsTotal: Number(discordStatus?.commandsTotal || 0),
             commandsSyncedGuilds: Number(discordStatus?.commandsSyncedGuilds || 0),
             commandSyncErrors: Array.isArray(discordStatus?.commandSyncErrors) ? discordStatus.commandSyncErrors : [],
-            scheduled: !!bot.schedule_enabled,
+            scheduled: false,
             scheduleActiveNow: scheduleAllowed,
             botOnlineNow: discordOnline,
             discordOnline,
