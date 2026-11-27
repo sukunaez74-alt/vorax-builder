@@ -3730,8 +3730,7 @@ export async function onRequest(context) {
         }
       }
       const scopes = String(hostingRow?.scope || "").split(/\s+/).filter(Boolean);
-      return reply({
-        providers: [
+      const providers = [
           { id: "bot-hosting", name: "Bot-Hosting", connected: !!hostingRow, canCreate: !!hostingRow && scopes.includes("deployments:write") && scopes.includes("credits:spend"), role: "principal" },
           { id: "sillydev", name: "Silly Development", role: "reserva", ...sillydev, canCreate: !!sillydev.valid && !!sillydev.canCreate, canAttach: !!sillydev.valid && !!sillydev.canAttach },
           { id: "cogithost", name: "Cogithost", role: "servidor-conectado", ...cogithost, canCreate: false },
@@ -3750,8 +3749,30 @@ export async function onRequest(context) {
           { id: "quaxly", name: "Quaxly", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · até 3 bots", detail: "Deploy pelo painel Quaxly; não é uma vaga conectada ao Estúdio.", url: "https://quaxly.com" },
           { id: "fpsms", name: "FPS.ms", connected: false, valid: true, canCreate: false, canAttach: false, deploymentMode: "manual", role: "deploy-manual", plan: "Free · 128 MB RAM · 250 MB SSD", detail: "Plano muito pequeno, com renovação diária; indicado apenas para bots leves.", url: "https://fps.ms/free-discord-bot-hosting" },
 
-        ]
-      });
+        ];
+      // Membros comuns só recebem o estado mínimo do pool automático.
+      // Dados de conexão, provedores manuais, contas compartilhadas e rótulos
+      // de credenciais ficam restritos à conta administradora do Estúdio.
+      if (String(user.id) !== SHARED_HOSTING_OWNER_ID) {
+        const automaticIds = new Set(["discloud", "cubecloud", "sillydev"]);
+        const publicProviders = providers
+          .filter(provider => automaticIds.has(String(provider.id)))
+          .map(provider => {
+            const available = provider.valid !== false && !!provider.canCreate;
+            return {
+              id: String(provider.id),
+              name: String(provider.name || "Hospedagem gratuita"),
+              connected: !!provider.connected,
+              valid: provider.valid !== false,
+              canCreate: available,
+              detail: available
+                ? "Vaga gratuita confirmada pelo provedor."
+                : "Sem vaga gratuita confirmada neste momento."
+            };
+          });
+        return reply({ providers: publicProviders });
+      }
+      return reply({ providers });
     }
     if (path === "/hosting/disconnect" && request.method === "POST") {
       await env.DB.prepare("DELETE FROM hosting_connections WHERE user_id=?").bind(user.id).run();
