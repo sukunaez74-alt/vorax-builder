@@ -214,6 +214,95 @@ function minecraftConfigReady(settings) {
   return !!(settings&&settings.panel_url&&settings.application_key_enc&&Number(settings.egg_id)>0&&Number(settings.allocation_id)>0&&settings.docker_image&&settings.startup_command);
 }
 
+async function minecraftClientRequest(settings,env,path,method="GET",data=null) {
+  if(!settings?.client_api_key_enc) throw new Error("A chave Client API do painel Minecraft ainda não foi configurada.");
+  const base=String(settings.panel_url||"").replace(/\/+$/,"");
+  const key=await decryptSecret(settings.client_api_key_enc,env);
+  const response=await fetch(base+"/api/client"+path,{
+    method,
+    headers:{authorization:"Bearer "+key,accept:"Application/vnd.pterodactyl.v1+json","content-type":"application/json"},
+    body:data===null?undefined:JSON.stringify(data),
+    signal:AbortSignal.timeout(30000)
+  });
+  const raw=await response.text();let parsed={};
+  try{parsed=raw?JSON.parse(raw):{}}catch{parsed={message:raw.slice(0,800)}}
+  if(!response.ok){
+    const error=new Error(parsed.errors?.[0]?.detail||parsed.errors?.[0]?.code||parsed.message||"Falha na API de arquivos do painel (HTTP "+response.status+").");
+    error.status=response.status;throw error;
+  }
+  return parsed;
+}
+const MODRINTH_SERVER_ENVIRONMENTS=new Set(["client_and_server","server_only","server_only_client_optional","dedicated_server_only","client_or_server","client_or_server_prefers_both"]);
+const MODRINTH_LOADERS=new Set(["fabric","forge","neoforge","quilt"]);
+async function modrinthRequest(path) {
+  const response=await fetch("https://api.modrinth.com/v2"+path,{
+    headers:{accept:"application/json","user-agent":"sukunaez74-alt/black-zone-estudio/1.0 (https://black-zone-estudio.vercel.app)"},
+    signal:AbortSignal.timeout(20000)
+  });
+  const raw=await response.text();let data={};
+  try{data=raw?JSON.parse(raw):{}}catch{data={}}
+  if(!response.ok){
+    const error=new Error(data.description||data.error||"O catálogo Modrinth não respondeu (HTTP "+response.status+").");
+    error.status=response.status;throw error;
+  }
+  return data;
+}
+function modrinthVersionCompatible(version,mcVersion,loader) {
+  return !!version&&Array.isArray(version.files)&&version.files.some(file=>file.primary||/\.jar$/i.test(file.filename||""))&&
+    Array.isArray(version.game_versions)&&version.game_versions.includes(mcVersion)&&
+    Array.isArray(version.loaders)&&version.loaders.includes(loader)&&
+    MODRINTH_SERVER_ENVIRONMENTS.has(version.environment);
+}
+async function modrinthCompatibleVersion(projectId,mcVersion,loader,versionId=null) {
+  let versions;
+  if(versionId){
+    const item=await modrinthRequest("/version/"+encodeURIComponent(versionId));
+    versions=[item];
+  }else{
+    const params=new URLSearchParams({
+      loaders:JSON.stringify([loader]),
+      game_versions:JSON.stringify([mcVersion]),
+      include_changelog:"false"
+    });
+    versions=await modrinthRequest("/project/"+encodeURIComponent(projectId)+"/version?"+params.toString());
+  }
+  const compatible=(Array.isArray(versions)?versions:[]).filter(item=>modrinthVersionCompatible(item,mcVersion,loader));
+  const selected=compatible.find(item=>item.version_type==="release")||compatible[0];
+  if(!selected)throw new Error("Não encontrei uma versão de "+projectId+" compatível com Minecraft "+mcVersion+" e "+loader+".");
+  return selected;
+}
+async function resolveMinecraftMod(projectId,mcVersion,loader,ctx,dependencyOf=null,versionId=null,depth=0) {
+  if(depth>8)throw new Error("A cadeia de dependências do catálogo ficou profunda demais.");
+  const key=String(versionId||projectId);
+  if(ctx.seen.has(key))return;
+  ctx.seen.add(key);
+  if(ctx.files.length>=40)throw new Error("Este conjunto ultrapassa o limite de 40 arquivos por instalação.");
+  const project=await modrinthRequest("/project/"+encodeURIComponent(projectId));
+  if(project.project_type!=="mod")throw new Error("O item selecionado não é um mod do Minecraft.");
+  const version=await modrinthCompatibleVersion(projectId,mcVersion,loader,versionId);
+  const file=(version.files||[]).find(item=>item.primary&&/\.jar$/i.test(item.filename||""))||(version.files||[]).find(item=>/\.jar$/i.test(item.filename||""));
+  if(!file||!String(file.url||"").startsWith("https://"))throw new Error("O catálogo não retornou um arquivo .jar seguro para "+(project.title||projectId)+".");
+  const fileUrl=new URL(file.url);
+  if(fileUrl.hostname!=="cdn.modrinth.com")throw new Error("O arquivo de "+(project.title||projectId)+" não veio do CDN oficial do catálogo.");
+  const filename=String(file.filename||"").split(/[\\/]/).pop();
+  if(!/^[A-Za-z0-9._()+-]{1,180}\.jar$/i.test(filename))throw new Error("Nome de arquivo de mod inválido.");
+  ctx.files.push({
+    projectId,projectSlug:project.slug||projectId,title:project.title||projectId,
+    versionId:version.id,versionNumber:version.version_number||version.name||"",
+    filename,url:file.url,dependencyOf
+  });
+  for(const dependency of (version.dependencies||[])){
+    if(dependency.dependency_type!=="required")continue;
+    const requiredProject=dependency.project_id;
+    if(!requiredProject){
+      if(dependency.file_name)throw new Error("O mod "+(project.title||projectId)+" exige uma dependência externa ("+dependency.file_name+"). Adicione-a manualmente.");
+      continue;
+    }
+    await resolveMinecraftMod(requiredProject,mcVersion,loader,ctx,project.title||projectId,dependency.version_id||null,depth+1);
+  }
+}
+
+
 function ownerOnly(user) {
   return user?.role === "owner";
 }
