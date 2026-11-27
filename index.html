@@ -1843,29 +1843,46 @@ function openModal(content){window.__modalCloseGuard=null;$("#modalRoot").innerH
 function closeModal(force=false){if(!force&&window.__modalCloseGuard&&!window.__modalCloseGuard())return;window.__modalCloseGuard=null;$("#modalRoot").innerHTML=""}
 function createBotModal(){
  openModal(
-  '<div class="modal-head"><h3>Novo bot</h3><button class="close" id="closeModal">×</button></div>'+
+  '<div class="modal-head"><h3>Criar meu bot</h3><button class="close" id="closeModal">×</button></div>'+
   '<form id="createBotForm">'+
-  '<div class="field"><label>NOME DO BOT</label><input name="name" value="Meu bot" required maxlength="48" placeholder="Dê um nome ao bot"></div>'+
-  '<div class="project-note"><strong>ZIP ou bot já criado</strong><br>Importe o projeto que você já tem. Depois, abra Hospedagem para conectar uma conta Free e vincular o servidor ao projeto.</div>'+
-  '<button class="btn wide" id="createBotSubmit" type="submit">ZIP ou bot já criado ↗</button></form>'
+  '<div class="field"><label>BOT TOKEN DO DISCORD</label><input name="discordToken" type="password" required autocomplete="new-password" spellcheck="false" placeholder="Cole aqui o Bot Token do Developer Portal"></div>'+
+  '<div class="project-note"><strong>Do token ao bot online</strong><br>O Estúdio valida o Bot Token, identifica o nome do bot e tenta publicar o modelo padrão em uma hospedagem gratuita com vaga disponível. O token fica criptografado no servidor. Não use o token da sua conta pessoal do Discord.</div>'+
+  '<button class="btn wide" id="createBotSubmit" type="submit">Validar token e colocar online ↗</button></form>'
  );
  const form=$("#createBotForm");
  form.onsubmit=async e=>{
   e.preventDefault();
   const data=new FormData(form);
-  const name=String(data.get("name")||"").trim();
+  const discordToken=String(data.get("discordToken")||"").trim();
   const button=$("#createBotSubmit");
-  if(button){button.disabled=true;button.textContent="Criando bot…"}
+  if(!discordToken){toast("Cole o Bot Token do Discord.");return}
+  if(button){button.disabled=true;button.textContent="Validando Bot Token…"}
+  let created=null;
   try{
-   const created=await api("/bots",{method:"POST",body:JSON.stringify({name,projectType:"custom",runtime:"python"})});
+   created=await api("/bots",{method:"POST",body:JSON.stringify({projectType:"standard",runtime:"python",discordToken})});
+  }catch(error){
+   toast(error.message||"Não consegui validar o Bot Token.");
+   if(button){button.disabled=false;button.textContent="Validar token e colocar online ↗"}
+   return;
+  }
+  if(button){button.textContent="Procurando uma vaga gratuita…"}
+  try{
+   const deployed=await api("/bots/"+encodeURIComponent(created.id)+"/auto-upload",{
+    method:"POST",
+    body:JSON.stringify({generatedStandard:true,filename:"black-zone-caos.zip",runtime:"python"})
+   });
    closeModal(true);
    await loadBots();
    state.activeBot=created.id;
-   navigate("files");
-   toast("Bot criado. Agora escolha o ZIP do seu projeto.");
+   navigate("bots");
+   const providerName=deployed.provider==="discloud"?"Discloud Free":deployed.provider==="cubecloud"?"Cube Hosting Free":deployed.provider==="sillydev"?"Silly Development Free":deployed.provider==="squarecloud"?"Square Cloud":deployed.provider||"hospedagem gratuita";
+   toast("Bot "+(created.discordBotName||created.name||"criado")+" enviado para "+providerName+". Confira os logs para confirmar que entrou online.");
   }catch(error){
-   toast(error.message||"Não consegui criar o bot.");
-   if(button){button.disabled=false;button.textContent="ZIP ou bot já criado ↗"}
+   closeModal(true);
+   try{await loadBots()}catch{}
+   state.activeBot=created.id;
+   navigate("bots");
+   toast("O Bot Token foi validado e o projeto ficou salvo, mas não consegui concluir a hospedagem gratuita: "+(error.message||"sem vaga disponível no momento."));
   }
  };
 }
