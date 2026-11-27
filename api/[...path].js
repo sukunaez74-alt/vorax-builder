@@ -1609,6 +1609,13 @@ async function providerToken(userId, provider, env) {
   if (!row?.encrypted_token) return null;
   try { return await decryptSecret(row.encrypted_token, env); } catch { return null; }
 }
+const SHARED_HOSTING_OWNER_ID = "JL5lXxET1LffmlasSBxrgw";
+const SHARED_FREE_HOST_PROVIDERS = new Set(["discloud","cubecloud","sillydev"]);
+async function providerTokenForPool(userId, provider, env) {
+  const ownToken = await providerToken(userId, provider, env);
+  if (ownToken || String(userId) === SHARED_HOSTING_OWNER_ID || !SHARED_FREE_HOST_PROVIDERS.has(String(provider))) return ownToken;
+  return await providerToken(SHARED_HOSTING_OWNER_ID, provider, env);
+}
 async function discloudRequest(token, path, method = "GET", form = null) {
   const headers = { "api-token": token, accept: "application/json" };
   if (!form) headers["content-type"] = "application/json";
@@ -1655,7 +1662,7 @@ async function recoverPendingDiscloudBot(bot, userId, env) {
   }
   const pending = project?.discloudUploadPending;
   if (!pending || bot?.provider_app_id || bot?.hosting_deployment_id) return { pending: false };
-  const token = await providerToken(userId, "discloud", env);
+  const token = await providerTokenForPool(userId, "discloud", env);
   if (!token) return { pending: true, error: "A tentativa anterior foi feita pela Discloud, mas a conta não está mais conectada. O Estúdio não tentará uma hospedagem paga nem criará outro servidor." };
   let account = null;
   try { account = (await discloudRequest(token, "/user"))?.user || null; }
@@ -3445,10 +3452,10 @@ export async function onRequest(context) {
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
       const [discloudRow, squareRow, cubeRow, sillyRow, cogitRow, keritRow, aclRow, waiflyRow, xsystemsRow, torchliteRow, dakiRow, unixsysRow, consolex1Row, hostingRow] = await Promise.all([
-        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='discloud'").bind(user.id).first(),
+        env.DB.prepare("SELECT user_id,account_label,plan,updated_at FROM provider_connections WHERE user_id IN (?,?) AND provider='discloud' ORDER BY CASE WHEN user_id=? THEN 0 ELSE 1 END LIMIT 1").bind(user.id, SHARED_HOSTING_OWNER_ID, user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
-        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cubecloud'").bind(user.id).first(),
-        env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='sillydev'").bind(user.id).first(),
+        env.DB.prepare("SELECT user_id,account_label,plan,updated_at FROM provider_connections WHERE user_id IN (?,?) AND provider='cubecloud' ORDER BY CASE WHEN user_id=? THEN 0 ELSE 1 END LIMIT 1").bind(user.id, SHARED_HOSTING_OWNER_ID, user.id).first(),
+        env.DB.prepare("SELECT user_id,account_label,plan,updated_at FROM provider_connections WHERE user_id IN (?,?) AND provider='sillydev' ORDER BY CASE WHEN user_id=? THEN 0 ELSE 1 END LIMIT 1").bind(user.id, SHARED_HOSTING_OWNER_ID, user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='cogithost'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='keritcloud'").bind(user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='aclclouds'").bind(user.id).first(),
@@ -3463,7 +3470,7 @@ export async function onRequest(context) {
       let discloud = { connected: false, provider: "discloud" };
       if (discloudRow) {
         try {
-          const token = await providerToken(user.id, "discloud", env);
+          const token = await providerTokenForPool(user.id, "discloud", env);
           const data = token ? await discloudRequest(token, "/user") : null;
           if (data?.user) {
             const planName = String(data.user.plan || discloudRow.plan || "");
@@ -3474,13 +3481,14 @@ export async function onRequest(context) {
             const freeSlotAvailable = isFreePlan && appsCount === 0 && (totalRamMb - ramUsedMb) >= 100;
             discloud = {
               connected: true, valid: true, provider: "discloud",
-              accountLabel: data.user.username || discloudRow.account_label || null,
+              accountLabel: discloudRow.user_id !== user.id ? "Hospedagem compartilhada do Estúdio" : (data.user.username || discloudRow.account_label || null),
+              sharedFromOwner: discloudRow.user_id !== user.id,
               plan: planName || null,
               appsCount, totalRamMb, ramUsedMb,
               canCreate: freeSlotAvailable,
               freeBotsLimit: isFreePlan ? 1 : null,
               detail: freeSlotAvailable
-                ? "Vaga Free disponível · o Estúdio pode enviar ZIP automaticamente."
+                ? (discloudRow.user_id !== user.id ? "Vaga Free compartilhada pelo Estúdio · o Estúdio pode enviar ZIP automaticamente." : "Vaga Free disponível · o Estúdio pode enviar ZIP automaticamente.")
                 : (!isFreePlan
                   ? "A seleção automática só usa o plano Free."
                   : (appsCount !== 0
@@ -3520,7 +3528,7 @@ export async function onRequest(context) {
       let cube = { connected: false, provider: "cubecloud" };
       if (cubeRow) {
         try {
-          const token = await providerToken(user.id, "cubecloud", env);
+          const token = await providerTokenForPool(user.id, "cubecloud", env);
           const usage = token ? await cubeCloudRequest(token, "/account/usage") : null;
           if (usage?.plan) {
             const plan = usage.plan || {};
@@ -3531,7 +3539,8 @@ export async function onRequest(context) {
             const freeMb = Number(usage.memory?.freeMb || 0);
             cube = {
               connected: true, valid: true, provider: "cubecloud",
-              accountLabel: cubeRow.account_label || usage.accountId || null,
+              accountLabel: cubeRow.user_id !== user.id ? "Hospedagem compartilhada do Estúdio" : (cubeRow.account_label || usage.accountId || null),
+              sharedFromOwner: cubeRow.user_id !== user.id,
               plan: plan.name || cubeRow.plan || null,
               planId: plan.id || null,
               projectsCount: projectCount, maxBots,
@@ -3550,7 +3559,7 @@ export async function onRequest(context) {
       let sillydev = { connected: false, provider: "sillydev" };
       if (sillyRow) {
         try {
-          const token = await providerToken(user.id, "sillydev", env);
+          const token = await providerTokenForPool(user.id, "sillydev", env);
           const allowanceResult = token ? await sillydevRequest(token, "/server-creation") : null;
           const allowance = allowanceResult?.data?.attributes || {};
           const serverResult = token ? await sillydevRequest(token, "") : null;
@@ -3559,7 +3568,8 @@ export async function onRequest(context) {
           const owned = Number(allowance.servers_owned ?? servers.length);
           sillydev = {
             connected: true, valid: !!token, provider: "sillydev",
-            accountLabel: sillyRow.account_label || "Silly Development",
+            accountLabel: sillyRow.user_id !== user.id ? "Hospedagem compartilhada do Estúdio" : (sillyRow.account_label || "Silly Development"),
+            sharedFromOwner: sillyRow.user_id !== user.id,
             plan: "Free · até " + limit + " servidores · 256 MB RAM cada · 512 MB disco",
             serversCount: servers.length, serversOwned: owned,
             freeServersLimit: limit, freeSlotsRemaining: Math.max(0, limit - owned),
@@ -3567,7 +3577,7 @@ export async function onRequest(context) {
             canAttach: servers.length > 0,
             runtimes: Array.isArray(allowance.runtimes) ? allowance.runtimes.map(x => x.key) : [],
             detail: allowance.can_create
-              ? "Há uma vaga Free confirmada pela API. O Estúdio pode criar o servidor automaticamente."
+              ? (sillyRow.user_id !== user.id ? "Vaga Free compartilhada pelo Estúdio. A API confirmou que o Estúdio pode criar o servidor automaticamente." : "Há uma vaga Free confirmada pela API. O Estúdio pode criar o servidor automaticamente.")
               : "Limite Free: " + owned + "/" + limit + " servidores usados. Sem vaga para criar outro agora."
           };
         } catch (error) {
@@ -4004,7 +4014,7 @@ export async function onRequest(context) {
         let externalServerRetained = false;
         if (["sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
           try {
-            const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+            const providerId = bot.hosting_provider, token = await providerTokenForPool(user.id, providerId, env);
             const requestFn = providerRequestForId(providerId);
             const providerName = providerDisplayName(providerId);
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " antes de remover este projeto para que o Estúdio consiga parar o servidor." }, 409);
@@ -4016,7 +4026,7 @@ export async function onRequest(context) {
         }
         if (bot.hosting_provider === "discloud" && bot.provider_app_id) {
           try {
-            const token = await providerToken(user.id, "discloud", env);
+            const token = await providerTokenForPool(user.id, "discloud", env);
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Discloud antes de excluir a aplicação para não deixar recursos abandonados." }, 409);
             await discloudRequest(token, "/app/" + encodeURIComponent(bot.provider_app_id) + "/delete", "DELETE");
             deploymentDeleted = true;
@@ -4026,7 +4036,7 @@ export async function onRequest(context) {
         }
         if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
           try {
-            const token = await providerToken(user.id, "cubecloud", env);
+            const token = await providerTokenForPool(user.id, "cubecloud", env);
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting antes de excluir este projeto." }, 409);
             await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)), "DELETE");
             deploymentDeleted = true;
@@ -4087,7 +4097,7 @@ export async function onRequest(context) {
         let discordStatus = null;
         if (bot.hosting_provider === "discloud" && bot.provider_app_id) {
           try {
-            const token = await providerToken(user.id, "discloud", env);
+            const token = await providerTokenForPool(user.id, "discloud", env);
             if (!token) throw new Error("Conta Discloud desconectada.");
             const status = await discloudRequest(token, "/app/" + encodeURIComponent(bot.provider_app_id) + "/status");
             runtimeInfo = status.apps || status;
@@ -4127,7 +4137,7 @@ export async function onRequest(context) {
           } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar Cogithost." }; }
         } else if (["sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
           try {
-            const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+            const providerId = bot.hosting_provider, token = await providerTokenForPool(user.id, providerId, env);
             const requestFn = providerRequestForId(providerId);
             if (!token) throw new Error("Conta de hospedagem desconectada.");
             const result = await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/resources");
@@ -4137,7 +4147,7 @@ export async function onRequest(context) {
           } catch (error) { runtimeInfo = { error: error.message || "Falha ao consultar hospedagem Pterodactyl." }; }
         } else if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
           try {
-            const token = await providerToken(user.id, "cubecloud", env);
+            const token = await providerTokenForPool(user.id, "cubecloud", env);
             if (!token) throw new Error("Conta Cube Hosting desconectada.");
             const data = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)));
             runtimeInfo = data.project || data;
@@ -4220,7 +4230,7 @@ export async function onRequest(context) {
         if (!["start","stop","restart"].includes(signal)) return reply({ error: "Ação de energia inválida." }, 400);
         if (bot.hosting_provider === "discloud" && bot.provider_app_id) {
           try {
-            const token = await providerToken(user.id, "discloud", env);
+            const token = await providerTokenForPool(user.id, "discloud", env);
             if (!token) return reply({ code: "provider_not_connected", error: "A conexão Discloud não está disponível. Reconecte o provedor em Configurações." }, 409);
             const appId = encodeURIComponent(bot.provider_app_id);
             const result = await discloudRequest(token, "/app/" + appId + "/" + signal, "PUT");
@@ -4273,7 +4283,7 @@ export async function onRequest(context) {
         }
         if (["sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
           try {
-            const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+            const providerId = bot.hosting_provider, token = await providerTokenForPool(user.id, providerId, env);
             const requestFn = providerRequestForId(providerId);
             const providerName = providerDisplayName(providerId);
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " nas Configurações." }, 409);
@@ -4290,7 +4300,7 @@ export async function onRequest(context) {
         }
         if (bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
           try {
-            const token = await providerToken(user.id, "cubecloud", env);
+            const token = await providerTokenForPool(user.id, "cubecloud", env);
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
             const projectId = cubeProjectId(bot.provider_app_id);
             const result = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(projectId) + "/" + signal, "POST");
@@ -4524,7 +4534,7 @@ export async function onRequest(context) {
 
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "discloud" && bot.provider_app_id) {
         try {
-          const token = await providerToken(user.id, "discloud", env);
+          const token = await providerTokenForPool(user.id, "discloud", env);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Discloud nas Configurações." }, 409);
           const appId = encodeURIComponent(bot.provider_app_id);
           if (action === "logs") {
@@ -4585,7 +4595,7 @@ export async function onRequest(context) {
       }
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && ["sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
         try {
-          const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+          const providerId = bot.hosting_provider, token = await providerTokenForPool(user.id, providerId, env);
           const requestFn = providerRequestForId(providerId);
           const providerName = providerDisplayName(providerId);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerName + " nas Configurações." }, 409);
@@ -4607,7 +4617,7 @@ export async function onRequest(context) {
       }
       if ((action === "logs" || action === "diagnose" || action === "resources") && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         try {
-          const token = await providerToken(user.id, "cubecloud", env);
+          const token = await providerTokenForPool(user.id, "cubecloud", env);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
           const projectId = cubeProjectId(bot.provider_app_id);
           if (action === "logs") return reply(await cubeCloudLogs(token, projectId));
@@ -4667,7 +4677,7 @@ export async function onRequest(context) {
 
       if (action === "files" && ["sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
         try {
-          const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+          const providerId = bot.hosting_provider, token = await providerTokenForPool(user.id, providerId, env);
           const requestFn = providerRequestForId(providerId);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a hospedagem nas Configurações." }, 409);
           const serverId = keritIdentifier(bot.provider_app_id);
@@ -4755,7 +4765,7 @@ export async function onRequest(context) {
       }
       if (action === "files" && !subPath && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         try {
-          const token = await providerToken(user.id, "cubecloud", env);
+          const token = await providerTokenForPool(user.id, "cubecloud", env);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
           const root = safeVolumePath(url.searchParams.get("path") || "/");
           const relativeRoot = cubeRelativePath(root);
@@ -4832,7 +4842,7 @@ export async function onRequest(context) {
       }
       if (action === "files" && subPath === "download-url" && request.method === "GET" && bot.hosting_provider === "cubecloud" && bot.provider_app_id) {
         try {
-          const token = await providerToken(user.id, "cubecloud", env);
+          const token = await providerTokenForPool(user.id, "cubecloud", env);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
           const projectId = cubeProjectId(bot.provider_app_id);
           const filePath = cubeRelativePath(url.searchParams.get("path") || "/");
@@ -4929,7 +4939,7 @@ export async function onRequest(context) {
           if (/\.(?:png|jpe?g|gif|webp|svg|ico|avif|bmp|tif?f|mp3|wav|ogg|m4a|flac|mp4|webm|mov|woff2?|ttf|otf|zip|pdf|db|sqlite)$/i.test(filePath)) {
             return reply({ error: "Este arquivo é binário e não pode ser aberto no editor. Use Baixar." }, 415);
           }
-          const token = await providerToken(user.id, "cubecloud", env);
+          const token = await providerTokenForPool(user.id, "cubecloud", env);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
           const data = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)) + "/files/content?path=" + encodeURIComponent(filePath));
           const content = String(data.content || "");
@@ -4979,7 +4989,7 @@ export async function onRequest(context) {
         if (!filePath) return reply({ error: "Escolha um arquivo para salvar." }, 400);
         if (content.length > 450000) return reply({ error: "O arquivo é grande demais para o editor de texto. Use o envio de arquivos." }, 413);
         try {
-          const token = await providerToken(user.id, "cubecloud", env);
+          const token = await providerTokenForPool(user.id, "cubecloud", env);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
           return reply(await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)) + "/files/content", "PUT", { path: filePath, content }));
         } catch (error) {
@@ -5036,7 +5046,7 @@ export async function onRequest(context) {
         const filePath = cubeRelativePath(b.path);
         if (!filePath || ["main.py","runner.py","index.js"].includes(filePath)) return reply({ error: "A raiz ou o arquivo principal do bot não pode ser removido pelo Estúdio." }, 400);
         try {
-          const token = await providerToken(user.id, "cubecloud", env);
+          const token = await providerTokenForPool(user.id, "cubecloud", env);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
           return reply(await cubeCloudRequest(token, "/projects/" + encodeURIComponent(cubeProjectId(bot.provider_app_id)) + "/files?path=" + encodeURIComponent(filePath), "DELETE"));
         } catch (error) {
@@ -5077,7 +5087,7 @@ export async function onRequest(context) {
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
           const isPterodactylTarget = ["cogithost","sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(String(bot.hosting_provider || "").toLowerCase()) && !!bot.provider_app_id;
-          const sillydevConnection = await env.DB.prepare("SELECT id FROM provider_connections WHERE user_id=? AND provider='sillydev'").bind(user.id).first();
+          const sillydevConnection = await env.DB.prepare("SELECT id FROM provider_connections WHERE user_id IN (?,?) AND provider='sillydev' LIMIT 1").bind(user.id, SHARED_HOSTING_OWNER_ID).first();
           const maxArchiveBytes = (isAclCloudsTarget || isPterodactylTarget || !!sillydevConnection) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
           const uploadId = String(b.uploadId || "");
@@ -5141,7 +5151,7 @@ export async function onRequest(context) {
             };
             const providerConfig = providerConfigs[currentProvider];
             const cogit = currentProvider === "cogithost" ? await cogitConfig(user.id, env) : null;
-            const token = currentProvider === "cogithost" ? (cogit?.token || null) : await providerToken(user.id, currentProvider, env);
+            const token = currentProvider === "cogithost" ? (cogit?.token || null) : await providerTokenForPool(user.id, currentProvider, env);
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte " + providerConfig.name + " nas Configurações." }, 409);
             try {
               if (currentProvider === "sillydev") {
@@ -5550,7 +5560,7 @@ export async function onRequest(context) {
       }
       if (action === "upload-url" && request.method === "POST" && ["sillydev","keritcloud","waifly","xsystems","torchlite","daki","unixsys","consolex1"].includes(bot.hosting_provider) && bot.provider_app_id) {
         try {
-          const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+          const providerId = bot.hosting_provider, token = await providerTokenForPool(user.id, providerId, env);
           const requestFn = providerRequestForId(providerId);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte sua hospedagem nas Configurações." }, 409);
           const b = await body(request), directory = safeVolumePath(b.path || "/");
@@ -5667,7 +5677,7 @@ export async function onRequest(context) {
         const b = await body(request), file = String(b.file || "");
         if (!/^[A-Za-z0-9._-]{1,140}\\.zip$/i.test(file) || file.includes("..")) return reply({ error: "Nome de ZIP inválido." }, 400);
         try {
-          const providerId = bot.hosting_provider, token = await providerToken(user.id, providerId, env);
+          const providerId = bot.hosting_provider, token = await providerTokenForPool(user.id, providerId, env);
           const requestFn = providerRequestForId(providerId);
           if (!token) return reply({ code: "provider_not_connected", error: "Reconecte sua hospedagem nas Configurações." }, 409);
           const result = await requestFn(token, "/servers/" + encodeURIComponent(keritIdentifier(bot.provider_app_id)) + "/files/decompress", "POST", { root: safeVolumePath(b.path || "/"), file });
