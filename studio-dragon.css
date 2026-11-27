@@ -406,3 +406,6 @@
  #app .mc-mod-card>.btn{grid-column:2;justify-self:start}
  #app .mc-mods-selection{align-items:flex-start;flex-direction:column}
 }
+
+#app .mc-mods-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#app .mc-mods-actions .btn{white-space:nowrap}
