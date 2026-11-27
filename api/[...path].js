@@ -2846,18 +2846,25 @@ export async function onRequest(context) {
     if (path === "/admin/minecraft/config" && request.method === "GET") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;if(!ownerOnly(auth.user))return reply({error:"Acesso restrito ao administrador."},403);
       const [mail,mc]=await Promise.all([emailSenderSettings(env),minecraftSettings(env)]);
+      const loaderConfigs=mc?.loader_configs||{};
       return reply({emailConfigured:!!mail?.api_key_enc,fromEmail:mail?.from_email||"",minecraftConfigured:minecraftConfigReady(mc),
-        panelUrl:mc?.panel_url||"",panelKeyConfigured:!!mc?.application_key_enc,eggId:mc?.egg_id||"",allocationId:mc?.allocation_id||"",
+        panelUrl:mc?.panel_url||"",panelKeyConfigured:!!mc?.application_key_enc,clientApiKeyConfigured:!!mc?.client_api_key_enc,
+        loaderConfigs,eggId:mc?.egg_id||"",allocationId:mc?.allocation_id||"",
         dockerImage:mc?.docker_image||"ghcr.io/pterodactyl/yolks:java_21",startupCommand:mc?.startup_command||"java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar {{SERVER_JARFILE}}",
         environment:mc?.environment_json||{},versionEnv:mc?.version_env||"MINECRAFT_VERSION",
-        memoryMb:mc?.memory_mb||2048,diskMb:mc?.disk_mb||10240,cpuPercent:mc?.cpu_percent||200,maxServersPerUser:mc?.max_servers_per_user||1});
+        memoryMb:mc?.memory_mb||2048,diskMb:mc?.disk_mb||10240,cpuPercent:mc?.cpu_percent||200,maxServersPerUser:mc?.max_servers_per_user||1,
+        moddedLoaders:Object.entries(loaderConfigs).filter(([key,value])=>MODRINTH_LOADERS.has(key)&&Number(value?.eggId)>0).map(([key])=>key)});
     }
     if (path === "/admin/minecraft/config" && request.method === "POST") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;if(!ownerOnly(auth.user))return reply({error:"Acesso restrito ao administrador."},403);
       const b=await body(request),now=Date.now();
       const fromEmail=String(b.fromEmail||"").trim(),mailKey=String(b.resendApiKey||"").trim();
-      const panelUrl=String(b.panelUrl||"").trim().replace(/\/+$/,""),panelKey=String(b.panelApplicationKey||"").trim();
-      const eggId=Number(b.eggId),allocationId=Number(b.allocationId),memory=Number(b.memoryMb),disk=Number(b.diskMb),cpu=Number(b.cpuPercent),maxServers=Number(b.maxServersPerUser);
+      const old=await minecraftSettings(env);
+      const panelUrl=String(b.panelUrl||old?.panel_url||"").trim().replace(/\/+$/,""),panelKey=String(b.panelApplicationKey||"").trim();
+      const clientApiKey=String(b.panelClientApiKey||"").trim();
+      const eggId=Number(b.eggId||old?.egg_id||0),allocationId=Number(b.allocationId||old?.allocation_id||0);
+      const memory=Number(b.memoryMb||old?.memory_mb||2048),disk=Number(b.diskMb||old?.disk_mb||10240),cpu=Number(b.cpuPercent||old?.cpu_percent||200),maxServers=Number(b.maxServersPerUser||old?.max_servers_per_user||1);
+      const loaderConfigs=b.loaderConfigs&&typeof b.loaderConfigs==="object"&&!Array.isArray(b.loaderConfigs)?b.loaderConfigs:(old?.loader_configs||{});
       if(mailKey||fromEmail){
         if(!/^.+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$|^[^<>\s]+@[^<>\s]+\.[^<>\s]+$/.test(fromEmail))return reply({error:"Informe um remetente válido, de preferência no formato Nome <email@seudominio.com>."},400);
         if(mailKey.length<20&&!(await emailSenderSettings(env))?.api_key_enc)return reply({error:"Informe a chave de API do Resend."},400);
@@ -2866,11 +2873,18 @@ export async function onRequest(context) {
         await env.DB.prepare("INSERT INTO email_sender_settings (id,owner_user_id,api_key_enc,from_email,updated_at) VALUES ('main',?,?,?,?) ON CONFLICT (id) DO UPDATE SET api_key_enc=EXCLUDED.api_key_enc,from_email=EXCLUDED.from_email,updated_at=EXCLUDED.updated_at")
           .bind(auth.user.id,enc,fromEmail,now).run();
       }
-      if(panelUrl||panelKey||eggId||allocationId){
+      if(panelUrl||panelKey||clientApiKey||eggId||allocationId||b.loaderConfigs){
         if(!/^https:\/\//i.test(panelUrl)||!Number.isInteger(eggId)||eggId<1||!Number.isInteger(allocationId)||allocationId<1)
           return reply({error:"Informe a URL HTTPS do painel, Egg ID e Allocation ID."},400);
-        const old=await minecraftSettings(env);
         if(!panelKey&&!old?.application_key_enc)return reply({error:"Informe a chave Application API do Pterodactyl."},400);
+        for(const [loader,config] of Object.entries(loaderConfigs)){
+          if(!MODRINTH_LOADERS.has(loader)||!config||!Number.isInteger(Number(config.eggId))||Number(config.eggId)<1)
+            return reply({error:"Cada configuração de loader precisa usar Fabric, Forge, NeoForge ou Quilt e possuir um Egg ID válido."},400);
+          if(config.environment!==undefined&&(!config.environment||typeof config.environment!=="object"||Array.isArray(config.environment)||Object.keys(config.environment).length>40))
+            return reply({error:"Confira as variáveis de ambiente de "+loader+"."},400);
+          if(config.startupCommand!==undefined&&String(config.startupCommand).length>1000)
+            return reply({error:"O comando de início de "+loader+" é muito longo."},400);
+        }
         const docker=String(b.dockerImage||"ghcr.io/pterodactyl/yolks:java_21").trim();
         const startup=String(b.startupCommand||"").trim();
         const versionEnv=String(b.versionEnv||"MINECRAFT_VERSION").trim();
@@ -2879,8 +2893,9 @@ export async function onRequest(context) {
         if(![memory,disk,cpu,maxServers].every(Number.isFinite)||memory<512||memory>65536||disk<1024||disk>1048576||cpu<50||cpu>10000||maxServers<1||maxServers>20)
           return reply({error:"Limites fora da faixa permitida."},400);
         const keyEnc=panelKey?await encryptSecret(panelKey,env):old.application_key_enc;
-        await env.DB.prepare("INSERT INTO minecraft_settings (id,owner_user_id,panel_url,application_key_enc,egg_id,allocation_id,docker_image,startup_command,environment_json,version_env,memory_mb,disk_mb,cpu_percent,max_servers_per_user,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,panel_url=EXCLUDED.panel_url,application_key_enc=EXCLUDED.application_key_enc,egg_id=EXCLUDED.egg_id,allocation_id=EXCLUDED.allocation_id,docker_image=EXCLUDED.docker_image,startup_command=EXCLUDED.startup_command,environment_json=EXCLUDED.environment_json,version_env=EXCLUDED.version_env,memory_mb=EXCLUDED.memory_mb,disk_mb=EXCLUDED.disk_mb,cpu_percent=EXCLUDED.cpu_percent,max_servers_per_user=EXCLUDED.max_servers_per_user,updated_at=EXCLUDED.updated_at")
-          .bind(auth.user.id,panelUrl,keyEnc,eggId,allocationId,docker,startup,JSON.stringify(environment),versionEnv,memory,disk,cpu,maxServers,now).run();
+        const clientKeyEnc=clientApiKey?await encryptSecret(clientApiKey,env):old?.client_api_key_enc||null;
+        await env.DB.prepare("INSERT INTO minecraft_settings (id,owner_user_id,panel_url,application_key_enc,client_api_key_enc,loader_configs,egg_id,allocation_id,docker_image,startup_command,environment_json,version_env,memory_mb,disk_mb,cpu_percent,max_servers_per_user,updated_at) VALUES ('main',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,panel_url=EXCLUDED.panel_url,application_key_enc=EXCLUDED.application_key_enc,client_api_key_enc=EXCLUDED.client_api_key_enc,loader_configs=EXCLUDED.loader_configs,egg_id=EXCLUDED.egg_id,allocation_id=EXCLUDED.allocation_id,docker_image=EXCLUDED.docker_image,startup_command=EXCLUDED.startup_command,environment_json=EXCLUDED.environment_json,version_env=EXCLUDED.version_env,memory_mb=EXCLUDED.memory_mb,disk_mb=EXCLUDED.disk_mb,cpu_percent=EXCLUDED.cpu_percent,max_servers_per_user=EXCLUDED.max_servers_per_user,updated_at=EXCLUDED.updated_at")
+          .bind(auth.user.id,panelUrl,keyEnc,clientKeyEnc,JSON.stringify(loaderConfigs),eggId,allocationId,docker,startup,JSON.stringify(environment),versionEnv,memory,disk,cpu,maxServers,now).run();
       }
       return reply({ok:true,message:"Configurações salvas. As chaves ficam criptografadas."});
     }
@@ -2891,9 +2906,15 @@ export async function onRequest(context) {
     }
     if (path === "/admin/minecraft/test-panel" && request.method === "POST") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;if(!ownerOnly(auth.user))return reply({error:"Acesso restrito ao administrador."},403);
-      try{const mc=await minecraftSettings(env);if(!minecraftConfigReady(mc))return reply({error:"Preencha primeiro as configurações do Pterodactyl."},409);
-        await minecraftPanelRequest(mc,env,"/users?per_page=1");return reply({ok:true,message:"Conexão com o painel Pterodactyl confirmada."});}
-      catch(error){return reply({error:error.message||"Falha ao testar o painel."},502);}
+      try{
+        const mc=await minecraftSettings(env);if(!minecraftConfigReady(mc))return reply({error:"Preencha primeiro as configurações do Pterodactyl."},409);
+        await minecraftPanelRequest(mc,env,"/users?per_page=1");
+        if(mc.client_api_key_enc){
+          const client=await minecraftClientRequest(mc,env,"/servers?per_page=1");
+          return reply({ok:true,message:"Application API e Client API de arquivos confirmadas.",clientApi:true});
+        }
+        return reply({ok:true,message:"Application API confirmada. A Client API de arquivos ainda não foi configurada.",clientApi:false});
+      }catch(error){return reply({error:error.message||"Falha ao testar o painel."},502);}
     }
     if (path === "/minecraft/status" && request.method === "GET") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;
