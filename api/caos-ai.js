@@ -44,11 +44,20 @@ async function verifyBot(req, sql) {
   const identity = await response.json().catch(() => ({}));
   if (!identity?.id || identity.bot !== true) return null;
 
-  const rows = await sql.query(
+  // O CAOS principal mantém a autorização original.
+  const primaryRows = await sql.query(
     "SELECT bot_id FROM admin_caos_settings WHERE id='main' AND bot_id=$1 AND package_uploaded_at IS NOT NULL AND hosting_deployment_id IS NOT NULL LIMIT 1",
     [String(identity.id)]
   );
-  return rows?.length ? String(identity.id) : null;
+  if (primaryRows?.length) return String(identity.id);
+
+  // Também autoriza bots extras do proprietário, desde que sejam projetos
+  // personalizados com token salvo e hospedagem efetivamente vinculada.
+  const companionRows = await sql.query(
+    "SELECT b.discord_bot_id FROM bots b INNER JOIN admin_caos_settings a ON a.id='main' AND a.owner_user_id=b.user_id WHERE b.discord_bot_id=$1 AND b.discord_token_enc IS NOT NULL AND b.project_type='custom' AND (COALESCE(b.provider_app_id,'') <> '' OR COALESCE(b.hosting_deployment_id,'') <> '') LIMIT 1",
+    [String(identity.id)]
+  );
+  return companionRows?.length ? String(identity.id) : null;
 }
 
 async function useQuota(sql, guildId, userId, kind) {
@@ -134,7 +143,7 @@ async function chat(req, res, sql, body) {
   const messages = [
     {
       role: "system",
-      content: "Você é a IA oficial do servidor Discord CAOS. Responda sempre em português brasileiro, de forma respeitosa, clara e objetiva. Ajude com dúvidas gerais, explique termos de RP e regras apenas quando tiver certeza. Não invente decisões, vagas, aprovações, punições, cargos ou informações internas do servidor. Encaminhe dúvidas administrativas específicas à equipe. Se a pergunta for sobre recrutamento, REC, inscrição ou formulário, diga que o canal de recrutamento é o local correto; as regras automáticas de recrutamento são tratadas pelo próprio bot. Não peça senhas, tokens, cookies ou dados pessoais. Respostas curtas, adequadas ao Discord."
+      content: "Você é uma assistente de IA de atendimento de um servidor Discord. Responda sempre em português brasileiro, de forma respeitosa, clara, natural e objetiva. Ajude os membros com perguntas gerais e mantenha o contexto da conversa usando o histórico recebido. Não invente regras, canais, cargos, vagas, decisões, aprovações, punições ou informações internas do servidor. Quando não tiver informação suficiente sobre algo específico do servidor, explique que não sabe e recomende confirmar com a equipe. Não peça senhas, tokens, cookies ou dados pessoais. Não finja ser uma pessoa da equipe nem afirmar que realizou ações no servidor. Respostas curtas e adequadas ao Discord."
     },
     ...history,
     { role: "user", content: prompt }
