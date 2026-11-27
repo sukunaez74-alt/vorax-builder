@@ -546,7 +546,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
    <p class="section-lead">O Estúdio organiza a configuração. Para manter um bot conectado ao Discord, é necessário um serviço de execução compatível; as condições e os custos dependem do provedor escolhido.</p>
    <div class="plan-grid">
     <article class="plan-card featured-plan"><div class="plan-ribbon">PAINEL DO ESTÚDIO</div><h3>Workspace</h3><p class="plan-sub">Crie e organize seus projetos.</p><ul><li>Projetos e modelos</li><li>Configuração de módulos</li><li>Armazenamento protegido de token</li><li>Documentação de uso</li></ul><button class="btn btn-bright" data-enter-studio>Acessar o Estúdio</button></article>
-    <article class="plan-card"><div class="plan-ribbon muted-ribbon">EXECUÇÃO EXTERNA</div><h3>Hospedagem</h3><p class="plan-sub">Mantenha o processo do bot online.</p><ul><li>Servidor de execução</li><li>Iniciar, parar e reiniciar</li><li>Agendamento e logs, conforme o provedor</li><li>Limites e cobrança definidos pelo provedor</li></ul><a class="btn btn-outline" href="#documentacao-publica">Ver como conectar</a></article>
+    <article class="plan-card"><div class="plan-ribbon muted-ribbon">EXECUÇÃO EXTERNA</div><h3>Hospedagem</h3><p class="plan-sub">Mantenha o processo do bot online.</p><ul><li>Servidor de execução</li><li>Iniciar, parar e reiniciar</li><li>Reinício e logs, conforme o provedor</li><li>Limites e cobrança definidos pelo provedor</li></ul><a class="btn btn-outline" href="#documentacao-publica">Ver como conectar</a></article>
    </div>
   </section>
   <section class="landing-section comparison-section" id="comparativo">
@@ -617,16 +617,13 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
    <button class="nav-btn owner-only hidden" data-view="verificationAdmin"><span>⌁</span> CAOS · ADM</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Gerenciamento</div>
-   <button class="nav-btn" data-view="schedules"><span>◷</span> Agendamentos</button>
    <button class="nav-btn" data-view="backups"><span>▣</span> Backups</button>
    <button class="nav-btn" data-view="templates"><span>▧</span> Modelos</button>
-   <button class="nav-btn" disabled><span>✧</span> Marketplace <span class="nav-soon">EM BREVE</span></button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Sistema</div>
    <button class="nav-btn" data-view="overview"><span>◫</span> Estatísticas</button>
    <button class="nav-btn" data-view="logs"><span>≋</span> Logs</button>
-   <button class="nav-btn" disabled><span>♧</span> Alertas <span class="nav-soon">EM BREVE</span></button>
-   <button class="nav-btn" data-view="integrations"><span class="bz-nav-icon"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg></span> Alternativas Free</button>
+   <button class="nav-btn" data-view="integrations"><span class="bz-nav-icon"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg></span> Hospedagens Free</button>
    <button class="nav-btn" data-view="decoration"><span>✧</span> Decoração</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Ajuda e conta</div>
@@ -702,9 +699,9 @@ $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#regi
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){if(state.adminPortal&&view!=="verificationAdmin")return;if(!state.adminPortal&&view==="verificationAdmin")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",schedules:"Agendamentos",backups:"Backups",docs:"Documentação",integrations:"Provedores",hosting:"Hospedagem",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"CAOS · ADM"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){if(state.adminPortal&&view!=="verificationAdmin")return;if(!state.adminPortal&&view==="verificationAdmin")return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");render();if(view==="verificationAdmin")loadVerificationBotAdmin();const labels={overview:"Painel",bots:"Meus Bots",fleet:"Frota em lote",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos",backups:"Backups",docs:"Documentação",integrations:"Provedores",hosting:"Hospedagem",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",verificationAdmin:"CAOS · ADM"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
-function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,schedules:schedulesView,backups:backupsView,docs:docsView,integrations:integrationsView,hosting:hostingView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
+function render(){const v=state.view;const f={overview:overviewView,bots:botsView,fleet:fleetView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,backups:backupsView,docs:docsView,integrations:integrationsView,hosting:hostingView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 
 const DECORATION_OPTIONS=[
  {id:"sakura",name:"Sakura Neon",tag:"🌸 · LUA VIOLETA",description:"Templo japonês, lua gigante, sakuras e cidade iluminada.",symbol:"🌸",scene:"decor-scene-sakura",wallpaper:"/themes/sakura.svg",emojis:"🌸 🌙 ⛩️ ✨"},
@@ -762,7 +759,7 @@ function overviewView(){
   '<section class="cosmic-hero"><div class="cosmic-hero-copy"><div class="cosmic-kicker"><i></i> CENTRAL DE CONTROLE · BLACK ZONE</div><p>Bem-vindo(a) de volta,</p><h1>BLACK ZONE <em>ESTÚDIO</em></h1><div class="cosmic-subtitle">Sua central de hospedagem e gerenciamento de bots</div>'+
   '<div class="cosmic-badges"><span><b>◈</b>'+online+' online</span><span><b>⚡</b>'+bots.length+' projetos</span><span><b>✧</b>'+activeModules+' módulos ativos</span><span><b>⬡</b>'+"Hospedagem automática"+'</span></div><div class="theme-emoji-line" id="themeEmojiLine"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-fox"></use></svg><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-cat"></use></svg><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-rocket"></use></svg></div></div><div class="cosmic-planet"><div class="planet-ring"></div><div class="planet-core"></div><div class="cosmic-astronaut"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-bot"></use></svg></div><div class="planet-spark spark-a">✦</div><div class="planet-spark spark-b">✧</div></div></section>'+
   '<section class="dashboard-panel quick-panel"><div class="dashboard-panel-head"><div><small>ATALHOS</small><h2>Ações rápidas</h2></div></div><div class="quick-action-grid">'+
-   '<button data-action="create-bot" class="quick-action quick-purple"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-bot"></use></svg></span>Novo bot</button><button data-view="files" class="quick-action quick-blue"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg></span>Arquivos</button><button data-view="logs" class="quick-action quick-cyan"><span>›_</span>Terminal / logs</button><button data-view="schedules" class="quick-action quick-orange"><span>◷</span>Agendamentos</button><button data-view="hosting" class="quick-action quick-violet"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-rocket"></use></svg></span>Hospedagem</button><button data-view="integrations" class="quick-action quick-violet"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-shield"></use></svg></span>Alternativas Free</button>'+
+   '<button data-action="create-bot" class="quick-action quick-purple"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-bot"></use></svg></span>Novo bot</button><button data-view="files" class="quick-action quick-blue"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg></span>Arquivos</button><button data-view="logs" class="quick-action quick-cyan"><span>›_</span>Terminal / logs</button><button data-view="templates" class="quick-action quick-orange"><span>▧</span>Modelos</button><button data-view="hosting" class="quick-action quick-violet"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-rocket"></use></svg></span>Hospedagem</button><button data-view="integrations" class="quick-action quick-violet"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-shield"></use></svg></span>Hospedagens Free</button>'+
   '</div></section>'+
   '<section class="dashboard-panel bots-panel"><div class="dashboard-panel-head"><div><small>SEUS PROJETOS</small><h2>Meus bots</h2></div><div class="panel-head-actions"><span class="small-muted">'+bots.length+' cadastrados</span><button class="icon-button" id="refreshBots">↻</button></div></div>'+
    (bots.length?'<div class="dashboard-bot-list">'+bots.map(botCard).join("")+'</div>':'<div class="dashboard-empty empty-create"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-fox"></use></svg></span><b>Seu universo começa aqui</b><p>Crie seu primeiro bot para configurar o token, selecionar módulos e conectar a hospedagem.</p><button class="btn btn-bright" id="addBot">＋ Criar primeiro bot</button></div>')+
@@ -778,8 +775,7 @@ function overviewView(){
  '</aside></div>';
 }
 function botStatusLabel(b){
- if(b.scheduleEnabled)return "Agenda diária";
- if(b.state==="running")return "Servidor ativo";
+  if(b.state==="running")return "Servidor ativo";
  if(b.state==="stopped"||b.state==="offline")return "Parado";
  if(b.hostingDeploymentId)return "Hospedagem criada";
  return "Pronto para iniciar";
@@ -818,7 +814,6 @@ function botCard(b){
   presence==="intents_error"?"INTENTS PENDENTES":
   presence==="reconnecting"?"RECONECTANDO":
   presence==="starting"||b.state==="starting"?"INICIANDO":
-  b.scheduleEnabled&&b.scheduleActiveNow===false?"FORA DO HORÁRIO":
   customRunning?"PROCESSO ATIVO":
   processActive?"AGUARDANDO DISCORD":
   b.hostingDeploymentId?"OFFLINE":"RASCUNHO"
@@ -935,7 +930,13 @@ async function runFleetPower(action){
  if(progress){progress.hidden=false;progress.textContent=message+(failures.length?" "+failures.slice(0,4).join(" | "):"");}
  toast(message);
 }
-function templatesView(){return pageHead("Modelos prontos","Escolha uma base para organizar o projeto e seus módulos.")+'<div class="grid two-col"><section class="card"><div class="bot-row"><div class="bot-logo">⚡</div><div class="bot-info"><strong>CAOS • Bot de gerenciamento</strong><span>Python • Equipe, tickets, metas, recrutamento e música</span></div><span class="status off">Modelo</span></div><p class="muted small" style="margin:17px 0">Configure os módulos do CAOS e salve suas preferências no Estúdio. Não é necessário informar chave de API nesta etapa. A execução do bot será liberada quando o executor estiver conectado.</p><button class="btn" id="configureCaos">Configurar módulos CAOS ↗</button></section><section class="card"><div class="caps">CATÁLOGO</div><h3>Mais modelos em breve</h3><p class="muted small">O catálogo será ampliado com novas bases de bots.</p></section></div>'}
+function templatesView(){
+ return pageHead("Modelos e criação","Escolha a base do Estúdio ou importe o seu próprio bot.")+
+ '<div class="grid two-col">'+
+ '<section class="card bz-template-card"><div class="bot-row"><div class="bot-logo">'+bzIcon("bot")+'</div><div class="bot-info"><strong>CAOS · Modelo do Estúdio</strong><span>Python · Equipe, tickets, metas, recrutamento e música</span></div><span class="status off">Modelo</span></div><p class="muted small" style="margin:17px 0">Base pronta do Black Zone. Informe o Bot Token, escolha os módulos que o código oferece e publique em uma hospedagem compatível. Não exige API Key de IA.</p><button class="btn" id="configureCaos">Configurar modelo CAOS ↗</button></section>'+
+ '<section class="card bz-template-card"><div class="bot-row"><div class="bot-logo">'+bzIcon("rocket")+'</div><div class="bot-info"><strong>Meu próprio bot</strong><span>Python ou Node.js · código ZIP</span></div><span class="status">Token + ZIP</span></div><p class="muted small" style="margin:17px 0">Importe seu projeto, valide o Bot Token e deixe o Estúdio identificar o arquivo de inicialização. A hospedagem automática tenta as vagas gratuitas disponíveis.</p><button class="btn btn-bright" data-action="create-bot">Importar meu bot ↗</button></section>'+
+ '</div>';
+}
 function modulesMarkup(){return '<div class="project-note" style="margin:14px 0"><strong>Escolha somente o que seu código oferece.</strong><br>Os módulos começam desligados. Não precisa ativar todos; marque apenas os recursos que realmente existem no seu bot.</div><div class="grid module-grid">'+Object.entries(moduleNames).map(([k,n])=>'<label class="module"><div class="module-top"><strong>'+n+'</strong><input type="checkbox" class="toggle module-toggle" data-module="'+k+'" '+(state.modules[k]?"checked":"")+'></div><small>Ativar este módulo</small></label>').join("")+'</div>'}
 
 const resourceCatalog=[
@@ -978,15 +979,19 @@ function docsView(){
  '<div class="docs-layout"><aside class="docs-index"><div class="nav-title caps">Guias</div>'+docs.map((d,i)=>'<a href="#guide-'+i+'">'+d[0]+' · '+d[1]+'</a>').join("")+'</aside><div class="docs-content">'+docs.map((d,i)=>'<article class="doc-step" id="guide-'+i+'"><div class="doc-step-head"><span>'+d[0]+'</span><h3>'+d[1]+'</h3></div><p>'+d[2]+'</p><div class="doc-tip">'+d[3]+'</div></article>').join("")+'</div></div>';
 }
 function integrationsView(){
- return pageHead("Alternativas gratuitas","Opções com painel próprio para quem prefere enviar o ZIP diretamente à hospedagem.")+
- '<div class="bz-host-alt-note" style="margin-bottom:15px"><b>Importante:</b> estas alternativas são independentes. Você cria sua conta no serviço externo, envia o ZIP e configura o Bot Token no painel dele. Elas não aparecem como vagas automáticas do Estúdio e não exigem uma API Key colada aqui.</div>'+
+ return pageHead("Hospedagens gratuitas","Mais opções para publicar bots sem colar API Keys no Black Zone.")+
+ '<div class="bz-host-alt-note" style="margin-bottom:15px"><b>Como funciona:</b> um bot comum usa o próprio código e o Bot Token do Discord. O token sozinho não contém o código: quando não usar o modelo CAOS, também será necessário enviar o ZIP. Nas opções abaixo, você cria uma conta e faz o deploy manual no painel externo; não são vagas automáticas do Estúdio e não pedem API Key colada aqui.</div>'+
  '<div class="bz-host-alternative-grid">'+
- '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("crystal")+'FadeHost</div><span class="bz-host-alt-meta">FREE · 1 bot</span></div><div class="bz-host-alt-spec">256 MB RAM · 3 GB disco · 24/7</div><p>Um bot gratuito por pessoa, sem cartão e sem renovação. Permite enviar o código ou ZIP pelo painel, guardar o token como variável privada e acompanhar os logs. Exige e-mail verificado e tem limite diário de tráfego.</p><small>Deploy manual no painel externo. Não precisa colar uma API Key no Estúdio.</small><a href="https://fadehost.com/pt-br/discord-bot-hosting/" target="_blank" rel="noopener noreferrer">Abrir FadeHost ↗</a></article>'+
- '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("bot")+'Quaxly</div><span class="bz-host-alt-meta">FREE · até 3 bots</span></div><div class="bz-host-alt-spec">512 MB RAM compartilhados · sempre ligado</div><p>O painel anuncia até três bots concorrentes, logs ao vivo, métricas e reinício automático. Você envia o código, adiciona o token como segredo e faz o deploy pelo próprio site.</p><small>Deploy manual no painel externo. Os 512 MB são compartilhados entre os bots da conta.</small><a href="https://quaxly.com" target="_blank" rel="noopener noreferrer">Abrir Quaxly ↗</a></article>'+
- '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("rocket")+'Hostrix</div><span class="bz-host-alt-meta">FREE · 1 servidor</span></div><div class="bz-host-alt-spec">Upload de ZIP · extrair · iniciar</div><p>O painel permite enviar ZIP, extrair os arquivos e iniciar o servidor pelo navegador. A API de controle é anunciada apenas no plano Premium, então a opção gratuita é manual e não será conectada automaticamente ao Estúdio.</p><small>Boa opção para testar um projeto pelo navegador; confira os limites e termos no cadastro.</small><a href="https://hostrix.website" target="_blank" rel="noopener noreferrer">Abrir Hostrix ↗</a></article>'+
- '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("shield")+'Cogithost</div><span class="bz-host-alt-meta">FREE · 1 bot</span></div><div class="bz-host-alt-spec">1 GiB RAM · 500 MiB disco · 75% CPU</div><p>Hospedagem gratuita voltada a bots Discord em Node.js e Python, com painel, arquivos, editor de configuração e console. O plano Free pede que o bot mostre a presença de hospedagem exigida pelo serviço.</p><small>Deploy manual no painel externo. Não use contas extras para contornar o limite de uma conta por pessoa.</small><a href="https://host.cogitdev.net" target="_blank" rel="noopener noreferrer">Abrir Cogithost ↗</a></article>'+
+ '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("crystal")+'FadeHost</div><span class="bz-host-alt-meta">FREE · 1 bot</span></div><div class="bz-host-alt-spec">256 MB RAM · 3 GB disco · 24/7</div><p>Um bot por pessoa, sem cartão e sem renovação. A página oficial anuncia upload de código, token guardado como segredo e execução contínua.</p><small>Manual · sem API Key no Estúdio. Confira a capacidade antes de publicar.</small><a href="https://www.fadehost.com/discord-bot-hosting/free/" target="_blank" rel="noopener noreferrer">Abrir FadeHost ↗</a></article>'+
+ '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("bot")+'Quaxly</div><span class="bz-host-alt-meta">FREE · até 3 bots</span></div><div class="bz-host-alt-spec">512 MB RAM compartilhados · 24/7</div><p>O serviço anuncia três bots com memória compartilhada, deploy pelo painel, segredos protegidos, logs ao vivo e reinício automático.</p><small>Manual · a memória de 512 MB é dividida entre os bots da conta.</small><a href="https://quaxly.com" target="_blank" rel="noopener noreferrer">Abrir Quaxly ↗</a></article>'+
+ '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("rocket")+'Hostrix</div><span class="bz-host-alt-meta">FREE · 1 servidor</span></div><div class="bz-host-alt-spec">Python e Node.js · ZIP pelo navegador</div><p>Permite enviar ZIP, extrair arquivos e iniciar pelo painel web. A API de controle é anunciada no Premium; no Free, a operação é manual.</p><small>Manual · verifique os limites e termos durante o cadastro.</small><a href="https://hostrix.website" target="_blank" rel="noopener noreferrer">Abrir Hostrix ↗</a></article>'+
+ '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("shield")+'Cogithost</div><span class="bz-host-alt-meta">FREE · 1 bot</span></div><div class="bz-host-alt-spec">1 GiB RAM · 500 MiB disco · 75% CPU</div><p>Hospedagem voltada a bots Discord com Python e Node.js, painel de arquivos, console e variáveis de ambiente. O plano gratuito exige presença indicando a hospedagem.</p><small>Manual · confira as regras de presença do plano gratuito.</small><a href="https://host.cogitdev.net" target="_blank" rel="noopener noreferrer">Abrir Cogithost ↗</a></article>'+
+ '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("crystal")+'ACLClouds</div><span class="bz-host-alt-meta">FREE · 1 bot</span></div><div class="bz-host-alt-spec">315 MB RAM · 0,25 vCPU · 715 MB disco</div><p>Suporta Node.js, Python e outras linguagens, com console e logs. O plano gratuito precisa ser renovado manualmente a cada 4 dias.</p><small>Manual · sem cartão, mas exige renovação periódica.</small><a href="https://aclclouds.com/en/bots" target="_blank" rel="noopener noreferrer">Abrir ACLClouds ↗</a></article>'+
+ '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("rocket")+'Unixsys</div><span class="bz-host-alt-meta">FREE · UniFree</span></div><div class="bz-host-alt-spec">256 MB RAM · 50% CPU · 512 MB disco</div><p>Criação e gerenciamento pelo Discord, com painel Pterodactyl, console e gerenciador de arquivos. O servidor fica ativo 24/7 depois de iniciado.</p><small>Manual · o cadastro e o gerenciamento passam pelo Discord do serviço.</small><a href="https://unixsys.tech/en/" target="_blank" rel="noopener noreferrer">Abrir Unixsys ↗</a></article>'+
+ '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("shield")+'Kerit Cloud</div><span class="bz-host-alt-meta">FREE · 1 bot</span></div><div class="bz-host-alt-spec">256 MB RAM · 2 GB NVMe · MySQL</div><p>Suporta Node.js, Python e Java, com reinício automático e ambiente de segredos. A vaga gratuita tem renovação semanal.</p><small>Manual · não exige cartão, mas precisa renovar a vaga toda semana.</small><a href="https://kerit.cloud/free-discord-bot-hosting/" target="_blank" rel="noopener noreferrer">Abrir Kerit Cloud ↗</a></article>'+
+ '<article class="bz-host-alt-card"><div class="bz-host-alt-top"><div class="bz-host-alt-name">'+bzIcon("cat")+'Temalix</div><span class="bz-host-alt-meta">FREE · Python</span></div><div class="bz-host-alt-spec">200 MB RAM · 0,5 CPU · até 3 bots</div><p>Alternativa simples para projetos Python: aceita um arquivo .py, instala bibliotecas pré-instaladas e mostra logs. Não recebe ZIP completo e não promete uptime garantido.</p><small>Manual · escolha apenas para um bot Python compatível com arquivo único.</small><a href="https://temalix.colinm.de/" target="_blank" rel="noopener noreferrer">Abrir Temalix ↗</a></article>'+
  '</div>'+
- '<section class="dashboard-panel" style="margin-top:15px"><div class="dashboard-panel-head"><div><small>SEM COMPLICAÇÃO</small><h2>Qual caminho escolher?</h2></div></div><div class="bz-feature-row">'+bzIcon("fox")+'<div><b>Quero fazer tudo dentro do Black Zone</b><small>Volte à Central Free e use o fluxo Token + ZIP. O Estúdio tenta as vagas automáticas que estiverem confirmadas.</small></div></div><div class="bz-feature-row" style="margin-top:10px">'+bzIcon("cat")+'<div><b>Prefiro hospedar fora</b><small>Abra um dos painéis acima, crie sua conta e siga o processo próprio daquela hospedagem. O Black Zone não verá suas credenciais externas.</small></div></div></section>';
+ '<section class="dashboard-panel" style="margin-top:15px"><div class="dashboard-panel-head"><div><small>ESCOLHA O CAMINHO</small><h2>Sem API Key no Estúdio</h2></div></div><div class="bz-feature-row">'+bzIcon("fox")+'<div><b>Quero fazer tudo dentro do Black Zone</b><small>Use a Central Free e envie Bot Token + ZIP. O Estúdio tenta somente as vagas automáticas que estiverem confirmadas.</small></div></div><div class="bz-feature-row" style="margin-top:10px">'+bzIcon("cat")+'<div><b>Prefiro uma hospedagem externa</b><small>Crie sua conta no provedor, envie o código e informe o token no painel externo. O Black Zone não recebe sua senha nem a API Key do provedor.</small></div></div><div class="project-note" style="margin-top:12px">Planos gratuitos, filas e limites mudam. Confira sempre a página oficial antes de depender de uma vaga.</div></section>';
 }
 function hostingView(){
  const bots=state.bots||[],online=bots.filter(bot=>bot.discordOnline===true).length;
@@ -1044,12 +1049,6 @@ function filesView(){
  '<section class="dashboard-panel file-import-panel">'+(customBots.length>1?'<div class="field"><label>BOT</label><select id="filesBotSelect">'+choices+'</select></div>':'<div class="project-note"><strong>'+escapeHtml(bot.name||"Meu bot")+'</strong></div>')+
  '<div class="bz-upload-zone"><b>📦 Atualizar arquivo ZIP</b><p class="muted small">Envie o pacote atualizado do projeto.</p><input id="fileUploadInput" type="file" accept=".zip,application/zip,application/x-zip-compressed"></div>'+
  '<div id="fileStatus" class="project-note file-import-status">'+escapeHtml(summary)+'</div><button class="btn wide" id="fileUploadButton">⇧ Enviar ZIP e atualizar bot</button></section>';
-}
-function schedulesView(){
- return pageHead("Agendamentos","Defina a janela diária em que cada bot deve ficar conectado ao Discord.")+
- '<div class="card"><div class="section-head"><h3>Rotinas dos seus bots</h3></div>'+
- (state.bots.length?'<div class="list">'+state.bots.map(b=>'<div class="bot-row"><div class="bot-logo">◷</div><div class="bot-info"><strong>'+escapeHtml(b.name)+'</strong><span>'+(b.scheduleEnabled?'Online entre '+escapeHtml(b.scheduleStart)+' e '+escapeHtml(b.scheduleEnd):'Sem agendamento diário')+' • America/Bahia</span></div><button class="btn secondary" data-schedule="'+escapeHtml(b.id)+'">Configurar horário</button></div>').join('')+'</div>':'<div class="empty"><b>Nenhum bot cadastrado</b>Crie um bot antes de configurar os horários.</div>')+
- '</div>';
 }
 function logsView(){
  const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
@@ -1874,7 +1873,7 @@ const keritForm=$("#keritConnectForm");
  const conf=$("#configureCaos");if(conf)conf.onclick=()=>caosModal();
  const ref=$("#refreshBots");if(ref)ref.onclick=loadBots;
  document.querySelectorAll("[data-openbot]").forEach(b=>b.onclick=()=>openBot(b.dataset.openbot));
- document.querySelectorAll("[data-schedule]").forEach(b=>b.onclick=()=>openBot(b.dataset.schedule));
+ 
  document.querySelectorAll("[data-config-bot]").forEach(b=>b.onclick=()=>caosModal(b.dataset.configBot));
  document.querySelectorAll("[data-setup-module]").forEach(b=>b.onclick=()=>{if(!state.bots.length){toast("Crie um projeto primeiro.");navigate("bots");return}caosModal(activeBotForResources()?.id)});
  document.querySelectorAll("[data-action='create-bot']").forEach(b=>b.onclick=add);
@@ -2267,8 +2266,6 @@ async function openBot(id){
  const commandSummary=b.projectType==="custom"
   ?"Os comandos e recursos deste bot são definidos pelo código que você importou."
   :(discordStatus.commandsTotal!=null?("Comandos publicados: "+Number(discordStatus.commandsRegistered||0)+"/"+Number(discordStatus.commandsTotal||0)+" em "+Number(discordStatus.commandsSyncedGuilds||0)+" servidor(es)."):"Aguardando a primeira publicação dos comandos.");
- const schedule=b.scheduleEnabled;
- const scheduleText=schedule?(b.scheduleStart+" até "+b.scheduleEnd+" • America/Bahia"):"Sem horário limitado (conforme a disponibilidade da hospedagem)";
  const connectPanel=connected
    ? '<div class="project-note"><strong>Hospedagem conectada.</strong><br>O painel está autorizado a criar, iniciar e parar o servidor deste bot.</div>'
    : '<div class="project-note"><strong>Conecte sua hospedagem para ativar os controles.</strong><br>Você será levado ao Bot-Hosting para entrar e aprovar o acesso. Não precisa copiar chave de API.</div>';
@@ -2284,12 +2281,8 @@ async function openBot(id){
  '<div class="hero-actions" style="margin-top:14px;flex-wrap:wrap">'+
  (connected?'<button class="btn" id="botStart" '+(isRunning?"disabled":"")+'>'+(serverRunning&&!isRunning?"↻ Tentar iniciar novamente":"▶ Iniciar") +'</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!serverRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar Bot-Hosting</button>')+
  '<button class="btn secondary" id="botModules">Configurar token e módulos</button></div>'+
- '<section class="card" style="margin-top:16px"><div class="section-head"><h3>Horário de funcionamento</h3><span class="status off">'+(schedule?"Agendado":"Sem agenda")+'</span></div>'+
- '<label class="module" style="display:flex;align-items:center;gap:12px"><input id="scheduleEnabled" type="checkbox" class="toggle" '+(schedule?"checked":"")+'><span><strong>Ativar horário diário</strong><small>O supervisor liga e desliga o processo do bot automaticamente</small></span></label>'+
- '<div class="grid two-col" style="margin-top:12px"><div class="field"><label>FICAR ONLINE A PARTIR DE</label><input id="scheduleStart" type="time" value="'+escapeHtml(b.scheduleStart||"00:00")+'"></div><div class="field"><label>FICAR OFFLINE A PARTIR DE</label><input id="scheduleEnd" type="time" value="'+escapeHtml(b.scheduleEnd||"23:59")+'"></div></div>'+
- '<div class="project-note"><strong>Fuso horário: America/Bahia.</strong><br>Sem agenda, o supervisor mantém o bot online enquanto a hospedagem estiver ativa. Com agenda, o processo do Discord só roda dentro da janela diária.</div>'+
- '<button class="btn wide" id="saveBotSchedule">Salvar horário</button></section>'+
- '<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
+  (b.scheduleEnabled?'<div class="project-note changes-pending"><strong>Agendamento antigo encontrado.</strong><br>O Estúdio não vai mais ligar ou desligar o bot por horário. Reinicie este projeto uma vez para aplicar o funcionamento contínuo; os horários internos do seu próprio bot permanecem intactos.</div>':'')+
+'<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
  (botId?'<button class="btn secondary wide" id="botInvite">Adicionar este bot ao servidor Discord ↗</button>':'<p class="muted small">Salve o Bot Token para gerar o convite de instalação deste bot.</p>')+
  '<div class="project-note" style="margin-top:12px"><strong>'+escapeHtml(commandSummary)+'</strong><br>Os comandos são publicados diretamente em cada servidor onde este bot está instalado.</div>'+
  (commandErrors.length?'<div class="project-note changes-pending"><strong>Falha ao publicar comandos:</strong><br>'+escapeHtml(commandErrors.map(x=>x.error||"Erro de sincronização").join(" · "))+'</div>':'')+
@@ -2384,15 +2377,6 @@ async function openBot(id){
  if($("#botLogs"))$("#botLogs").onclick=async()=>{
    try{const r=await api("/bots/"+encodeURIComponent(id)+"/logs");const lines=r.lines||r.logs||[];openModal('<div class="modal-head"><h3>Logs do bot</h3><button class="close" id="closeModal">×</button></div><pre class="log-line" style="max-height:55vh;overflow:auto;white-space:pre-wrap">'+escapeHtml(lines.join("\n")||"Sem saída recente.")+'</pre>');}
    catch(e){toast(e.message)}
- };
- if($("#saveBotSchedule"))$("#saveBotSchedule").onclick=async()=>{
-   const enabled=$("#scheduleEnabled").checked;
-   const start=$("#scheduleStart").value,end=$("#scheduleEnd").value;
-   const btn=$("#saveBotSchedule");btn.disabled=true;btn.textContent="Salvando...";
-   try{
-     await api("/bots/"+encodeURIComponent(id)+"/schedule",{method:"POST",body:JSON.stringify({enabled,start,end})});
-     await loadBots();toast("Horário salvo com sucesso.");await openBot(id);
-   }catch(e){toast(e.message);btn.disabled=false;btn.textContent="Salvar horário";}
  };
 }
 async function loadBots(){
