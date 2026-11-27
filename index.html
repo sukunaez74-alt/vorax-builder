@@ -609,6 +609,23 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
   </div><div id="authNotice" class="notice hidden"></div>
  </div>
 </section>
+<section id="emailVerificationScreen" class="hidden">
+ <div class="auth-card">
+  <div class="brand"><div class="brand-mark">✦</div><div class="brand-name">ʙʟᴀᴄᴋ ᴢᴏɴᴇ<br><span class="caps">ESTÚDIO</span></div></div>
+  <h1>Confirme seu e-mail.</h1>
+  <p>Para liberar sua conta, precisamos confirmar que você recebe mensagens neste endereço.</p>
+  <div class="notice ok" id="appEmailVerifyTarget">E-mail cadastrado: —</div>
+  <p class="muted small">Enviaremos um código de 6 dígitos com validade de 10 minutos. Esse código confirma o endereço; não dá acesso à sua caixa de e-mail.</p>
+  <button class="btn wide" type="button" id="appEmailSendCode">Enviar código para meu e-mail</button>
+  <form id="appEmailVerifyForm" style="margin-top:14px">
+   <div class="field"><label>CÓDIGO DE 6 DÍGITOS</label><input id="appEmailVerifyCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" minlength="6" pattern="[0-9]{6}" required placeholder="000000"></div>
+   <button class="btn wide" type="submit">Confirmar e continuar</button>
+  </form>
+  <button class="link" type="button" id="appEmailResendCode" style="margin-top:12px">Reenviar código</button>
+  <div id="appEmailVerifyNotice" class="notice hidden" style="margin-top:12px"></div>
+  <div class="auth-links"><button class="link" type="button" id="appEmailExit">Cancelar e sair da conta</button><span class="muted">BLACK ZONE · CONTA PROTEGIDA</span></div>
+ </div>
+</section>
 <div id="app" class="hidden">
  <aside class="sidebar" id="sidebar">
   <div class="sidebar-mobile-top"><span>MENU DO ESTÚDIO</span><button id="closeSidebar" aria-label="Fechar menu">×</button></div>
@@ -688,11 +705,12 @@ async function api(path,options={}){
 }
 function notice(el,msg,type=""){el.textContent=msg;el.className="notice"+(type?" "+type:"");el.classList.remove("hidden")}
 function toast(msg){const el=document.createElement("div");el.className="toast";el.textContent=displayErrorText(msg)||"Ocorreu um erro inesperado.";$("#toastRoot").append(el);setTimeout(()=>el.remove(),5200)}
-function hidePublicScreens(){ $("#landingScreen").classList.add("hidden");$("#gateScreen").classList.add("hidden");$("#authScreen").classList.add("hidden");$("#app").classList.add("hidden") }
+function hidePublicScreens(){ $("#landingScreen").classList.add("hidden");$("#gateScreen").classList.add("hidden");$("#authScreen").classList.add("hidden");$("#emailVerificationScreen").classList.add("hidden");$("#app").classList.add("hidden") }
 function showLanding(){hidePublicScreens();$("#landingScreen").classList.remove("hidden");window.scrollTo({top:0,behavior:"smooth"})}
 function showGate(){hidePublicScreens();$("#gateScreen").classList.remove("hidden")}
 function showAuth(){hidePublicScreens();$("#authScreen").classList.remove("hidden")}
-function showApp(){hidePublicScreens();$("#app").classList.remove("hidden");loadSavedDecoration();const route=window.location.pathname.replace(/\/+$/,"")||"/";state.adminPortal=route==="/admin"&&state.user?.role==="owner";if(route==="/admin"&&!state.adminPortal){window.history.replaceState({},document.title,"/app");toast("Esta área é exclusiva da conta administradora.");}else if(route!=="/admin"&&route!=="/app"&&route!=="/"){window.history.replaceState({},document.title,"/app");}$("#app").classList.toggle("admin-portal",state.adminPortal);document.querySelectorAll(".owner-only").forEach(el=>el.classList.toggle("hidden",!state.adminPortal));$("#adminBackToApp").classList.toggle("hidden",!state.adminPortal);$("#userLabel").textContent=state.user?.username||state.user?.email||"Conta";$("#avatar").textContent=(state.user?.name||"B").slice(0,1).toUpperCase();navigate(state.adminPortal?"verificationAdmin":"overview");if(!state.adminPortal){loadSettings();loadBots();}}
+function showEmailVerification(){hidePublicScreens();$("#emailVerificationScreen").classList.remove("hidden");$("#appEmailVerifyTarget").textContent="E-mail cadastrado: "+String(state.user?.email||"não informado");$("#appEmailVerifyCode").value="";$("#appEmailVerifyNotice").classList.add("hidden")}
+function showApp(){if(state.user&&state.user.role!=="owner"&&state.user.emailVerified!==true){showEmailVerification();return}hidePublicScreens();$("#app").classList.remove("hidden");loadSavedDecoration();const route=window.location.pathname.replace(/\/+$/,"")||"/";state.adminPortal=route==="/admin"&&state.user?.role==="owner";if(route==="/admin"&&!state.adminPortal){window.history.replaceState({},document.title,"/app");toast("Esta área é exclusiva da conta administradora.");}else if(route!=="/admin"&&route!=="/app"&&route!=="/"){window.history.replaceState({},document.title,"/app");}$("#app").classList.toggle("admin-portal",state.adminPortal);document.querySelectorAll(".owner-only").forEach(el=>el.classList.toggle("hidden",!state.adminPortal));$("#adminBackToApp").classList.toggle("hidden",!state.adminPortal);$("#userLabel").textContent=state.user?.username||state.user?.email||"Conta";$("#avatar").textContent=(state.user?.name||"B").slice(0,1).toUpperCase();navigate(state.adminPortal?"verificationAdmin":"overview");if(!state.adminPortal){loadSettings();loadBots();}}
 async function enterStudio(){try{const me=await api("/me");if(!me.gate){showGate();return}if(me.user){state.user=me.user;showApp()}else showAuth()}catch{showGate()}}
 document.querySelectorAll("[data-enter-studio]").forEach(b=>b.addEventListener("click",enterStudio));
 const siteMenu=$("#siteMenuBtn");if(siteMenu)siteMenu.onclick=()=>$(".site-nav").classList.toggle("open");const closeSide=$("#closeSidebar");if(closeSide)closeSide.onclick=()=>$("#sidebar").classList.remove("open");
@@ -754,6 +772,37 @@ document.addEventListener("click",async e=>{
 });
 
 async function boot(){const route=window.location.pathname.replace(/\/+$/,"")||"/";const portalEntry=route==="/app"||route==="/admin";try{const me=await api("/me");if(!me.gate){if(portalEntry)showGate();else showLanding();return}if(me.user){state.user=me.user;showApp()}else if(portalEntry)showAuth();else showLanding()}catch{if(portalEntry)showGate();else showLanding()}}
+async function sendAppEmailCode(){
+ const button=$("#appEmailSendCode"),noticeBox=$("#appEmailVerifyNotice");
+ if(button){button.disabled=true;button.textContent="Enviando código…"}
+ try{
+  const result=await api("/email/verify/start",{method:"POST",body:"{}"});
+  if(result.verified){state.user.emailVerified=true;showApp();return}
+  $("#appEmailVerifyTarget").textContent="Código enviado para "+(result.maskedEmail||state.user?.email||"seu e-mail")+". Confira também o spam.";
+  notice(noticeBox,"Código enviado. Digite os 6 números recebidos para continuar.","ok");
+ }catch(error){notice(noticeBox,error.message||"Não consegui enviar o código.","error")}
+ finally{if(button){button.disabled=false;button.textContent="Enviar código novamente"}}
+}
+$("#appEmailSendCode").onclick=sendAppEmailCode;
+$("#appEmailResendCode").onclick=sendAppEmailCode;
+$("#appEmailVerifyForm").addEventListener("submit",async e=>{
+ e.preventDefault();
+ const code=$("#appEmailVerifyCode").value.trim(),button=e.submitter,noticeBox=$("#appEmailVerifyNotice");
+ if(button){button.disabled=true;button.textContent="Confirmando…"}
+ try{
+  const result=await api("/email/verify/confirm",{method:"POST",body:JSON.stringify({code})});
+  if(!result.verified)throw new Error(result.error||"Não foi possível confirmar o e-mail.");
+  state.user.emailVerified=true;
+  toast("E-mail confirmado. Sua conta está liberada.");
+  showApp();
+ }catch(error){notice(noticeBox,error.message||"Código inválido ou expirado.","error")}
+ finally{if(button){button.disabled=false;button.textContent="Confirmar e continuar"}}
+});
+$("#appEmailExit").onclick=async()=>{
+ try{await api("/logout",{method:"POST",body:"{}"})}catch{}
+ state.user=null;showAuth();
+};
+
 $("#loginForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api("/login",{method:"POST",body:JSON.stringify({identity:f.get("identity"),password:f.get("password")})});state.user=r.user;showApp()}catch(err){notice($("#authNotice"),err.message,"error")}});
 
 let pendingRegistrationEmail="";
