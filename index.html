@@ -850,13 +850,13 @@ function navigate(view){if(state.adminPortal&&!["verificationAdmin","minecraftAd
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
 
 function minecraftView(){
- return pageHead("Minecraft","Confirme seu e-mail e autorize a criação da sua conta individual e do servidor.",'<button class="btn secondary" id="minecraftRefresh">↻ Atualizar status</button>')+
- '<section class="dashboard-panel mc-main-card"><div class="dashboard-panel-head"><div><small>BLACK ZONE · GAME HOSTING</small><h2>Seu espaço no Minecraft</h2></div><span class="mc-crystal">⛏</span></div>'+
- '<div id="minecraftStatus" class="mc-status"><div class="notice">Consultando sua confirmação de e-mail e a infraestrutura…</div></div></section>'+
- '<div class="mc-consent hidden" id="minecraftConsent" role="dialog" aria-modal="true" aria-labelledby="mcConsentTitle"><div class="mc-consent-card"><div class="mc-kicker">CONFIRMAÇÃO NECESSÁRIA</div><h2 id="mcConsentTitle">Vamos criar sua conta Minecraft?</h2><p>Ao continuar, você autoriza o BLACK ZONE Estúdio a criar uma conta individual no painel Minecraft usando seu nome e o e-mail que você confirmou.</p><p>Também será solicitado um servidor com o nome e a versão escolhidos. Ele ficará em uma infraestrutura administrada pelo Estúdio e seguirá os limites informados na plataforma. Não vamos acessar sua caixa de e-mail nem pedir sua senha de outros serviços.</p><p>O acesso ao painel será separado da conta administrativa do Estúdio. Depois, você poderá definir sua senha pela opção de recuperação do próprio painel, conforme a configuração de e-mail dele.</p><div class="mc-actions"><button class="btn secondary" type="button" data-minecraft-action="cancel-consent">Cancelar</button><button class="btn" type="button" data-minecraft-action="confirm-create">Continuar e criar conta</button></div><div id="minecraftCreateNotice" class="notice hidden"></div></div></div>';
+ return pageHead("Servidores Minecraft","Área independente dos bots Discord: crie um servidor normal ou escolha um loader para jogar com mods.",'<button class="btn secondary" id="minecraftRefresh">↻ Atualizar servidores</button>')+
+ '<section class="dashboard-panel mc-main-card"><div class="dashboard-panel-head"><div><small>BLACK ZONE · MINECRAFT</small><h2>Seu espaço de jogo</h2><p class="muted small">Contas, servidores, versões e mods ficam separados dos seus projetos Discord.</p></div><span class="mc-crystal">⛏</span></div>'+
+ '<div id="minecraftStatus" class="mc-status"><div class="notice">Consultando sua conta e os servidores…</div></div></section>'+
+ '<div class="mc-consent hidden" id="minecraftConsent" role="dialog" aria-modal="true" aria-labelledby="mcConsentTitle"><div class="mc-consent-card"><div class="mc-kicker">CONFIRMAÇÃO NECESSÁRIA</div><h2 id="mcConsentTitle">Vamos criar sua conta Minecraft?</h2><p>Ao continuar, você autoriza o BLACK ZONE Estúdio a criar uma conta individual no painel Minecraft usando seu nome e o e-mail que você confirmou.</p><p>Também será solicitado um servidor do tipo escolhido, com a versão e o loader exibidos. A conta de jogo não tem privilégios administrativos e não se mistura com sua conta Discord.</p><p>Não vamos acessar sua caixa de e-mail nem pedir sua senha de outros serviços.</p><div class="mc-actions"><button class="btn secondary" type="button" data-minecraft-action="cancel-consent">Cancelar</button><button class="btn" type="button" data-minecraft-action="confirm-create">Continuar e criar conta</button></div><div id="minecraftCreateNotice" class="notice hidden"></div></div></div>';
 }
 function minecraftAdminView(){
- return pageHead("Minecraft · Administração","Configuração privada do servidor, do envio de e-mails e dos limites por membro.")+
+ return pageHead("Minecraft · Administração","Configuração privada dos servidores Minecraft, loaders, catálogo de mods e envio de e-mails.")+
  '<section class="dashboard-panel mc-admin-panel"><div class="dashboard-panel-head"><div><small>CONFIGURAÇÃO PRIVADA</small><h2>Verificação por e-mail</h2></div><span class="status">ADM</span></div>'+
  '<form id="mcAdminConfigForm" class="mc-admin-grid">'+
  '<label class="field"><span>CHAVE DE API RESEND</span><input type="password" name="resendApiKey" autocomplete="new-password" placeholder="re_..."></label>'+
@@ -865,40 +865,138 @@ function minecraftAdminView(){
  '<div class="dashboard-panel-head mc-admin-subhead"><div><small>PAINEL DE JOGOS</small><h2>Pterodactyl 1.x</h2></div></div>'+
  '<label class="field"><span>URL DO PAINEL</span><input name="panelUrl" type="url" placeholder="https://painel.seudominio.com"></label>'+
  '<label class="field"><span>CHAVE APPLICATION API</span><input name="panelApplicationKey" type="password" autocomplete="new-password" placeholder="ptla_..."></label>'+
- '<label class="field"><span>EGG ID</span><input name="eggId" type="number" min="1" required></label>'+
+ '<label class="field mc-full"><span>CHAVE CLIENT API PARA ARQUIVOS</span><input name="panelClientApiKey" type="password" autocomplete="new-password" placeholder="ptlc_..."></label>'+
+ '<div class="mc-admin-note mc-full">A Client API permite que o Estúdio envie os arquivos .jar dos mods para a pasta /mods dos servidores. Use uma chave de cliente da conta administradora do painel, com acesso aos servidores. Ela fica criptografada e nunca aparece no painel dos membros.</div>'+
+ '<label class="field"><span>EGG ID · SERVIDOR NORMAL</span><input name="eggId" type="number" min="1" required></label>'+
  '<label class="field"><span>ALLOCATION ID</span><input name="allocationId" type="number" min="1" required></label>'+
- '<label class="field"><span>DOCKER IMAGE</span><input name="dockerImage" placeholder="ghcr.io/pterodactyl/yolks:java_21"></label>'+
+ '<label class="field"><span>DOCKER IMAGE PADRÃO</span><input name="dockerImage" placeholder="ghcr.io/pterodactyl/yolks:java_21"></label>'+
  '<label class="field"><span>VARIÁVEL DA VERSÃO</span><input name="versionEnv" placeholder="MINECRAFT_VERSION"></label>'+
- '<label class="field mc-full"><span>COMANDO DE INÍCIO</span><input name="startupCommand" required></label>'+
- '<label class="field mc-full"><span>VARIÁVEIS DE AMBIENTE (JSON)</span><textarea name="environment" rows="5" placeholder="{&quot;SERVER_JARFILE&quot;:&quot;server.jar&quot;}"></textarea></label>'+
+ '<label class="field mc-full"><span>COMANDO DE INÍCIO · NORMAL</span><input name="startupCommand" required></label>'+
+ '<label class="field mc-full"><span>VARIÁVEIS DE AMBIENTE · NORMAL (JSON)</span><textarea name="environment" rows="4" placeholder="{&quot;SERVER_JARFILE&quot;:&quot;server.jar&quot;}"></textarea></label>'+
+ '<div class="dashboard-panel-head mc-admin-subhead mc-full"><div><small>SERVIDORES COM MODS</small><h2>Eggs por mod loader</h2></div></div>'+
+ '<label class="field mc-full"><span>CONFIGURAÇÕES FABRIC / FORGE / NEOFORGE / QUILT (JSON)</span><textarea name="loaderConfigs" rows="9" placeholder="{&quot;fabric&quot;:{&quot;eggId&quot;:23,&quot;dockerImage&quot;:&quot;ghcr.io/pterodactyl/yolks:java_21&quot;,&quot;startupCommand&quot;:&quot;java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar {{SERVER_JARFILE}}&quot;,&quot;versionEnv&quot;:&quot;MINECRAFT_VERSION&quot;,&quot;environment&quot;:{&quot;SERVER_JARFILE&quot;:&quot;server.jar&quot;}}}"></textarea></label>'+
+ '<div class="mc-admin-note mc-full">Informe o Egg ID correto para cada loader instalado no seu Pterodactyl. Cada bloco aceita eggId, dockerImage, startupCommand, versionEnv e environment. Só os loaders configurados aparecem para os membros.</div>'+
+ '<div class="dashboard-panel-head mc-admin-subhead mc-full"><div><small>LIMITES DOS SERVIDORES</small><h2>Recursos por servidor</h2></div></div>'+
  '<label class="field"><span>RAM POR SERVIDOR (MB)</span><input name="memoryMb" type="number" min="512" required></label>'+
  '<label class="field"><span>DISCO POR SERVIDOR (MB)</span><input name="diskMb" type="number" min="1024" required></label>'+
  '<label class="field"><span>CPU (%)</span><input name="cpuPercent" type="number" min="50" required></label>'+
  '<label class="field"><span>SERVIDORES POR USUÁRIO</span><input name="maxServersPerUser" type="number" min="1" max="20" required></label>'+
- '<div class="mc-actions mc-full"><button class="btn" type="submit">Salvar configurações</button><button class="btn secondary" type="button" id="mcAdminTestEmail">Testar e-mail</button><button class="btn secondary" type="button" id="mcAdminTestPanel">Testar painel</button></div>'+
- '<div id="mcAdminNotice" class="notice mc-full">As chaves nunca serão exibidas novamente depois de salvas.</div></form></section>';
+ '<div class="mc-actions mc-full"><button class="btn" type="submit">Salvar configurações</button><button class="btn secondary" type="button" id="mcAdminTestEmail">Testar e-mail</button><button class="btn secondary" type="button" id="mcAdminTestPanel">Testar painel e arquivos</button></div>'+
+ '<div id="mcAdminNotice" class="notice mc-full">As chaves são ocultadas depois de salvas. Configure os Eggs antes de liberar os servidores com mods.</div></form></section>';
 }
 async function loadMinecraftStatus(){
  const target=$("#minecraftStatus");if(!target)return;
  target.innerHTML='<div class="notice">Verificando conta e disponibilidade…</div>';
  try{
   const data=await api("/minecraft/status");
-  let html='<div class="mc-email-line"><span class="mc-status-icon">✉</span><div><b>E-mail da sua conta</b><small>'+escapeHtml(data.email||state.user?.email||"")+'</small></div><span class="status '+(data.emailVerified?"":"off")+'">'+(data.emailVerified?"CONFIRMADO":"PENDENTE")+'</span></div>';
+  let view='<div class="mc-email-line"><span class="mc-status-icon">✉</span><div><b>E-mail da sua conta</b><small>'+escapeHtml(data.email||state.user?.email||"")+'</small></div><span class="status '+(data.emailVerified?"":"off")+'">'+(data.emailVerified?"CONFIRMADO":"PENDENTE")+'</span></div>';
   if(!data.emailVerified){
-   html+='<div class="notice warning">Antes de criar seu servidor, confirme seu e-mail. Vamos enviar um código de 6 dígitos para '+escapeHtml(data.email||"seu endereço cadastrado")+'.</div><div class="mc-verify-row"><button class="btn" data-minecraft-action="send-code">Enviar código de verificação</button><div id="mcVerifyForm" class="hidden"><input id="mcVerifyCode" inputmode="numeric" maxlength="6" placeholder="Código de 6 dígitos"><button class="btn secondary" data-minecraft-action="confirm-code">Confirmar e-mail</button></div></div>';
+   view+='<div class="notice warning">Antes de criar um servidor, confirme seu e-mail. Vamos enviar um código de 6 dígitos para '+escapeHtml(data.email||"seu endereço cadastrado")+'.</div><div class="mc-verify-row"><button class="btn" data-minecraft-action="send-code">Enviar código de verificação</button><div id="mcVerifyForm" class="hidden"><input id="mcVerifyCode" inputmode="numeric" maxlength="6" placeholder="Código de 6 dígitos"><button class="btn secondary" data-minecraft-action="confirm-code">Confirmar e-mail</button></div></div>';
   }else if(!data.configured){
-   html+='<div class="notice warning">Sua conta está confirmada. A infraestrutura Minecraft ainda está sendo preparada. Você não precisa conectar nem informar uma conta de hospedagem.</div>';
+   view+='<div class="notice warning">Sua conta está confirmada. A infraestrutura Minecraft ainda está sendo preparada pelo administrador.</div>';
   }else{
-   html+='<div class="mc-create-grid"><label class="field"><span>NOME DO SERVIDOR</span><input id="minecraftName" maxlength="32" minlength="3" placeholder="Meu Mundo"></label><label class="field"><span>VERSÃO</span><select id="minecraftVersion"><option value="latest">Mais recente (configurada no painel)</option><option value="1.21.10">1.21.10</option><option value="1.21.8">1.21.8</option><option value="1.21.4">1.21.4</option><option value="1.20.6">1.20.6</option></select></label><button class="btn mc-create-button" data-minecraft-action="request-create">Criar meu servidor</button></div>';
+   const loaders=Array.isArray(data.supportedLoaders)?data.supportedLoaders:[];
+   view+='<section class="mc-create-panel"><div class="mc-create-heading"><div><small>NOVO SERVIDOR</small><h3>Escolha como quer jogar</h3></div><span class="status">MINECRAFT</span></div>'+
+    '<div class="mc-kind-grid"><button type="button" class="mc-kind-choice is-selected" data-mc-server-kind="vanilla"><span>◇</span><b>Servidor normal</b><small>Minecraft sem mods</small></button><button type="button" class="mc-kind-choice" data-mc-server-kind="modded" '+(loaders.length?"":'disabled')+'><span>✦</span><b>Servidor com mods</b><small>Fabric, Forge, NeoForge ou Quilt</small></button></div>'+
+    '<input type="hidden" id="minecraftServerType" value="vanilla">'+
+    '<div class="mc-create-grid"><label class="field"><span>NOME DO SERVIDOR</span><input id="minecraftName" maxlength="32" minlength="3" placeholder="Meu Mundo"></label>'+
+    '<label class="field"><span>VERSÃO DO MINECRAFT</span><select id="minecraftVersion"><option value="1.21.11">1.21.11</option><option value="1.21.10">1.21.10</option><option value="1.21.8">1.21.8</option><option value="1.21.4">1.21.4</option><option value="1.20.6">1.20.6</option><option value="1.20.1">1.20.1</option></select></label>'+
+    '<label class="field mc-full hidden" id="minecraftLoaderField"><span>MOD LOADER</span><select id="minecraftLoader">'+loaders.map(loader=>'<option value="'+escapeHtml(loader)+'">'+escapeHtml(loader.charAt(0).toUpperCase()+loader.slice(1))+'</option>').join("")+'</select></label>'+
+    '<div class="notice mc-full hidden" id="minecraftModdedHelp">O servidor com mods será criado com o loader escolhido. Depois, abra <b>Minecraft → Mods e modpacks</b> para pesquisar e instalar mods compatíveis.</div>'+
+    '<button class="btn mc-create-button" data-minecraft-action="request-create">Criar servidor normal</button></div></section>';
+   if(!data.modsConfigured)view+='<div class="notice warning">A instalação automática de mods está aguardando a configuração segura da Client API no ADM.</div>';
   }
   const servers=Array.isArray(data.servers)?data.servers:[];
+  state.minecraftServers=servers;
   if(servers.length){
    const labels={creating:"CRIANDO CONTA",installing:"INSTALANDO",ready:"PRONTO",running:"ONLINE",stopped:"PARADO",offline:"OFFLINE",error:"FALHA"};
-   html+='<div class="mc-server-list"><h3>Seus servidores</h3>'+servers.map(server=>'<div class="mc-server-row"><div><b>'+escapeHtml(server.name)+'</b><small>'+escapeHtml(server.version)+' · '+escapeHtml(server.allocation_ip||"Endereço em preparação")+(server.allocation_port?":"+escapeHtml(server.allocation_port):"")+'</small></div><span class="status '+(["running","ready"].includes(server.state)?"":"off")+'">'+escapeHtml(labels[server.state]||String(server.state||"").toUpperCase())+'</span></div>').join("")+'</div>';
+   view+='<div class="mc-server-list"><h3>Seus servidores Minecraft</h3>'+servers.map(server=>{
+    const modded=server.server_type==="modded",installed=Array.isArray(server.installed_mods)?server.installed_mods:(typeof server.installed_mods==="string"?JSON.parse(server.installed_mods||"[]"):[]);
+    const detail=(modded?"COM MODS · "+String(server.mod_loader||"").toUpperCase():"NORMAL")+" · "+escapeHtml(server.version)+" · "+escapeHtml(server.allocation_ip||"Endereço em preparação")+(server.allocation_port?":"+escapeHtml(server.allocation_port):"");
+    return '<div class="mc-server-row"><div class="mc-server-main"><b>'+escapeHtml(server.name)+'</b><small>'+detail+'</small>'+(modded?'<small>'+installed.length+' mod(s) registrados</small>':'')+'</div><span class="status '+(["running","ready"].includes(server.state)?"":"off")+'">'+escapeHtml(labels[server.state]||String(server.state||"").toUpperCase())+'</span>'+(modded?'<button class="btn secondary" data-mc-open-mods="'+escapeHtml(server.id)+'">Gerenciar mods</button>':'')+'</div>';
+   }).join("")+'</div>';
   }
-  target.innerHTML=html;
+  target.innerHTML=view;
  }catch(error){target.innerHTML='<div class="notice error">'+escapeHtml(error.message||"Falha ao consultar Minecraft.")+'</div>';}
 }
+function minecraftModsView(){
+ return pageHead("Mods e modpacks","Catálogo Modrinth integrado ao Minecraft. Os resultados são filtrados pela versão e pelo loader do servidor selecionado.")+
+ '<section class="dashboard-panel mc-mods-panel"><div class="mc-mods-toolbar"><div class="field"><span>SERVIDOR COM MODS</span><select id="minecraftModsServer"><option value="">Carregando servidores…</option></select></div><div class="mc-mods-source"><span>CATÁLOGO</span><b>Modrinth</b></div></div>'+
+ '<div id="minecraftModsStatus" class="notice">Carregando seus servidores com mods…</div>'+
+ '<div id="minecraftModsWorkspace" class="hidden">'+
+ '<div class="mc-mods-context" id="minecraftModsContext"></div>'+
+ '<form id="minecraftModsSearchForm" class="mc-mods-search"><input id="minecraftModsQuery" type="search" placeholder="Pesquisar mods, por exemplo: minimap, biomes, storage…"><button class="btn" type="submit">Buscar mods</button></form>'+
+ '<div class="mc-mods-selection"><span id="minecraftModsSelectedCount">0 mods selecionados</span><button class="btn" id="minecraftModsInstall" type="button" disabled>Instalar selecionados</button></div>'+
+ '<div id="minecraftModsNotice" class="notice hidden"></div>'+
+ '<div id="minecraftModsInstalled" class="mc-mods-installed"></div>'+
+ '<div id="minecraftModsResults" class="mc-mods-grid"><div class="dashboard-empty">Consultando o catálogo…</div></div>'+
+ '<div class="mc-mods-more-wrap"><button class="btn secondary" id="minecraftModsMore" type="button" hidden>Carregar mais</button></div>'+
+ '</div></section>'+
+ '<div class="mc-modrinth-credit">Mods listados através do catálogo público do <a href="https://modrinth.com" target="_blank" rel="noopener noreferrer">Modrinth ↗</a>. A instalação só aparece para servidores criados como “com mods”.</div>';
+}
+async function loadMinecraftModResults(reset=true){
+ const server=(state.minecraftServers||[]).find(item=>item.id===state.minecraftModServerId);
+ const target=$("#minecraftModsResults");if(!server||!target)return;
+ const offset=reset?0:Number(state.minecraftModOffset||0);
+ if(reset){state.minecraftModOffset=0;target.innerHTML='<div class="dashboard-empty">Buscando mods compatíveis…</div>';}
+ const params=new URLSearchParams({
+  query:String($("#minecraftModsQuery")?.value||"").trim(),
+  version:String(server.version||""),loader:String(server.mod_loader||""),
+  offset:String(offset)
+ });
+ try{
+  const result=await api("/minecraft/mods/search?"+params.toString());
+  const hits=Array.isArray(result.hits)?result.hits:[];
+  if(reset)state.minecraftModResults=hits;else state.minecraftModResults=[...(state.minecraftModResults||[]),...hits];
+  state.minecraftModOffset=offset+hits.length;
+  renderMinecraftModResults();
+  const more=$("#minecraftModsMore");if(more)more.hidden=state.minecraftModOffset>=Number(result.total||0)||!hits.length;
+  const context=$("#minecraftModsContext");if(context)context.textContent=server.name+" · Minecraft "+server.version+" · "+String(server.mod_loader).toUpperCase()+" · "+Number(result.total||0).toLocaleString("pt-BR")+" mods compatíveis encontrados";
+ }catch(error){target.innerHTML='<div class="notice error">'+escapeHtml(error.message||"Falha ao pesquisar mods.")+'</div>';}
+}
+function renderMinecraftModResults(){
+ const target=$("#minecraftModsResults");if(!target)return;
+ const hits=state.minecraftModResults||[],selected=state.minecraftSelectedMods||{};
+ target.innerHTML=hits.length?hits.map(item=>{
+  const active=!!selected[item.projectId],icon=String(item.iconUrl||"");
+  const categories=(item.categories||[]).slice(0,3).map(value=>'<span class="mc-mod-tag">'+escapeHtml(value)+'</span>').join("");
+  return '<article class="mc-mod-card">'+(icon?'<img class="mc-mod-icon" src="'+escapeHtml(icon)+'" alt="" loading="lazy">':'<div class="mc-mod-icon mc-mod-placeholder">✦</div>')+
+   '<div class="mc-mod-body"><div class="mc-mod-title">'+escapeHtml(item.title||"Mod")+'</div><p>'+escapeHtml(item.description||"Sem descrição.")+'</p><div class="mc-mod-tags">'+categories+'</div><small>'+Number(item.downloads||0).toLocaleString("pt-BR")+' downloads · '+escapeHtml(item.author||"Autor")+'</small><a href="'+escapeHtml(item.url||"https://modrinth.com")+'" target="_blank" rel="noopener noreferrer">Ver detalhes no Modrinth ↗</a></div>'+
+   '<button class="btn '+(active?"secondary":"")+'" type="button" data-mc-mod-action="toggle" data-mod-id="'+escapeHtml(item.projectId)+'">'+(active?"Selecionado ✓":"Adicionar")+'</button></article>';
+ }).join(""):'<div class="dashboard-empty">Nenhum mod compatível encontrado com esses filtros.</div>';
+ const count=Object.keys(selected).length, countNode=$("#minecraftModsSelectedCount"),install=$("#minecraftModsInstall");
+ if(countNode)countNode.textContent=count+" mod(s) selecionado(s)";
+ if(install){install.disabled=!count;install.textContent=count?"Instalar "+count+" mod(s) selecionado(s)":"Instalar selecionados";}
+}
+async function loadMinecraftMods(){
+ const status=$("#minecraftModsStatus"),workspace=$("#minecraftModsWorkspace"),select=$("#minecraftModsServer");
+ if(!status||!workspace||!select)return;
+ status.className="notice";status.textContent="Consultando seus servidores com mods…";
+ try{
+  const data=await api("/minecraft/status");
+  const servers=(Array.isArray(data.servers)?data.servers:[]).filter(item=>item.server_type==="modded"&&item.mod_loader);
+  state.minecraftServers=Array.isArray(data.servers)?data.servers:[];
+  if(!servers.length){
+   workspace.classList.add("hidden");
+   status.className="notice warning";
+   status.innerHTML='Você ainda não tem um servidor criado como <b>servidor com mods</b>. Crie um na área de Servidores para liberar o catálogo compatível.';
+   status.insertAdjacentHTML("beforeend",'<div style="margin-top:12px"><button class="btn" type="button" data-view="minecraft">Criar servidor com mods</button></div>');
+   return;
+  }
+  select.innerHTML=servers.map(server=>'<option value="'+escapeHtml(server.id)+'">'+escapeHtml(server.name)+' · '+escapeHtml(server.version)+' · '+escapeHtml(String(server.mod_loader).toUpperCase())+'</option>').join("");
+  const current=servers.find(item=>item.id===state.minecraftModServerId)||servers[0];
+  state.minecraftModServerId=current.id;select.value=current.id;
+  state.minecraftSelectedMods=state.minecraftSelectedMods||{};
+  workspace.classList.remove("hidden");
+  status.className=data.modsConfigured?"notice ok":"notice warning";
+  status.textContent=data.modsConfigured?"Escolha um servidor, pesquise e selecione os mods que deseja instalar.":"O catálogo está disponível, mas o ADM ainda precisa configurar a Client API para enviar arquivos ao servidor.";
+  const installed=Array.isArray(current.installed_mods)?current.installed_mods:(typeof current.installed_mods==="string"?JSON.parse(current.installed_mods||"[]"):[]);
+  const installedTarget=$("#minecraftModsInstalled");
+  if(installedTarget)installedTarget.innerHTML=installed.length?'<div class="mc-installed-heading">Mods já registrados neste servidor</div><div class="mc-installed-list">'+installed.map(item=>'<span>'+escapeHtml(item.title||item.filename||"Mod")+(item.dependencyOf?' <small>(dependência)</small>':'')+'</span>').join("")+'</div>':'<div class="mc-installed-heading">Nenhum mod registrado ainda.</div>';
+  await loadMinecraftModResults(true);
+ }catch(error){workspace.classList.add("hidden");status.className="notice error";status.textContent=error.message||"Não foi possível carregar os servidores com mods.";}
+}
+async function loadMinecraftAdminConfig()
 async function loadMinecraftAdminConfig(){
  const form=$("#mcAdminConfigForm");if(!form)return;
  const note=$("#mcAdminNotice");
