@@ -6437,7 +6437,8 @@ async function ensureSchema(db) {
   )`);
   await db.raw(`CREATE TABLE IF NOT EXISTS minecraft_settings (
     id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL, panel_url TEXT NOT NULL,
-    application_key_enc TEXT NOT NULL, egg_id BIGINT NOT NULL, allocation_id BIGINT NOT NULL,
+    application_key_enc TEXT NOT NULL, client_api_key_enc TEXT, loader_configs JSONB NOT NULL DEFAULT '{}'::jsonb,
+    egg_id BIGINT NOT NULL, allocation_id BIGINT NOT NULL,
     docker_image TEXT NOT NULL, startup_command TEXT NOT NULL, environment_json JSONB NOT NULL,
     version_env TEXT NOT NULL, memory_mb INTEGER NOT NULL, disk_mb INTEGER NOT NULL,
     cpu_percent INTEGER NOT NULL, max_servers_per_user INTEGER NOT NULL,
@@ -6449,10 +6450,17 @@ async function ensureSchema(db) {
   )`);
   await db.raw(`CREATE TABLE IF NOT EXISTS minecraft_servers (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, panel_server_id BIGINT,
-    external_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, version TEXT NOT NULL,
+    panel_server_identifier TEXT, external_id TEXT NOT NULL UNIQUE, name TEXT NOT NULL, version TEXT NOT NULL,
+    server_type TEXT NOT NULL DEFAULT 'vanilla', mod_loader TEXT, installed_mods JSONB NOT NULL DEFAULT '[]'::jsonb,
     state TEXT NOT NULL, allocation_ip TEXT, allocation_port INTEGER,
     error_message TEXT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
   )`);
+  await db.raw("ALTER TABLE minecraft_settings ADD COLUMN IF NOT EXISTS client_api_key_enc TEXT");
+  await db.raw("ALTER TABLE minecraft_settings ADD COLUMN IF NOT EXISTS loader_configs JSONB NOT NULL DEFAULT '{}'::jsonb");
+  await db.raw("ALTER TABLE minecraft_servers ADD COLUMN IF NOT EXISTS panel_server_identifier TEXT");
+  await db.raw("ALTER TABLE minecraft_servers ADD COLUMN IF NOT EXISTS server_type TEXT NOT NULL DEFAULT 'vanilla'");
+  await db.raw("ALTER TABLE minecraft_servers ADD COLUMN IF NOT EXISTS mod_loader TEXT");
+  await db.raw("ALTER TABLE minecraft_servers ADD COLUMN IF NOT EXISTS installed_mods JSONB NOT NULL DEFAULT '[]'::jsonb");
 
       await db.raw("CREATE INDEX IF NOT EXISTS idx_discord_link_states_expiry ON discord_link_states(expires_at)");
       await db.raw("ALTER TABLE bots ADD COLUMN IF NOT EXISTS discord_token_enc TEXT");
