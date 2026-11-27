@@ -1158,7 +1158,7 @@ function verificationAdminView(){
  '<div style="grid-column:1/-1"><button class="btn" id="companionDeployButton" type="submit">'+(companion?.hostingDeploymentId||companion?.providerAppId?"⇧ Enviar / atualizar ZIP da segunda bot":"▶ Validar token e colocar a segunda bot online")+'</button></div></form>'+
  '<div id="companionDeployStatus" class="project-note" style="margin-top:12px">'+(companion?.hostingDeploymentId||companion?.providerAppId?"Já existe um projeto da segunda bot. Envie um ZIP para atualizar os arquivos.":(companion?.hasDiscordToken?"O token já está salvo e protegido. Agora selecione o ZIP.":"O token será validado e protegido antes do envio do ZIP."))+'</div>'+
  '</section>'+
- '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Estado do CAOS</h3> '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Estado do CAOS</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+escapeHtml(status)+'</span></div>'+
+ '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Estado do CAOS</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+escapeHtml(status)+'</span></div>'+
  '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot CAOS")+'</strong><br>'+escapeHtml(note)+
  (r.runtime?.deploymentId?'<br>ID da hospedagem: <b>'+escapeHtml(r.runtime.deploymentId)+'</b>':"")+
  (r.runtime?.discordReady?'<br><b>O log confirmou conexão com o Discord.</b>':(live?'<br>O servidor está ligado; confira os logs para confirmar o login no Discord.':""))+
