@@ -1176,7 +1176,10 @@ function verificationAdminView(){
  const companionIsStarting=["starting","installing","queued","creating"].includes(companionStateValue);
  const companionStatus=companionIsOnline?"ONLINE":companionIsStarting?"INICIANDO":(["stopped","offline","terminated"].includes(companionStateValue)?"PARADA":(companionHasServer?"SERVIDOR PRONTO":(companion?.hasDiscordToken?"AGUARDANDO HOSPEDAGEM":"AGUARDANDO CONFIGURAÇÃO")));
  const companionProviderLabels={discloud:"Discloud Free",cubecloud:"Cube Hosting",sillydev:"Silly Development","bot-hosting":"Hospedagem gratuita automática",aclclouds:"ACLClouds",squarecloud:"Square Cloud"};
- const companionProviderName=companionProviderLabels[String(companion?.hostingProvider||"").toLowerCase()]||String(companion?.hostingProvider||"A definir");
+ const savedDiscloud=poolProviders.find(item=>item.id==="discloud"&&item.connected);
+ const companionProviderName=companionHasServer
+  ? (companionProviderLabels[String(companion?.hostingProvider||"").toLowerCase()]||String(companion?.hostingProvider||"Hospedagem vinculada"))
+  : (savedDiscloud?"Discloud Free · conta já conectada":"Hospedagem gratuita aguardando");
  const companionRuntime=String(companion?.runtime||"python").toLowerCase()==="nodejs"?"Node.js":"Python";
  return pageHead("CAOS · ADM","Controle o CAOS e instale a segunda bot usando somente o token Discord e o ZIP.")+
  (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
@@ -1190,7 +1193,7 @@ function verificationAdminView(){
  '<button class="btn secondary companion-refresh" id="companionRefreshButton"><span>⟳</span> Recarregar</button></div>'+
  '<div class="companion-live-note" id="companionRuntimeInfo"><strong>'+(companionIsOnline?"A segunda bot está marcada como online.":companionIsStarting?"A hospedagem está preparando ou iniciando a segunda bot.":companionHasServer?"Servidor criado. Use Iniciar para ligar a bot.":companion?.hasDiscordToken?"Token protegido. Falta concluir a publicação do ZIP numa vaga gratuita.":"Configure o token do Discord e envie o ZIP para criar a segunda bot.")+'</strong><small>'+escapeHtml(companionProviderName)+' · '+(companionHasServer?"ID vinculado: "+String(companion?.providerAppId||companion?.hostingDeploymentId):"O CAOS permanece separado e não será alterado.")+'</small></div>'+
  '<div class="companion-setup"><div class="companion-setup-title"><span>CONFIGURAÇÃO E ARQUIVOS</span><small>Token + ZIP</small></div>'+
- '<p class="muted small">Cole o token uma vez e escolha o ZIP. O Estúdio procura uma vaga gratuita já conectada; não pede outra chave e não inicia plano pago.</p>'+
+ '<p class="muted small">Hospedagem preparada: Discloud Free, usando a conexão que já está salva no Estúdio. Cole o token e escolha o ZIP; a vaga gratuita será conferida automaticamente. Não precisa cadastrar outra API e nenhum plano pago será iniciado.</p>'+
  '<div class="project-note" id="companionHostingState"><strong>'+escapeHtml(freeText)+'</strong><br><small>O limite do ZIP e a vaga disponível dependem do provedor gratuito.</small></div>'+
  '<form id="companionDeployForm" class="grid settings-grid" style="margin-top:12px">'+
  '<div class="field" style="grid-column:1/-1"><label>BOT TOKEN DO DISCORD</label><input id="companionBotToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="'+(companion?.hasDiscordToken?"Token protegido · deixe vazio para manter":"Cole o Bot Token do Discord")+'" '+(companion?.hasDiscordToken?"":"required")+'></div>'+
