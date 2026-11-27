@@ -905,15 +905,10 @@ async function waitForHostReinstall(userId, env, deploymentId) {
 }
 const CAOS_REQUIREMENTS = "discord.py[voice]==2.7.1\nyt-dlp>=2026.10.26\nimageio-ffmpeg>=0.8.1\n";
 function runnerTemplate() {
-  return String.raw`import json, os, signal, subprocess, sys, time
+  return String.raw`import json, signal, subprocess, sys, time
 from datetime import datetime, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-TZ = os.getenv("TZ", "America/Bahia")
-ENABLED = os.getenv("CAOS_SCHEDULE_ENABLED", "0") == "1"
-START = os.getenv("CAOS_SCHEDULE_START", "00:00")
-END = os.getenv("CAOS_SCHEDULE_END", "23:59")
 STATUS = Path("caos-status.json")
 FATAL_STATUSES = {"token_error", "intents_error", "token_missing", "error"}
 child = None
@@ -936,14 +931,6 @@ def read_status():
     except (OSError, ValueError):
         return {}
 
-def in_window():
-    if not ENABLED:
-        return True
-    now = datetime.now(ZoneInfo(TZ)).strftime("%H:%M")
-    if START < END:
-        return START <= now < END
-    return now >= START or now < END
-
 def stop_child(reason="stopped"):
     global child
     current = child
@@ -965,7 +952,7 @@ def shutdown(_sig, _frame):
 signal.signal(signal.SIGTERM, shutdown)
 signal.signal(signal.SIGINT, shutdown)
 write_status("starting", supervisor=True)
-print("BLACK ZONE supervisor iniciado; fuso=" + TZ + "; agenda=" + (START + "-" + END if ENABLED else "sempre online"), flush=True)
+print("BLACK ZONE supervisor iniciado; processo contínuo habilitado.", flush=True)
 
 try:
     while not stop_requested:
@@ -973,50 +960,34 @@ try:
             time.sleep(5)
             continue
 
-        desired = in_window()
-        if not desired:
-            if child is not None:
-                stop_child("outside_schedule")
+        if child is not None and child.poll() is not None:
+            exit_code = child.returncode
+            child = None
+            last_status = read_status()
+            last_kind = str(last_status.get("status", ""))
+            if last_kind in FATAL_STATUSES:
+                blocked = True
+                print("SUPERVISOR: início pausado por erro definitivo (" + last_kind + "). Corrija a configuração e reinicie o serviço.", flush=True)
             else:
-                write_status("offline", reason="outside_schedule")
-        else:
-            if child is not None and child.poll() is not None:
-                exit_code = child.returncode
-                child = None
-                last_status = read_status()
-                last_kind = str(last_status.get("status", ""))
-                if last_kind in FATAL_STATUSES:
-                    blocked = True
-                    print("SUPERVISOR: início pausado por erro definitivo (" + last_kind + "). Corrija a configuração e reinicie o serviço.", flush=True)
-                else:
-                    write_status("restarting", reason="process_exited", exitCode=exit_code)
-                    next_restart_at = time.monotonic() + 15
-                    print("SUPERVISOR: CAOS encerrou com código " + str(exit_code) + "; nova tentativa em 15 segundos.", flush=True)
+                write_status("restarting", reason="process_exited", exitCode=exit_code)
+                next_restart_at = time.monotonic() + 15
+                print("SUPERVISOR: CAOS encerrou com código " + str(exit_code) + "; nova tentativa em 15 segundos.", flush=True)
 
-            if child is None and not blocked and time.monotonic() >= next_restart_at:
-                write_status("starting", supervisor=True)
-                print("SUPERVISOR: iniciando main.py.", flush=True)
-                child = subprocess.Popen([sys.executable, "-u", "main.py"])
+        if child is None and not blocked and time.monotonic() >= next_restart_at:
+            write_status("starting", supervisor=True)
+            print("SUPERVISOR: iniciando main.py.", flush=True)
+            child = subprocess.Popen([sys.executable, "-u", "main.py"])
         time.sleep(5)
 finally:
     stop_child("supervisor_shutdown")
     print("BLACK ZONE supervisor encerrado.", flush=True)
-` ;
+`;
 }
-
 
 async function caosBundleVersion() {
   const payload = CAOS_MAIN_PY + "\n" + CAOS_REQUIREMENTS + "\n" + runnerTemplate();
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload));
   return b64(digest);
-}
-
-function isInsideSchedule(start, end, timezone) {
-  try {
-    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone || "America/Bahia", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
-    const now = parts.find(x => x.type === "hour").value + ":" + parts.find(x => x.type === "minute").value;
-    return start < end ? now >= start && now < end : now >= start || now < end;
-  } catch { return false; }
 }
 
 async function setHostEnv(userId, env, deploymentId, key, value, secret = false) {
@@ -1137,13 +1108,11 @@ async function ensureBotDeployment(bot, userId, env) {
     }
   }
 
-  const start = bot.schedule_start || "00:00";
-  const end = bot.schedule_end || "23:59";
   await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
   await setHostEnv(userId, env, deploymentId, "CAOS_MODULES", JSON.stringify(modules), false);
-  await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_ENABLED", bot.schedule_enabled ? "1" : "0", false);
-  await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_START", start, false);
-  await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_END", end, false);
+  await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_ENABLED", "0", false);
+  await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_START", "00:00", false);
+  await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_END", "23:59", false);
   await setHostEnv(userId, env, deploymentId, "TZ", bot.schedule_timezone || "America/Bahia", false);
   await setHostEnv(userId, env, deploymentId, "GUILD_ID", bot.guild_id || "", false);
   await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/startup", "PATCH", {
@@ -1154,7 +1123,7 @@ async function ensureBotDeployment(bot, userId, env) {
     // requirements.txt before launching the configured entry file.
     startCommand: null
   });
-  await env.DB.prepare("UPDATE bots SET discord_bot_id=?,discord_bot_name=?,updated_at=? WHERE id=? AND user_id=?")
+  await env.DB.prepare("UPDATE bots SET discord_bot_id=?,discord_bot_name=?,schedule_enabled=0,schedule_start='00:00',schedule_end='23:59',updated_at=? WHERE id=? AND user_id=?")
     .bind(identity.botId, identity.botName || null, Date.now(), bot.id, userId).run();
   return {
     deploymentId,
@@ -4201,9 +4170,8 @@ export async function onRequest(context) {
           const customProjectMode = bot.project_type === "custom" || !!bot.custom_project;
           discordStatus = customProjectMode ? null : await readDiscordRuntimeStatus(user.id, env, bot.hosting_deployment_id);
         }
-        const scheduleAllowed = !bot.schedule_enabled ||
-          isInsideSchedule(bot.schedule_start || "00:00", bot.schedule_end || "23:59", bot.schedule_timezone || "America/Bahia");
-        const discordOnline = state === "running" && scheduleAllowed && recentDiscordStatus(discordStatus);
+        const scheduleAllowed = true;
+        const discordOnline = state === "running" && recentDiscordStatus(discordStatus);
         const modules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
         return reply({
           id: bot.id, name: bot.name, runtime: bot.runtime, state,
@@ -4238,26 +4206,7 @@ export async function onRequest(context) {
       }
 
       if (action === "schedule" && request.method === "POST") {
-        const b = await body(request);
-        const enabled = !!b.enabled;
-        const startClock = String(b.start || "00:00");
-        const endClock = String(b.end || "23:59");
-        if (!validClock(startClock) || !validClock(endClock) || (enabled && startClock === endClock)) {
-          return reply({ error: "Informe horários válidos e diferentes, no formato HH:MM." }, 400);
-        }
-        await env.DB.prepare(
-          "UPDATE bots SET schedule_enabled=?,schedule_start=?,schedule_end=?,schedule_timezone='America/Bahia',guild_id=NULL,updated_at=? WHERE id=? AND user_id=?"
-        ).bind(enabled, startClock, endClock, Date.now(), id, user.id).run();
-        if (bot.hosting_deployment_id && bot.hosting_provider !== "discloud") {
-          await setHostEnv(user.id, env, bot.hosting_deployment_id, "CAOS_SCHEDULE_ENABLED", enabled ? "1" : "0", false);
-          await setHostEnv(user.id, env, bot.hosting_deployment_id, "CAOS_SCHEDULE_START", startClock, false);
-          await setHostEnv(user.id, env, bot.hosting_deployment_id, "CAOS_SCHEDULE_END", endClock, false);
-          const live = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/diagnose?waitSeconds=0");
-          if ((live.state || live.deployment?.state) === "running") {
-            await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(bot.hosting_deployment_id) + "/power", "POST", { action: "restart", waitSeconds: 35 });
-          }
-        }
-        return reply({ ok: true, scheduleEnabled: enabled, start: startClock, end: endClock, timezone: "America/Bahia" });
+        return reply({ code: "feature_removed", error: "O agendamento externo foi removido. Os horários do próprio bot continuam funcionando normalmente." }, 410);
       }
 
       if (action === "power" && request.method === "POST") {
