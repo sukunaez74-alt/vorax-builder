@@ -2808,7 +2808,7 @@ export async function onRequest(context) {
       const mc=await minecraftSettings(env);
       const servers=await env.DB.prepare("SELECT id,name,version,state,allocation_ip,allocation_port,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
       const rows=Array.isArray(servers)?servers:(servers?.results||[]);
-      return reply({configured:minecraftConfigReady(mc),emailVerified:!!auth.user.email_verified_at,email:emailMask(auth.user.email),servers:rows});
+      return reply({configured:minecraftConfigReady(mc),emailVerified:!!auth.user.email_verified_at,email:emailMask(auth.user.email),servers:rows,panelUrl:mc?.panel_url||null});
     }
     if (path === "/minecraft/create" && request.method === "POST") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;
@@ -3691,6 +3691,7 @@ export async function onRequest(context) {
     }
 
     if (path === "/hosting/pool/status" && request.method === "GET") {
+      if (!ownerOnly(user)) return reply({ providers: [] });
       const [discloudRow, squareRow, cubeRow, sillyRow, cogitRow, keritRow, aclRow, waiflyRow, xsystemsRow, torchliteRow, dakiRow, unixsysRow, consolex1Row, hostingRow] = await Promise.all([
         env.DB.prepare("SELECT user_id,account_label,plan,updated_at FROM provider_connections WHERE user_id IN (?,?) AND provider='discloud' ORDER BY CASE WHEN user_id=? THEN 0 ELSE 1 END LIMIT 1").bind(user.id, SHARED_HOSTING_OWNER_ID, user.id).first(),
         env.DB.prepare("SELECT account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='squarecloud'").bind(user.id).first(),
