@@ -3033,6 +3033,34 @@ export async function onRequest(context) {
         return reply({ok:true,installed:completed.length,mods:completed,message:completed.length+" arquivo(s) de mod enviados para a pasta /mods. Reinicie o servidor para carregar os mods."},202);
       }catch(error){return reply({code:"minecraft_mod_install_failed",error:error.message||"Não foi possível instalar os mods no servidor."},502);}
     }
+    if (path === "/minecraft/mods/power" && request.method === "POST") {
+      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      if(!auth.user.email_verified_at)return reply({code:"email_verification_required",error:"Confirme seu e-mail antes de controlar o servidor."},403);
+      const b=await body(request),serverId=String(b.serverId||"").trim();
+      try{
+        const mc=await minecraftSettings(env);
+        if(!mc?.client_api_key_enc)return reply({error:"A Client API ainda não está configurada pelo ADM."},503);
+        const server=await env.DB.prepare("SELECT id,server_type,state,panel_server_id,panel_server_identifier FROM minecraft_servers WHERE id=? AND user_id=?")
+          .bind(serverId,auth.user.id).first();
+        if(!server)return reply({error:"Servidor não encontrado na sua conta."},404);
+        if(server.server_type!=="modded")return reply({error:"O controle de mods só pode ser usado em servidores Minecraft com mods."},409);
+        if(server.state==="installing"||server.state==="creating")return reply({error:"Aguarde o fim da instalação do servidor."},409);
+        let identifier=server.panel_server_identifier;
+        if(!identifier&&server.panel_server_id){
+          const remote=await minecraftPanelRequest(mc,env,"/servers/"+encodeURIComponent(server.panel_server_id));
+          const attrs=remote.attributes||remote.data?.attributes||remote.data||{};
+          identifier=attrs.identifier||attrs.uuid||"";
+          if(identifier)await env.DB.prepare("UPDATE minecraft_servers SET panel_server_identifier=? WHERE id=? AND user_id=?").bind(identifier,serverId,auth.user.id).run();
+        }
+        if(!identifier)return reply({error:"O painel não retornou o identificador do servidor."},502);
+        const resources=await minecraftClientRequest(mc,env,"/servers/"+encodeURIComponent(identifier)+"/resources");
+        const attributes=resources.attributes||resources.data?.attributes||resources.data||{};
+        const currentState=attributes.current_state||"offline";
+        const signal=currentState==="running"?"restart":"start";
+        await minecraftClientRequest(mc,env,"/servers/"+encodeURIComponent(identifier)+"/power","POST",{signal});
+        return reply({ok:true,signal,message:signal==="restart"?"Reinicialização solicitada. O servidor vai carregar os mods instalados.":"Inicialização solicitada. O servidor vai carregar os mods instalados."},202);
+      }catch(error){return reply({error:error.message||"Não foi possível iniciar ou reiniciar o servidor."},502);}
+    }
     if (path === "/minecraft/create" && request.method === "POST") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;
       if(!auth.user.email_verified_at)return reply({code:"email_verification_required",error:"Confirme seu e-mail antes de criar uma conta Minecraft."},403);
