@@ -2920,7 +2920,7 @@ export async function onRequest(context) {
         await minecraftPanelRequest(mc,env,"/users?per_page=1");
         if(mc.client_api_key_enc){
           const client=await minecraftClientRequest(mc,env,"");
-          return reply({ok:true,message:"Application API e Client API de arquivos confirmadas.",clientApi:true});
+          return reply({ok:true,message:"Application API confirmada. Client API autenticada; a permissão de escrita será validada ao instalar o primeiro mod.",clientApi:true});
         }
         return reply({ok:true,message:"Application API confirmada. A Client API de arquivos ainda não foi configurada.",clientApi:false});
       }catch(error){return reply({error:error.message||"Falha ao testar o painel."},502);}
