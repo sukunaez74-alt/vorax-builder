@@ -793,15 +793,18 @@ async function currentUser(request, env) {
     .bind(await sha(token), Date.now()).first();
   return row || null;
 }
-function publicUser(user) { return { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role, discordLinked: !!user.discord_id, discordUsername: user.discord_username || null, discordLinkedAt: user.discord_linked_at || null }; }
+function publicUser(user) { return { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role, emailVerified: !!user.email_verified_at, discordLinked: !!user.discord_id, discordUsername: user.discord_username || null, discordLinkedAt: user.discord_linked_at || null }; }
 async function body(request) {
   const len = Number(request.headers.get("content-length") || 0); if (len > 30 * 1024 * 1024) throw new Error("Requisição muito grande.");
   try { return await request.json(); } catch { throw new Error("Corpo JSON inválido."); }
 }
-async function requireUser(request, env) {
+async function requireUser(request, env, options = {}) {
   if (!(await gateOk(request, env))) return { error: reply({ error: "Acesso bloqueado. Informe a chave de entrada." }, 403) };
   const user = await currentUser(request, env);
   if (!user) return { error: reply({ error: "Faça login para continuar." }, 401) };
+  if (!options.allowUnverified && user.role !== "owner" && !user.email_verified_at) {
+    return { error: reply({ code: "email_verification_required", error: "Confirme seu e-mail com o código enviado antes de continuar." }, 403) };
+  }
   return { user };
 }
 async function hostingKey(userId, env) {
@@ -2735,14 +2738,14 @@ export async function onRequest(context) {
       return reply({user:publicUser(user),message:"E-mail confirmado e cadastro concluído."},201,{"set-cookie":session});
     }
     if (path === "/email/verify/start" && request.method === "POST") {
-      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      const auth=await requireUser(request,env,{allowUnverified:true});if(auth.error)return auth.error;
       const email=String(auth.user.email||"").trim().toLowerCase();
       if(auth.user.email_verified_at)return reply({ok:true,verified:true,message:"Seu e-mail já está confirmado."});
       try {return reply({ok:true,...await issueEmailVerification(env,{email,purpose:"verify",userId:auth.user.id})});}
       catch(error){return reply({error:error.message||"Não consegui enviar o código."},503);}
     }
     if (path === "/email/verify/confirm" && request.method === "POST") {
-      const auth=await requireUser(request,env);if(auth.error)return auth.error;
+      const auth=await requireUser(request,env,{allowUnverified:true});if(auth.error)return auth.error;
       const b=await body(request),email=String(auth.user.email||"").trim().toLowerCase();
       const checked=await verifyEmailCode(env,email,"verify",String(b.code||""));
       if(!checked.ok)return reply({error:checked.error},400);
@@ -2865,7 +2868,8 @@ export async function onRequest(context) {
             startup:mc.startup_command,environment,
             limits:{memory:Number(mc.memory_mb),swap:0,disk:Number(mc.disk_mb),io:500,cpu:Number(mc.cpu_percent)},
             feature_limits:{databases:0,backups:1,allocations:1},
-            allocation:{default:Number(mc.allocation_id)}
+            allocation:{default:Number(mc.allocation_id)},
+            start_on_completion:true
           });
           remoteServer=created.attributes||created.data?.attributes||created.data;
         }
