@@ -260,3 +260,22 @@
   #app .cosmic-hero{min-height:240px;background-position:66% center}
   #app .dashboard-panel,#app .card,#app .resource-card{box-shadow:0 10px 24px rgba(0,0,0,.25),inset 0 1px rgba(255,255,255,.04)}
 }
+
+
+/* Default Dragon Violeta: ambient artwork and palette tokens */
+#app[data-decoration="dragon"]{
+  --bz-decor-accent:#a64dff;
+  --bz-decor-soft:#e1b8ff;
+  --bz-decor-glow:#32104e;
+}
+#app[data-decoration="dragon"]::before{
+  background-image:linear-gradient(90deg,rgba(2,2,5,.76),rgba(3,2,7,.4) 50%,rgba(3,2,7,.74)),url("/themes/dragon.svg");
+  background-size:cover;
+  background-position:center;
+  opacity:.58;
+}
+#app[data-decoration="dragon"]::after{
+  content:"🐉  ⚔️  🌑  ✦";
+  color:#ead3ff;
+  text-shadow:0 0 16px #a955e8,0 0 30px rgba(169,85,232,.42);
+}
