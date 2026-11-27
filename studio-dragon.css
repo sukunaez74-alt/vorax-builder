@@ -279,3 +279,64 @@
   color:#ead3ff;
   text-shadow:0 0 16px #a955e8,0 0 30px rgba(169,85,232,.42);
 }
+
+
+/* Email verification and individual Minecraft area */
+#app .mc-main-card,#app .mc-admin-panel{
+ border:1px solid rgba(170,108,225,.34);
+ background:radial-gradient(ellipse at 100% 0%,rgba(139,65,194,.13),transparent 44%),linear-gradient(145deg,#171020,#0b0811);
+}
+#app .mc-crystal{
+ display:grid;place-items:center;width:48px;height:48px;border-radius:14px;
+ color:#e8c9ff;font-size:24px;background:linear-gradient(145deg,#3c1c58,#160b22);
+ border:1px solid rgba(192,135,245,.32);box-shadow:0 0 24px rgba(152,70,210,.2);
+}
+#app .mc-email-line,#app .mc-server-row{
+ display:flex;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid rgba(180,125,220,.16);
+}
+#app .mc-email-line>div,#app .mc-server-row>div{display:grid;gap:4px;flex:1;min-width:0}
+#app .mc-email-line b,#app .mc-server-row b{color:#f4eafa}
+#app .mc-email-line small,#app .mc-server-row small{color:#a99bb5;overflow-wrap:anywhere}
+#app .mc-status-icon{font-size:22px;color:#d4a6fa}
+#app .mc-verify-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:18px 0}
+#app #mcVerifyForm{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#app #mcVerifyForm input{width:180px}
+#app .mc-sent-note{display:block;color:#d7b9f0}
+#app .mc-create-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:end;margin:20px 0}
+#app .mc-create-button{min-height:44px}
+#app .mc-server-list{margin-top:24px}
+#app .mc-server-list h3{color:#f0e6f7}
+#app .mc-server-row{justify-content:space-between}
+#app .mc-consent{
+ position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:20px;
+ background:rgba(0,0,0,.78);backdrop-filter:blur(12px);
+}
+#app .mc-consent.hidden{display:none}
+#app .mc-consent-card{
+ width:min(620px,100%);max-height:90vh;overflow:auto;padding:28px;
+ border:1px solid rgba(194,130,247,.42);border-radius:18px;
+ background:radial-gradient(ellipse at 100% 0%,rgba(141,62,191,.2),transparent 48%),#100b16;
+ box-shadow:0 28px 100px rgba(0,0,0,.65),0 0 32px rgba(148,65,202,.16);
+}
+#app .mc-consent-card h2{color:#f5edfc;margin:8px 0 16px}
+#app .mc-consent-card p{color:#c0b3cb;line-height:1.65}
+#app .mc-kicker{letter-spacing:.2em;color:#d2a1fa;font-size:11px;font-weight:800}
+#app .mc-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+#app .mc-admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+#app .mc-admin-grid .field{display:grid;gap:7px}
+#app .mc-admin-grid .field span{font-size:11px;font-weight:800;letter-spacing:.1em;color:#cfb6e5}
+#app .mc-admin-grid .field input,#app .mc-admin-grid .field textarea{width:100%;min-width:0}
+#app .mc-full{grid-column:1/-1}
+#app .mc-admin-note{grid-column:1/-1;color:#c9b5d8;background:#1b1224;border:1px solid rgba(178,119,218,.23);border-radius:10px;padding:12px;font-size:13px}
+#app .mc-admin-subhead{grid-column:1/-1;margin-top:12px}
+#registerCodePane{margin-top:18px;padding:15px;border:1px solid rgba(178,119,218,.25);border-radius:12px;background:#160e20}
+#registerCodePane .field input{text-align:center;letter-spacing:.35em;font-size:22px}
+#registerCodePane .auth-links{margin-top:15px}
+#app:not(.admin-portal) [data-view="fleet"],#app:not(.admin-portal) [data-view="hosting"],#app:not(.admin-portal) [data-view="integrations"]{display:none!important}
+@media(max-width:700px){
+ #app .mc-create-grid,#app .mc-admin-grid{grid-template-columns:1fr}
+ #app .mc-full{grid-column:1}
+ #app .mc-create-button{width:100%}
+ #app .mc-consent-card{padding:20px}
+}
+
