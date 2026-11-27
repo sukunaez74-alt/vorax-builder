@@ -763,8 +763,11 @@ document.addEventListener("click",async e=>{
   button.disabled=true;button.textContent="Criando sua conta e solicitando servidor…";
   try{
    const result=await api("/minecraft/create",{method:"POST",body:JSON.stringify({name,version,consent:true})});
-   if(note){note.className="notice ok";note.textContent=result.message||"Solicitação recebida. Atualize o status para acompanhar.";}
+   modal.classList.add("hidden");
    await loadMinecraftStatus();
+   const status=$("#minecraftStatus");
+   if(status)status.insertAdjacentHTML("afterbegin",'<div class="notice ok">Conta individual criada e servidor solicitado. A instalação começa automaticamente quando o painel terminar de preparar os arquivos. Use “Atualizar status” para acompanhar.</div>');
+   toast(result.message||"Sua conta Minecraft foi criada e o servidor foi solicitado.");
   }catch(error){if(note){note.className="notice error";note.textContent=error.message||"Não foi possível criar o servidor.";} }
   finally{button.disabled=false;button.textContent="Continuar e criar conta";}
  }
@@ -841,7 +844,7 @@ function navigate(view){if(state.adminPortal&&!["verificationAdmin","minecraftAd
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
 
 function minecraftView(){
- return pageHead("Minecraft","Crie seu servidor individual com seu e-mail confirmado. A conta e o servidor só serão solicitados depois da sua autorização.")+
+ return pageHead("Minecraft","Confirme seu e-mail e autorize a criação da sua conta individual e do servidor.",'<button class="btn secondary" id="minecraftRefresh">↻ Atualizar status</button>')+
  '<section class="dashboard-panel mc-main-card"><div class="dashboard-panel-head"><div><small>BLACK ZONE · GAME HOSTING</small><h2>Seu espaço no Minecraft</h2></div><span class="mc-crystal">⛏</span></div>'+
  '<div id="minecraftStatus" class="mc-status"><div class="notice">Consultando sua confirmação de e-mail e a infraestrutura…</div></div></section>'+
  '<div class="mc-consent hidden" id="minecraftConsent" role="dialog" aria-modal="true" aria-labelledby="mcConsentTitle"><div class="mc-consent-card"><div class="mc-kicker">CONFIRMAÇÃO NECESSÁRIA</div><h2 id="mcConsentTitle">Vamos criar sua conta Minecraft?</h2><p>Ao continuar, você autoriza o BLACK ZONE Estúdio a criar uma conta individual no painel Minecraft usando seu nome e o e-mail que você confirmou.</p><p>Também será solicitado um servidor com o nome e a versão escolhidos. Ele ficará em uma infraestrutura administrada pelo Estúdio e seguirá os limites informados na plataforma. Não vamos acessar sua caixa de e-mail nem pedir sua senha de outros serviços.</p><p>O acesso ao painel será separado da conta administrativa do Estúdio. Depois, você poderá definir sua senha pela opção de recuperação do próprio painel, conforme a configuração de e-mail dele.</p><div class="mc-actions"><button class="btn secondary" type="button" data-minecraft-action="cancel-consent">Cancelar</button><button class="btn" type="button" data-minecraft-action="confirm-create">Continuar e criar conta</button></div><div id="minecraftCreateNotice" class="notice hidden"></div></div></div>';
@@ -884,7 +887,8 @@ async function loadMinecraftStatus(){
   }
   const servers=Array.isArray(data.servers)?data.servers:[];
   if(servers.length){
-   html+='<div class="mc-server-list"><h3>Seus servidores</h3>'+servers.map(server=>'<div class="mc-server-row"><div><b>'+escapeHtml(server.name)+'</b><small>'+escapeHtml(server.version)+' · '+escapeHtml(server.allocation_ip||"Endereço em preparação")+(server.allocation_port?":"+escapeHtml(server.allocation_port):"")+'</small></div><span class="status '+(server.state==="running"?"":"off")+'">'+escapeHtml(String(server.state||"").toUpperCase())+'</span></div>').join("")+'</div>';
+   const labels={creating:"CRIANDO CONTA",installing:"INSTALANDO",ready:"PRONTO",running:"ONLINE",stopped:"PARADO",offline:"OFFLINE",error:"FALHA"};
+   html+='<div class="mc-server-list"><h3>Seus servidores</h3>'+servers.map(server=>'<div class="mc-server-row"><div><b>'+escapeHtml(server.name)+'</b><small>'+escapeHtml(server.version)+' · '+escapeHtml(server.allocation_ip||"Endereço em preparação")+(server.allocation_port?":"+escapeHtml(server.allocation_port):"")+'</small></div><span class="status '+(["running","ready"].includes(server.state)?"":"off")+'">'+escapeHtml(labels[server.state]||String(server.state||"").toUpperCase())+'</span></div>').join("")+'</div>';
   }
   target.innerHTML=html;
  }catch(error){target.innerHTML='<div class="notice error">'+escapeHtml(error.message||"Falha ao consultar Minecraft.")+'</div>';}
@@ -1668,6 +1672,7 @@ function settingsView(){
 }
 function bindView(){
  if(state.view==="settings"){loadSettingsHostingState();}
+ const minecraftRefresh=$("#minecraftRefresh");if(minecraftRefresh)minecraftRefresh.onclick=loadMinecraftStatus;
  
 
  const discloudForm=$("#discloudConnectForm");
@@ -2661,8 +2666,8 @@ async function loadFiles(botId,path){
  const selectedBot=state.bots.find(bot=>bot.id===id);
  if(selectedBot?.projectType!=="custom")return;
  if(selectedBot?.hostingProvider==="discloud"&&selectedBot?.providerAppId){
-  if(status)status.textContent="Este projeto está hospedado na Discloud. O envio de ZIP, inicialização, parada e logs são controlados pelo Estúdio; a API pública da Discloud não oferece a mesma navegação de arquivos do Bot-Hosting. Use o Dashboard da Discloud para explorar ou editar arquivos.";
-  if(list)list.innerHTML='<div class="dashboard-empty">Gerenciamento detalhado de arquivos: <a href="https://discloud.com/dashboard" target="_blank" rel="noopener noreferrer">abrir Dashboard Discloud ↗</a></div>';
+  if(status)status.textContent="Este projeto usa uma conexão de execução com navegação de arquivos limitada. O envio de ZIP, inicialização, parada e logs continuam disponíveis pelo Estúdio.";
+  if(list)list.innerHTML='<div class="dashboard-empty">A navegação detalhada de arquivos não está disponível nesta conexão. Use Atualizar ZIP para publicar uma nova versão.</div>';
   return;
  }
  if(!selectedBot?.hostingDeploymentId){
