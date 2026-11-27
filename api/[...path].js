@@ -2809,9 +2809,33 @@ export async function onRequest(context) {
     if (path === "/minecraft/status" && request.method === "GET") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;
       const mc=await minecraftSettings(env);
-      const servers=await env.DB.prepare("SELECT id,name,version,state,allocation_ip,allocation_port,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
-      const rows=Array.isArray(servers)?servers:(servers?.results||[]);
-      return reply({configured:minecraftConfigReady(mc),emailVerified:!!auth.user.email_verified_at,email:emailMask(auth.user.email),servers:rows,panelUrl:mc?.panel_url||null});
+      let servers=await env.DB.prepare("SELECT id,name,version,state,allocation_ip,allocation_port,panel_server_id,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
+      let rows=Array.isArray(servers)?servers:(servers?.results||[]);
+      if(minecraftConfigReady(mc)){
+        for(const item of rows){
+          if(!item.panel_server_id||!["creating","installing","ready","stopped"].includes(String(item.state||"")))continue;
+          try{
+            const response=await minecraftPanelRequest(mc,env,"/servers/"+encodeURIComponent(item.panel_server_id)+"?include=allocations");
+            const remote=response.attributes||response.data?.attributes||response.data||{};
+            const installed=remote.container?.installed;
+            const nextState=remote.suspended===true||remote.is_suspended===true?"stopped":(installed===true?"ready":(installed===false?"installing":String(item.state||"installing")));
+            const allocations=remote.relationships?.allocations?.data||[];
+            const selected=allocations.find(entry=>entry.attributes?.is_default)?.attributes||allocations[0]?.attributes||remote.allocation||{};
+            const ip=selected.ip||selected.alias||item.allocation_ip||null;
+            const port=selected.port||item.allocation_port||null;
+            if(nextState!==item.state||ip!==item.allocation_ip||Number(port||0)!==Number(item.allocation_port||0)){
+              await env.DB.prepare("UPDATE minecraft_servers SET state=?,allocation_ip=?,allocation_port=?,updated_at=? WHERE id=? AND user_id=?")
+                .bind(nextState,ip,port,Date.now(),item.id,auth.user.id).run();
+              item.state=nextState;item.allocation_ip=ip;item.allocation_port=port;
+            }
+          }catch(error){
+            // The creation record remains visible even while the remote panel is temporarily unavailable.
+          }
+        }
+        servers=await env.DB.prepare("SELECT id,name,version,state,allocation_ip,allocation_port,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
+        rows=Array.isArray(servers)?servers:(servers?.results||[]);
+      }
+      return reply({configured:minecraftConfigReady(mc),emailVerified:!!auth.user.email_verified_at,email:emailMask(auth.user.email),servers:rows});
     }
     if (path === "/minecraft/create" && request.method === "POST") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;
