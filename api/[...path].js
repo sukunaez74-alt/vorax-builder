@@ -2662,6 +2662,135 @@ export async function onRequest(context) {
     const user = auth.user;
 
 
+
+    if (path === "/admin/altare/status" && request.method === "GET") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const saved = await env.DB.prepare("SELECT encrypted_token,account_label,plan,updated_at FROM provider_connections WHERE user_id=? AND provider='altare'").bind(user.id).first();
+      if (!saved?.encrypted_token) return reply({ connected: false, provider: "altare", servers: [] });
+      try {
+        const token = await decryptSecret(saved.encrypted_token, env);
+        if (!token) throw new Error("Não consegui abrir a credencial protegida. Gere um token novo no Altare.");
+        const selfResponse = await fetch("https://console.altare.gg/api/api-tokens/self", {
+          headers: { authorization: "Bearer " + token, accept: "application/json" },
+          signal: AbortSignal.timeout(12000)
+        });
+        const identity = await selfResponse.json().catch(() => ({}));
+        if (!selfResponse.ok || !identity?.team?.id) {
+          return reply({ connected: true, valid: false, provider: "altare", error: "O Altare não confirmou o token salvo. Gere outro token e conecte novamente." });
+        }
+        const teamId = String(identity.team.id);
+        const listResponse = await fetch("https://console.altare.gg/api/tenants/" + encodeURIComponent(teamId) + "/servers", {
+          headers: { authorization: "Bearer " + token, accept: "application/json" },
+          signal: AbortSignal.timeout(15000)
+        });
+        const listData = await listResponse.json().catch(() => ({}));
+        if (!listResponse.ok) throw new Error(String(listData?.message || listData?.error || "Não consegui listar os aplicativos desta equipe."));
+        const servers = (Array.isArray(listData.items) ? listData.items : []).map(item => ({
+          id: String(item?.id || ""),
+          name: String(item?.name || "Aplicativo Altare"),
+          memoryMb: Number(item?.memoryMb || 0),
+          diskMb: Number(item?.diskMb || 0),
+          cpuPercent: Number(item?.cpuPercent || 0),
+          lastActivity: item?.lastActivity?.createdAt || null
+        })).filter(item => item.id);
+        const scopes = Array.isArray(identity.scopes) ? identity.scopes.map(String) : [];
+        const needed = ["servers:view","servers:power","servers:console","servers:files","servers:startup","servers:settings"];
+        return reply({
+          connected: true, valid: true, provider: "altare",
+          accountLabel: String(identity.team.name || saved.account_label || "Equipe Altare"),
+          plan: saved.plan || "Free",
+          teamId, scopes, missingScopes: needed.filter(scope => !scopes.includes(scope)),
+          serverIds: Array.isArray(identity.serverIds) ? identity.serverIds.map(String) : null,
+          servers, updatedAt: saved.updated_at || null
+        });
+      } catch (error) {
+        return reply({ connected: true, valid: false, provider: "altare", error: String(error?.message || "Falha ao consultar a conta Altare.").slice(0,500) }, 502);
+      }
+    }
+    if (path === "/admin/altare/connect" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const token = String((await body(request)).apiToken || "").trim();
+      if (!token.startsWith("alt_") || token.length < 24 || token.length > 2048 || /\s/.test(token)) {
+        return reply({ error: "Informe um Team API Token do Altare válido (começa com alt_)." }, 400);
+      }
+      try {
+        const response = await fetch("https://console.altare.gg/api/api-tokens/self", {
+          headers: { authorization: "Bearer " + token, accept: "application/json" },
+          signal: AbortSignal.timeout(12000)
+        });
+        const identity = await response.json().catch(() => ({}));
+        if (!response.ok || !identity?.team?.id) return reply({ error: "O Altare recusou o token. Confira se ele ainda está ativo." }, 401);
+        const scopes = Array.isArray(identity.scopes) ? identity.scopes.map(String) : [];
+        const required = ["servers:view","servers:power"];
+        const missing = required.filter(scope => !scopes.includes(scope));
+        if (missing.length) return reply({
+          error: "O token foi reconhecido, mas faltam permissões obrigatórias: " + missing.join(", ") + ". Crie outro token com esses acessos.",
+          missingScopes: missing
+        }, 403);
+        const listResponse = await fetch("https://console.altare.gg/api/tenants/" + encodeURIComponent(String(identity.team.id)) + "/servers", {
+          headers: { authorization: "Bearer " + token, accept: "application/json" },
+          signal: AbortSignal.timeout(15000)
+        });
+        const listData = await listResponse.json().catch(() => ({}));
+        if (!listResponse.ok) throw new Error(String(listData?.message || listData?.error || "A chave foi validada, mas a lista de aplicativos não pôde ser consultada."));
+        const encrypted = await encryptSecret(token, env);
+        const accountLabel = String(identity.team.name || "Equipe Altare").slice(0,120);
+        await env.DB.prepare(
+          "INSERT INTO provider_connections (user_id,provider,encrypted_token,account_label,plan,updated_at) VALUES (?,'altare',?,?,?,?) ON CONFLICT (user_id,provider) DO UPDATE SET encrypted_token=EXCLUDED.encrypted_token,account_label=EXCLUDED.account_label,plan=EXCLUDED.plan,updated_at=EXCLUDED.updated_at"
+        ).bind(user.id, encrypted, accountLabel, "Free · recursos compartilhados da equipe", Date.now()).run();
+        return reply({
+          ok: true, connected: true, provider: "altare", accountLabel,
+          serversCount: Array.isArray(listData.items) ? listData.items.length : 0,
+          scopes, missingOptionalScopes: ["servers:console","servers:files","servers:startup","servers:settings"].filter(scope => !scopes.includes(scope)),
+          message: "Altare conectado. O token foi validado e guardado criptografado no ADM privado."
+        });
+      } catch (error) {
+        return reply({ error: String(error?.message || "Não consegui validar a conexão Altare.").slice(0,500) }, 502);
+      }
+    }
+    if (path === "/admin/altare/power" && request.method === "POST") {
+      if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
+      const b = await body(request);
+      const serverId = String(b.serverId || "").trim();
+      const signal = String(b.action || "").toLowerCase();
+      if (!/^[A-Za-z0-9_-]{8,100}$/.test(serverId)) return reply({ error: "Selecione um aplicativo Altare válido." }, 400);
+      if (!["start","stop","restart"].includes(signal)) return reply({ error: "Ação inválida. Use iniciar, parar ou reiniciar." }, 400);
+      const saved = await env.DB.prepare("SELECT encrypted_token FROM provider_connections WHERE user_id=? AND provider='altare'").bind(user.id).first();
+      if (!saved?.encrypted_token) return reply({ code: "provider_not_connected", error: "Conecte o Altare primeiro." }, 409);
+      try {
+        const token = await decryptSecret(saved.encrypted_token, env);
+        const selfResponse = await fetch("https://console.altare.gg/api/api-tokens/self", {
+          headers: { authorization: "Bearer " + token, accept: "application/json" },
+          signal: AbortSignal.timeout(12000)
+        });
+        const identity = await selfResponse.json().catch(() => ({}));
+        if (!selfResponse.ok || !identity?.team?.id) throw new Error("O Altare não confirmou a credencial salva.");
+        const scopes = Array.isArray(identity.scopes) ? identity.scopes.map(String) : [];
+        if (!scopes.includes("servers:power") || !scopes.includes("servers:view")) {
+          return reply({ error: "O token precisa das permissões servers:view e servers:power." }, 403);
+        }
+        const teamId = String(identity.team.id);
+        const listResponse = await fetch("https://console.altare.gg/api/tenants/" + encodeURIComponent(teamId) + "/servers", {
+          headers: { authorization: "Bearer " + token, accept: "application/json" },
+          signal: AbortSignal.timeout(15000)
+        });
+        const listData = await listResponse.json().catch(() => ({}));
+        const owned = (Array.isArray(listData.items) ? listData.items : []).some(item => String(item?.id || "") === serverId);
+        if (!listResponse.ok || !owned) return reply({ error: "O aplicativo selecionado não pertence à lista de aplicativos acessíveis por este token." }, 404);
+        const powerResponse = await fetch("https://console.altare.gg/api/tenants/" + encodeURIComponent(teamId) + "/servers/" + encodeURIComponent(serverId) + "/power", {
+          method: "POST",
+          headers: { authorization: "Bearer " + token, "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ signal }),
+          signal: AbortSignal.timeout(15000)
+        });
+        const result = await powerResponse.json().catch(() => ({}));
+        if (!powerResponse.ok) throw new Error(String(result?.message || result?.error || "O Altare recusou o comando de energia."));
+        return reply({ ok: true, action: signal, queued: !!result.queued, position: result.position ?? null, message: signal === "stop" ? "Comando de parada enviado ao Altare." : (result.queued ? "Inicialização entrou na fila do Altare." : "Comando enviado ao Altare.") });
+      } catch (error) {
+        return reply({ error: String(error?.message || "Não consegui controlar o aplicativo Altare.").slice(0,500) }, 502);
+      }
+    }
+
     if (path === "/admin/caos/status" && request.method === "GET") {
       if (!ownerOnly(user)) return reply({ error: "Acesso restrito ao administrador principal." }, 403);
       const settings = await adminCaosSettings(env);
