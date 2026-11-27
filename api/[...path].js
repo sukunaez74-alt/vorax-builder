@@ -2866,6 +2866,7 @@ export async function onRequest(context) {
       const old=await minecraftSettings(env);
       const panelUrl=String(b.panelUrl||old?.panel_url||"").trim().replace(/\/+$/,""),panelKey=String(b.panelApplicationKey||"").trim();
       const clientApiKey=String(b.panelClientApiKey||"").trim();
+      if(clientApiKey&&!/^ptlc_[A-Za-z0-9_-]{16,}$/.test(clientApiKey))return reply({error:"A Client API Key precisa ser válida (normalmente começa com ptlc_)."},400);
       const eggId=Number(b.eggId||old?.egg_id||0),allocationId=Number(b.allocationId||old?.allocation_id||0);
       const memory=Number(b.memoryMb||old?.memory_mb||2048),disk=Number(b.diskMb||old?.disk_mb||10240),cpu=Number(b.cpuPercent||old?.cpu_percent||200),maxServers=Number(b.maxServersPerUser||old?.max_servers_per_user||1);
       const loaderConfigs=minecraftJsonObject(b.loaderConfigs,minecraftJsonObject(old?.loader_configs,{}));
