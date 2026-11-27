@@ -609,7 +609,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
   </div><div id="authNotice" class="notice hidden"></div>
  </div>
 </section>
-<section id="emailVerificationScreen" class="hidden">
+<section id="emailVerificationScreen" class="hidden" style="min-height:100vh;display:grid;place-items:center;padding:24px;background:#070609">
  <div class="auth-card">
   <div class="brand"><div class="brand-mark">✦</div><div class="brand-name">ʙʟᴀᴄᴋ ᴢᴏɴᴇ<br><span class="caps">ESTÚDIO</span></div></div>
   <h1>Confirme seu e-mail.</h1>
@@ -2129,7 +2129,7 @@ const keritForm=$("#keritConnectForm");
 
  document.querySelectorAll("[data-bot-power]").forEach(button=>{button.onclick=()=>{
   const id=button.dataset.botId,action=button.dataset.botPower,bot=state.bots.find(item=>item.id===id);
-  if(action!=="stop"&&!state.hosting&&bot?.hostingProvider==="bot-hosting"){toast("Antes de iniciar o servidor, conecte sua conta Bot-Hosting. Vou abrir Integrações.");navigate("integrations");return;}
+  if(action!=="stop"&&!state.hosting&&bot?.hostingProvider==="bot-hosting"){toast("Antes de iniciar, autorize sua hospedagem própria. Abra o projeto e use Conectar hospedagem.");openBot(id);return;}
   if(action!=="stop"&&!bot?.hasDiscordToken){toast("Este projeto ainda não tem Bot Token salvo. Abra a configuração para adicionar o token.");caosModal(id);return;}
   refreshBotPower(id,action,button);
  }});
@@ -2442,7 +2442,7 @@ async function loadSettings(){
 
  const result=new URLSearchParams(window.location.search).get("hosting");
  if(result){
-   const messages={connected:"Conta Bot-Hosting conectada com segurança.",cancelled:"A autorização da hospedagem foi cancelada.",expired:"A autorização expirou. Tente conectar novamente.",error:"Não consegui concluir a autorização do Bot-Hosting."};
+   const messages={connected:"Conta de hospedagem conectada com segurança.",cancelled:"A autorização da hospedagem foi cancelada.",expired:"A autorização expirou. Tente conectar novamente.",error:"Não consegui concluir a autorização da hospedagem."};
    toast(messages[result]||"Retorno da hospedagem recebido.");
    window.history.replaceState({},document.title,window.location.pathname);
  }
@@ -2466,7 +2466,7 @@ async function openBot(id){
   :(discordStatus.commandsTotal!=null?("Comandos publicados: "+Number(discordStatus.commandsRegistered||0)+"/"+Number(discordStatus.commandsTotal||0)+" em "+Number(discordStatus.commandsSyncedGuilds||0)+" servidor(es)."):"Aguardando a primeira publicação dos comandos.");
  const connectPanel=connected
    ? '<div class="project-note"><strong>Hospedagem conectada.</strong><br>O painel está autorizado a criar, iniciar e parar o servidor deste bot.</div>'
-   : '<div class="project-note"><strong>Conecte sua hospedagem para ativar os controles.</strong><br>Você será levado ao Bot-Hosting para entrar e aprovar o acesso. Não precisa copiar chave de API.</div>';
+   : '<div class="project-note"><strong>Conecte sua hospedagem própria para ativar os controles.</strong><br>Você será levado à tela oficial de autorização do serviço escolhido. Não precisa copiar uma chave de API para o Estúdio.</div>';
  openModal(
  '<div class="modal-head"><h3>'+escapeHtml(b.name||"Projeto")+'</h3><button class="close" id="closeModal">×</button></div>'+
  '<p class="muted small">'+(b.projectType==="custom"?"MEU PRÓPRIO BOT":"BOT PADRÃO DO ESTÚDIO")+' • '+escapeHtml(b.runtime==="python"?"Python":"Node.js")+' • '+(b.hasDiscordToken?"Token protegido no painel":(b.projectType==="custom"?"Pode estar no código do projeto":"Token do Discord pendente"))+'</p>'+
@@ -2477,7 +2477,7 @@ async function openBot(id){
  (discordStatus.status==='error'?'<div class="project-note changes-pending"><strong>Falha na inicialização do CAOS.</strong><br>'+escapeHtml(discordStatus.error||"Consulte os logs para ver a causa.")+'</div>':'')+
  (b.discordStatus?.status==='token_error'?'<div class="project-note changes-pending"><strong>O Discord recusou o token durante a inicialização.</strong><br>Abra a configuração, substitua o token e salve novamente.</div>':b.discordStatus?.status==='intents_error'?'<div class="project-note changes-pending"><strong>Intents privilegiados não habilitados.</strong><br>Ative Server Members Intent e Message Content Intent no Developer Portal.</div>':(serverRunning&&!isRunning?'<div class="project-note"><strong>'+(b.projectType==="custom"?"O processo do seu bot está ativo na hospedagem.":"O processo da hospedagem está ativo, mas o login no Discord ainda não foi confirmado.")+'</strong><br>'+(b.projectType==="custom"?"O seu código próprio não envia um sinal de presença para o Estúdio. Confira os logs para confirmar a conexão com o Discord.":"Consulte o terminal para ver se o token foi aceito ou se faltam intents.")+'</div>':''))+
  '<div class="hero-actions" style="margin-top:14px;flex-wrap:wrap">'+
- (connected?'<button class="btn" id="botStart" '+(isRunning?"disabled":"")+'>'+(serverRunning&&!isRunning?"↻ Tentar iniciar novamente":"▶ Iniciar") +'</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!serverRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar Bot-Hosting</button>')+
+ (connected?'<button class="btn" id="botStart" '+(isRunning?"disabled":"")+'>'+(serverRunning&&!isRunning?"↻ Tentar iniciar novamente":"▶ Iniciar") +'</button><button class="btn danger" id="botStop" '+(!b.hostingDeploymentId||!serverRunning?"disabled":"")+'>■ Parar</button><button class="btn secondary" id="botRestart" '+(!b.hostingDeploymentId?"disabled":"")+'>↻ Reiniciar</button><button class="btn ghost" id="botLogs" '+(!b.hostingDeploymentId?"disabled":"")+'>Ver logs</button>':'<button class="btn" id="connectHosting">Conectar hospedagem própria</button>')+
  '<button class="btn secondary" id="botModules">Configurar token e módulos</button></div>'+
   (b.scheduleEnabled?'<div class="project-note changes-pending"><strong>Agendamento antigo encontrado.</strong><br>O Estúdio não vai mais ligar ou desligar o bot por horário. Reinicie este projeto uma vez para aplicar o funcionamento contínuo; os horários internos do seu próprio bot permanecem intactos.</div>':'')+
 '<section class="card" style="margin-top:14px"><div class="section-head"><h3>Comandos no Discord</h3></div>'+
@@ -2491,7 +2491,7 @@ async function openBot(id){
  if(connect)connect.onclick=async()=>{
    connect.disabled=true;connect.textContent="Preparando autorização...";
    try{const r=await api("/hosting/connect");window.location.assign(r.authorizationUrl);}
-   catch(e){toast(e.message);connect.disabled=false;connect.textContent="Conectar Bot-Hosting";}
+   catch(e){toast(e.message);connect.disabled=false;connect.textContent="Conectar hospedagem própria";}
  };
  const modules=$("#botModules");if(modules)modules.onclick=()=>caosModal(id);
  const inviteButton=$("#botInvite");
@@ -2945,15 +2945,15 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   });
   if(status)status.textContent="Enviando ZIP em partes: "+Math.round((index+1)/totalChunks*100)+"% ("+(index+1)+"/"+totalChunks+") · "+(prepared.blob.size/1024/1024).toFixed(2)+" MB";
  }
- if(status)status.textContent="Todas as partes chegaram. Procurando uma vaga gratuita e enviando o ZIP"+(existingProvider?" à "+provider:"")+"…";
+ if(status)status.textContent="Todas as partes chegaram. O Estúdio está verificando a capacidade e enviando o ZIP à infraestrutura gerenciada…";
  const result=await api("/bots/"+encodeURIComponent(id)+"/auto-upload",{
   method:"POST",
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error(result.error||"O provedor alternativo não confirmou a criação da aplicação.");
  try{await api("/bots/"+encodeURIComponent(id)+"/upload-cleanup",{method:"POST",body:JSON.stringify({uploadId})})}catch{}
- const providerName=result.provider==="sillydev"?"Silly Development":(result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":(result.provider==="waifly"?"Waifly":(result.provider==="xsystems"?"X Systems Hosting":(result.provider==="torchlite"?"Torchlite":(result.provider==="daki"?"Daki Hosting":(result.provider==="unixsys"?"Unixsys":(result.provider==="consolex1"?"ConsoleX1":"Discloud"))))))))))));
- if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
+ if(status)status.textContent="Projeto enviado à infraestrutura gerenciada · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
+ toast("ZIP enviado. O Estúdio solicitou a inicialização do bot; confira os logs para confirmar a conexão com o Discord.");
  await loadBots();
  state.activeBot=id;
  toast("ZIP enviado à "+providerName+". Confira os logs para confirmar a conexão do Discord.");
