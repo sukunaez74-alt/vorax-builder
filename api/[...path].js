@@ -289,7 +289,7 @@ async function resolveMinecraftMod(projectId,mcVersion,loader,ctx,dependencyOf=n
   const fileUrl=new URL(file.url);
   if(fileUrl.hostname!=="cdn.modrinth.com")throw new Error("O arquivo de "+(project.title||projectId)+" não veio do CDN oficial do catálogo.");
   const filename=String(file.filename||"").split(/[\\/]/).pop();
-  if(!/^[A-Za-z0-9._()+-]{1,180}\.jar$/i.test(filename))throw new Error("Nome de arquivo de mod inválido.");
+  if(!/^[A-Za-z0-9 ._()+-]{1,180}\.jar$/i.test(filename))throw new Error("Nome de arquivo de mod inválido.");
   ctx.files.push({
     projectId,projectSlug:project.slug||projectId,title:project.title||projectId,
     versionId:version.id,versionNumber:version.version_number||version.name||"",
@@ -2914,7 +2914,7 @@ export async function onRequest(context) {
         const mc=await minecraftSettings(env);if(!minecraftConfigReady(mc))return reply({error:"Preencha primeiro as configurações do Pterodactyl."},409);
         await minecraftPanelRequest(mc,env,"/users?per_page=1");
         if(mc.client_api_key_enc){
-          const client=await minecraftClientRequest(mc,env,"/servers?per_page=1");
+          const client=await minecraftClientRequest(mc,env,"");
           return reply({ok:true,message:"Application API e Client API de arquivos confirmadas.",clientApi:true});
         }
         return reply({ok:true,message:"Application API confirmada. A Client API de arquivos ainda não foi configurada.",clientApi:false});
