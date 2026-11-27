@@ -947,7 +947,7 @@ function minecraftAdminView(){
  '<label class="field"><span>URL DO PAINEL</span><input name="panelUrl" type="url" placeholder="https://painel.seudominio.com"></label>'+
  '<label class="field"><span>CHAVE APPLICATION API</span><input name="panelApplicationKey" type="password" autocomplete="new-password" placeholder="ptla_..."></label>'+
  '<label class="field mc-full"><span>CHAVE CLIENT API PARA ARQUIVOS</span><input name="panelClientApiKey" type="password" autocomplete="new-password" placeholder="ptlc_..."></label>'+
- '<div class="mc-admin-note mc-full">A Client API permite que o Estúdio envie os arquivos .jar dos mods para a pasta /mods dos servidores. Use uma chave de cliente da conta administradora do painel, com acesso aos servidores. Ela fica criptografada e nunca aparece no painel dos membros.</div>'+
+ '<div class="mc-admin-note mc-full">A Client API é diferente da Application API. Crie uma chave de cliente no menu Account → API Credentials do Pterodactyl. Use uma conta administradora com acesso aos servidores e permissões de arquivos (leitura/escrita) e controle de energia. Ela deve começar com ptlc_, fica criptografada e nunca aparece para os membros.</div>'+
  '<label class="field"><span>EGG ID · SERVIDOR NORMAL</span><input name="eggId" type="number" min="1" required></label>'+
  '<label class="field"><span>ALLOCATION ID</span><input name="allocationId" type="number" min="1" required></label>'+
  '<label class="field"><span>DOCKER IMAGE PADRÃO</span><input name="dockerImage" placeholder="ghcr.io/pterodactyl/yolks:java_21"></label>'+
