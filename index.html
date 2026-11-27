@@ -1107,7 +1107,7 @@ async function loadSettingsHostingState(){
 async function runCompanionPower(action){
  const bot=state.bots.find(item=>item.name==="Segunda bot"&&item.projectType==="custom");
  if(!bot?.id)return toast("A segunda bot ainda não tem um projeto criado.");
- if(!bot.providerAppId&&!bot.hostingDeploymentId&&action!=="start")return toast("A hospedagem da segunda bot ainda não foi vinculada.");
+ if(!bot.providerAppId&&!bot.hostingDeploymentId)return toast("A hospedagem gratuita da segunda bot ainda não foi vinculada. Envie o ZIP primeiro; assim o Estúdio não tenta criar outro servidor.");
  if(action==="stop"&&!window.confirm("Deseja parar somente a segunda bot? O CAOS continuará funcionando normalmente."))return;
  const buttons=["#companionStartButton","#companionStopButton","#companionUpdateButton","#companionRefreshButton"].map(selector=>$(selector)).filter(Boolean);
  buttons.forEach(button=>button.disabled=true);
@@ -1185,7 +1185,7 @@ function verificationAdminView(){
  '<div class="companion-meta"><span>HOSPEDAGEM<strong>'+escapeHtml(companionProviderName)+'</strong></span><span>LINGUAGEM<strong>'+companionRuntime+'</strong></span><span>DISCORD<strong>'+(companion?.hasDiscordToken?"TOKEN PROTEGIDO":"TOKEN PENDENTE")+'</strong></span></div>'+
  '<div class="companion-controls">'+
  '<button class="btn companion-start" id="companionStartButton" '+(!companionHasServer||companionIsOnline||companionIsStarting?"disabled":"")+'><span>▶</span> Iniciar</button>'+
- '<button class="btn danger companion-stop" id="companionStopButton" '+(!companionHasServer||!companionIsOnline?"disabled":"")+'><span>■</span> Parar</button>'+
+ '<button class="btn danger companion-stop" id="companionStopButton" '+(!companionHasServer||["stopped","offline","terminated"].includes(companionStateValue)?"disabled":"")+'><span>■</span> Parar</button>'+
  '<button class="btn secondary companion-update" id="companionUpdateButton" '+(!companion?.hasDiscordToken?"disabled":"")+'><span>↻</span> Atualizar</button>'+
  '<button class="btn secondary companion-refresh" id="companionRefreshButton"><span>⟳</span> Recarregar</button></div>'+
  '<div class="companion-live-note" id="companionRuntimeInfo"><strong>'+(companionIsOnline?"A segunda bot está marcada como online.":companionIsStarting?"A hospedagem está preparando ou iniciando a segunda bot.":companionHasServer?"Servidor criado. Use Iniciar para ligar a bot.":companion?.hasDiscordToken?"Token protegido. Falta concluir a publicação do ZIP numa vaga gratuita.":"Configure o token do Discord e envie o ZIP para criar a segunda bot.")+'</strong><small>'+escapeHtml(companionProviderName)+' · '+(companionHasServer?"ID vinculado: "+String(companion?.providerAppId||companion?.hostingDeploymentId):"O CAOS permanece separado e não será alterado.")+'</small></div>'+
