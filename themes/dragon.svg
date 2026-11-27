@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900">
+<defs>
+ <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#030305"/><stop offset=".58" stop-color="#10091a"/><stop offset="1" stop-color="#050407"/></linearGradient>
+ <radialGradient id="mist"><stop stop-color="#7628ad" stop-opacity=".52"/><stop offset="1" stop-color="#2b0d42" stop-opacity="0"/></radialGradient>
+ <linearGradient id="scale" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e0a2ff"/><stop offset=".25" stop-color="#9b35df"/><stop offset=".7" stop-color="#58158e"/><stop offset="1" stop-color="#170823"/></linearGradient>
+ <linearGradient id="belly" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#a74ee2"/><stop offset="1" stop-color="#260b3c"/></linearGradient>
+ <linearGradient id="horn" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f1e8fb"/><stop offset=".55" stop-color="#8e7a9f"/><stop offset="1" stop-color="#17121c"/></linearGradient>
+ <radialGradient id="eye"><stop stop-color="#fff9a8"/><stop offset=".35" stop-color="#ffcb4a"/><stop offset="1" stop-color="#f26b18"/></radialGradient>
+ <pattern id="scales" width="44" height="34" patternUnits="userSpaceOnUse">
+  <path d="M2 2 Q22 31 42 2" fill="none" stroke="#210b35" stroke-width="5" opacity=".72"/>
+  <path d="M2 0 Q22 27 42 0" fill="none" stroke="#d58dff" stroke-width="1.4" opacity=".42"/>
+  <path d="M22 3 28 14 22 22 16 14Z" fill="#e3aaff" opacity=".18"/>
+ </pattern>
+ <filter id="glow"><feGaussianBlur stdDeviation="18"/></filter>
+</defs>
+<rect width="1600" height="900" fill="url(#bg)"/>
+<ellipse cx="1340" cy="340" rx="420" ry="380" fill="url(#mist)"/>
+<ellipse cx="1160" cy="760" rx="380" ry="200" fill="#4e176d" opacity=".2" filter="url(#glow)"/>
+<g fill="#a66acb" opacity=".16">
+ <circle cx="820" cy="165" r="2"/><circle cx="1040" cy="90" r="2"/><circle cx="1450" cy="90" r="2"/>
+ <circle cx="1280" cy="610" r="3"/><circle cx="930" cy="715" r="2"/><circle cx="1520" cy="420" r="2"/>
+ <circle cx="1120" cy="520" r="2"/><circle cx="1380" cy="820" r="2"/>
+</g>
+<g fill="none" stroke="#a94fe0" stroke-width="2" opacity=".13">
+ <path d="M850 0Q980 170 860 300T940 650"/><path d="M1490 0Q1350 170 1500 300T1420 700"/>
+ <path d="M1030 0Q1130 180 1030 350"/><path d="M1600 690Q1410 620 1260 900"/>
+</g>
+<!-- Corpo serpentino do dragão -->
+<path d="M1690 -90 C1460 10 1510 145 1370 210 C1230 275 1150 295 1215 405 C1280 515 1500 420 1605 520 C1710 620 1570 760 1390 815 C1220 870 1110 770 1010 920" fill="none" stroke="#050308" stroke-width="168" stroke-linecap="round"/>
+<path d="M1690 -90 C1460 10 1510 145 1370 210 C1230 275 1150 295 1215 405 C1280 515 1500 420 1605 520 C1710 620 1570 760 1390 815 C1220 870 1110 770 1010 920" fill="none" stroke="url(#scale)" stroke-width="139" stroke-linecap="round"/>
+<path d="M1690 -90 C1460 10 1510 145 1370 210 C1230 275 1150 295 1215 405 C1280 515 1500 420 1605 520 C1710 620 1570 760 1390 815 C1220 870 1110 770 1010 920" fill="none" stroke="url(#scales)" stroke-width="118" stroke-linecap="round" opacity=".86"/>
+<path d="M1240 415 C1340 473 1500 414 1586 507" fill="none" stroke="url(#belly)" stroke-width="29" stroke-linecap="round" opacity=".72"/>
+<!-- Nuvens e fumaça ao redor da criatura -->
+<g fill="#54505e" opacity=".37">
+ <path d="M1120 160q-58-48-5-90 8-59 82-28 44-57 89-7 75-14 91 54 52 35-1 83-53 44-112 3-57 37-111-4-51 27-93-11Z"/>
+ <path d="M1280 535q-78-41-35-94 5-55 78-43 49-55 89-9 71-7 82 50 62 36 5 84-57 38-112-4-56 38-103-5-58 25-104 21Z"/>
+ <path d="M1460 770q-65-48-11-94 10-50 69-30 41-46 81-4 50 0 62 54 42 37-9 70-45 39-92 3-47 35-95 0-43 18-76 1Z"/>
+</g>
+<!-- Cabeça principal, em perfil -->
+<g stroke="#16091f" stroke-linejoin="round" stroke-width="10">
+ <path d="M1408 177 1500 75 1450 202 1375 252Z" fill="url(#horn)"/>
+ <path d="M1320 191 1350 58 1385 197 1360 260Z" fill="url(#horn)"/>
+ <path d="M1387 196 C1324 152 1246 148 1178 188 L1100 250 1150 286 1124 331 1215 361 1310 327 1398 271Z" fill="url(#scale)"/>
+ <path d="M1170 273 1098 290 1152 318 1117 345 1202 350 1274 316Z" fill="#29103d"/>
+ <path d="M1204 318 1244 336 1307 324 1260 374 1185 367Z" fill="#160a1f"/>
+ <path d="M1125 244 1068 249 1111 222Z" fill="#d7a0fa"/>
+ <path d="M1220 190 1250 213 1221 230 1198 211Z" fill="#07050a" stroke="none"/>
+ <path d="M1212 202Q1231 194 1244 210" fill="none" stroke="#ffcf52" stroke-width="15" stroke-linecap="round"/>
+ <ellipse cx="1230" cy="207" rx="5" ry="12" fill="#160b16" stroke="none"/>
+ <path d="M1160 281 1192 292 1216 287 1238 306 1197 312Z" fill="#d8c7df"/>
+ <path d="M1208 308 1226 316 1238 305" fill="none" stroke="#fff1ff" stroke-width="7"/>
+ <path d="M1262 339 1285 350 1300 336" fill="none" stroke="#f1deff" stroke-width="7"/>
+ <path d="M1320 244 1370 215 1405 237 1378 273Z" fill="#6d259e"/>
+</g>
+<!-- Crinas, espinhos e garras -->
+<g fill="url(#horn)" stroke="#1b0a27" stroke-width="7" stroke-linejoin="round">
+ <path d="M1294 174 1268 78 1331 155Z"/><path d="M1350 162 1352 38 1392 157Z"/>
+ <path d="M1406 207 1490 128 1450 229Z"/><path d="M1267 337 1227 421 1300 356Z"/>
+ <path d="M1370 390 1423 478 1414 375Z"/>
+ <path d="M1500 603 1556 548 1534 639Z"/><path d="M1330 813 1272 887 1374 837Z"/>
+</g>
+<g fill="none" stroke="#e7baff" stroke-width="3" opacity=".42">
+ <path d="M1300 223q-50-39-104-15"/><path d="M1320 246q-58 2-96 45"/><path d="M1310 277q-37 33-67 36"/>
+ <path d="M1500 80q-62 55-82 115"/><path d="M1465 600q-77 88-175 108"/>
+</g>
+<!-- Reflexo violeta e fumaça baixa -->
+<path d="M980 900Q1120 775 1255 820T1510 735" fill="none" stroke="#b34cff" stroke-width="3" opacity=".25"/>
+<path d="M1080 890Q1240 820 1360 855T1590 760" fill="none" stroke="#d28cff" stroke-width="2" opacity=".19"/>
+</svg>
