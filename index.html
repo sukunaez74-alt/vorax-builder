@@ -1049,12 +1049,12 @@ function filesView(){
  const bots=state.bots||[],customBots=bots.filter(b=>b.projectType==="custom"||b.customProject),bot=customBots.find(b=>b.id===state.activeBot)||customBots[0]||null;
  if(!bot)return pageHead("Arquivos e ZIP","Envie o código do seu bot sem configurar hospedagem manualmente.")+'<section class="dashboard-panel bz-onboarding-panel"><div class="bz-onboarding-head">'+bzIcon("rocket")+'<div><div class="bz-onboarding-title">Comece com Token + ZIP</div><div class="bz-onboarding-subtitle">O Estúdio detecta a linguagem e procura uma vaga gratuita.</div></div></div><button class="btn btn-bright" data-action="create-bot">＋ Criar bot agora</button></section>';
  const choices=customBots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===bot.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join(""),meta=bot.customProject||null;
- const summary=meta?"Projeto reconhecido · "+Number(meta.fileCount||0)+" arquivos · início: "+String(meta.entryFile||"não identificado"):"Este bot ainda não recebeu um ZIP. Envie o pacote para procurar uma hospedagem gratuita.";
+ const summary=meta?(meta.uploadPending?"ZIP reconhecido e salvo · "+Number(meta.fileCount||0)+" arquivos · início: "+String(meta.entryFile||"não identificado")+" · aguardando vaga gratuita. Você pode tentar publicar novamente por até 48 horas.":"Projeto reconhecido · "+Number(meta.fileCount||0)+" arquivos · início: "+String(meta.entryFile||"não identificado")):"Este bot ainda não recebeu um ZIP. Envie o pacote para procurar uma hospedagem gratuita.";
  return pageHead("Arquivos e ZIP","Atualize o código de um bot já criado. Não é necessário cadastrar API Key.")+
  '<section class="dashboard-panel bz-onboarding-panel" style="margin-bottom:15px"><div class="bz-onboarding-head">'+bzIcon("shield")+'<div><div class="bz-onboarding-title">Hospedagem automática</div><div class="bz-onboarding-subtitle">O Estúdio usa a vaga gratuita disponível e não ativa plano pago.</div></div></div><small class="muted">Quando atualizar o ZIP, o token protegido atual será mantido. Para trocar o token, use Token / módulos no cartão do bot.</small></section>'+
  '<section class="dashboard-panel file-import-panel">'+(customBots.length>1?'<div class="field"><label>BOT</label><select id="filesBotSelect">'+choices+'</select></div>':'<div class="project-note"><strong>'+escapeHtml(bot.name||"Meu bot")+'</strong></div>')+
  '<div class="bz-upload-zone"><b>📦 Atualizar arquivo ZIP</b><p class="muted small">Envie o pacote atualizado do projeto.</p><input id="fileUploadInput" type="file" accept=".zip,application/zip,application/x-zip-compressed"></div>'+
- '<div id="fileStatus" class="project-note file-import-status">'+escapeHtml(summary)+'</div><button class="btn wide" id="fileUploadButton">⇧ Enviar ZIP e atualizar bot</button></section>';
+ '<div id="fileStatus" class="project-note file-import-status">'+escapeHtml(summary)+'</div>'+(meta?.uploadPending&&meta?.pendingUploadId?'<button class="btn wide" id="fileRetryPendingButton" style="margin-bottom:10px">↻ Tentar publicar ZIP salvo</button>':'')+'<button class="btn wide" id="fileUploadButton">⇧ Enviar ZIP e atualizar bot</button></section>';
 }
 function logsView(){
  const bot=state.bots.find(b=>b.id===state.activeBot)||state.bots.find(b=>b.hostingDeploymentId)||state.bots[0];
@@ -1951,6 +1951,7 @@ const keritForm=$("#keritConnectForm");
  const filesBot=$("#filesBotSelect");if(filesBot)filesBot.onchange=()=>{state.activeBot=filesBot.value;render()};
  document.querySelectorAll("[data-delete-bot]").forEach(button=>button.onclick=()=>deleteBotProject(button.dataset.deleteBot,button));
  const fileUploadButton=$("#fileUploadButton");if(fileUploadButton)fileUploadButton.onclick=()=>$("#fileUploadInput").click();
+ const fileRetryPendingButton=$("#fileRetryPendingButton");if(fileRetryPendingButton)fileRetryPendingButton.onclick=retryPendingZipUpload;
  const fileFolderButton=$("#fileFolderButton");if(fileFolderButton)fileFolderButton.onclick=()=>$("#fileFolderInput").click();
  const fileMultipleButton=$("#fileMultipleButton");if(fileMultipleButton)fileMultipleButton.onclick=()=>$("#fileMultipleInput").click();
  const fileMultipleInput=$("#fileMultipleInput");if(fileMultipleInput)fileMultipleInput.onchange=uploadLooseFiles;
@@ -2010,7 +2011,8 @@ function createBotModal(){
    closeModal(true);await loadBots();state.activeBot=createdBotId;navigate("bots");
    toast("Bot enviado. Confira o status e os logs para confirmar a conexão com o Discord.");
   }catch(error){
-   if(progress)progress.textContent=createdBotId?"O projeto e o token permanecem salvos. "+(error.message||"Não consegui concluir o envio.")+" Você pode tentar novamente quando houver vaga gratuita.":(error.message||"Não consegui preparar o bot.");
+   if(createdBotId){try{await loadBots()}catch{}}
+   if(progress)progress.textContent=createdBotId?"O projeto e o token permanecem salvos. "+(error.message||"Não consegui concluir o envio.")+" "+(state.bots.find(item=>item.id===createdBotId)?.customProject?.uploadPending?"O ZIP foi reconhecido e ficou salvo para uma nova tentativa por até 48 horas.":"Você pode tentar novamente quando houver vaga gratuita."):(error.message||"Não consegui preparar o bot.");
    toast(error.message||"Não consegui criar o bot.");
   }finally{if(button){button.disabled=false;button.textContent=createdBotId?"Tentar novamente":"Validar token e colocar online ↗"}}
  };
@@ -2749,7 +2751,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   const chunkBase64=await fileToBase64(part);
   await api("/bots/"+encodeURIComponent(id)+"/upload-chunk",{
    method:"POST",
-   body:JSON.stringify({uploadId,index,totalChunks,chunkBase64})
+   body:JSON.stringify({uploadId,index,totalChunks,chunkBase64,runtime,packageName})
   });
   if(status)status.textContent="Enviando ZIP em partes: "+Math.round((index+1)/totalChunks*100)+"% ("+(index+1)+"/"+totalChunks+") · "+(prepared.blob.size/1024/1024).toFixed(2)+" MB";
  }
@@ -2759,6 +2761,7 @@ async function uploadZipToFreeHosting(id,file,runtime,packageName,status){
   body:JSON.stringify({filename:packageName+".zip",uploadId,runtime,packageName})
  });
  if(!result.ok||!result.providerAppId)throw new Error(result.error||"O provedor alternativo não confirmou a criação da aplicação.");
+ try{await api("/bots/"+encodeURIComponent(id)+"/upload-cleanup",{method:"POST",body:JSON.stringify({uploadId})})}catch{}
  const providerName=result.provider==="sillydev"?"Silly Development":(result.provider==="cubecloud"?"Cube Hosting":(result.provider==="discloud"?"Discloud Free":(result.provider==="squarecloud"?"Square Cloud":(result.provider==="cogithost"?"Cogithost":(result.provider==="aclclouds"?"ACLClouds":(result.provider==="keritcloud"?"Kerit Cloud":(result.provider==="waifly"?"Waifly":(result.provider==="xsystems"?"X Systems Hosting":(result.provider==="torchlite"?"Torchlite":(result.provider==="daki"?"Daki Hosting":(result.provider==="unixsys"?"Unixsys":(result.provider==="consolex1"?"ConsoleX1":"Discloud"))))))))))));
  if(status)status.textContent="Projeto enviado à "+providerName+" · "+(result.customProject?.entryFile||"arquivo principal reconhecido")+" · "+Number(result.customProject?.fileCount||0)+" arquivos. A inicialização foi solicitada.";
  await loadBots();
@@ -2837,13 +2840,43 @@ async function uploadBotFile(){
    }
   }
  }catch(error){
+  try{await loadBots();state.activeBot=id;if(state.view==="files"){render();const refreshedStatus=$("#fileStatus");if(refreshedStatus)refreshedStatus.textContent=(error.message||"Não consegui importar este ZIP.")+" O ZIP recebido continua salvo para uma nova tentativa por até 48 horas."}}catch{}
   toast(error.message||"Não consegui importar este ZIP.");
-  if(status)status.textContent=error.message||"Não foi possível encontrar uma vaga gratuita disponível. Seu ZIP original continua preservado. O Estúdio não contratará hospedagem paga.";
+  if(status&&!$("#fileStatus"))status.textContent=error.message||"Não foi possível encontrar uma vaga gratuita disponível. Seu ZIP original continua preservado. O Estúdio não contratará hospedagem paga.";
  }finally{
   if(button){button.disabled=false;button.textContent="⇧ Escolha um ZIP"}
   if(completed)input.value="";
  }
 }
+async function retryPendingZipUpload(){
+ const id=$("#filesBotSelect")?.value||state.activeBot;
+ const bot=state.bots.find(item=>item.id===id);
+ const meta=bot?.customProject||null;
+ const button=$("#fileRetryPendingButton");
+ if(!id||!meta?.pendingUploadId)return toast("Não encontrei um ZIP salvo para tentar publicar.");
+ if(Number(meta.pendingUploadExpiresAt||0)<Date.now())return toast("O ZIP salvo expirou. Selecione o arquivo novamente para reenviar.");
+ if(button){button.disabled=true;button.textContent="Tentando publicar…"}
+ try{
+  const packageName=safePackageName(meta.packageName||bot.name||"meu-bot");
+  const result=await api("/bots/"+encodeURIComponent(id)+"/auto-upload",{
+   method:"POST",
+   body:JSON.stringify({filename:packageName+".zip",uploadId:meta.pendingUploadId,runtime:meta.runtime,packageName})
+  });
+  if(!result.ok||!result.providerAppId)throw new Error(result.error||"A hospedagem ainda não confirmou a publicação.");
+  try{await api("/bots/"+encodeURIComponent(id)+"/upload-cleanup",{method:"POST",body:JSON.stringify({uploadId:meta.pendingUploadId})})}catch{}
+  await loadBots();state.activeBot=id;render();
+  toast("ZIP publicado na hospedagem. Confira os logs para confirmar a conexão do Discord.");
+ }catch(error){
+  try{await loadBots()}catch{}
+  state.activeBot=id;
+  if(state.view==="files"){render();const refreshed=$("#fileStatus");if(refreshed)refreshed.textContent=(error.message||"Ainda não foi possível publicar o ZIP.")+" O pacote reconhecido continua salvo para nova tentativa enquanto não expirar."}
+  toast(error.message||"Ainda não foi possível publicar o ZIP.");
+ }finally{
+  const current=$("#fileRetryPendingButton");
+  if(current){current.disabled=false;current.textContent="↻ Tentar publicar ZIP salvo"}
+ }
+}
+
 async function uploadLooseFiles(){
  const input=$("#fileMultipleInput"),selected=Array.from(input?.files||[]);
  if(!selected.length)return;
