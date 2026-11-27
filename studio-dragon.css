@@ -342,3 +342,67 @@
 
 
 #app .mc-panel-link{display:flex;justify-content:flex-end;margin:14px 0}#app .mc-panel-link a{border-color:rgba(190,130,239,.4)}
+
+
+/* Product areas stay visually and functionally separate. */
+#app.minecraft-surface .dashboard-search,
+#app.minecraft-surface .top-create-btn,
+#app.minecraft-surface .host-card{display:none!important}
+#app .nav-btn:disabled{opacity:.42;cursor:not-allowed}
+#app .mc-create-panel{margin:16px 0 10px;padding:18px;border:1px solid rgba(170,108,225,.22);border-radius:18px;background:linear-gradient(145deg,rgba(31,18,43,.94),rgba(13,9,19,.96))}
+#app .mc-create-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:15px}
+#app .mc-create-heading h3{margin:4px 0 0}
+#app .mc-kind-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px}
+#app .mc-kind-choice{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:16px;border:1px solid rgba(190,150,220,.2);border-radius:14px;background:rgba(255,255,255,.025);color:#f3eaff;text-align:left;cursor:pointer}
+#app .mc-kind-choice>span{font-size:24px;color:#c998ff}
+#app .mc-kind-choice small{color:#aaa0b5}
+#app .mc-kind-choice.is-selected{border-color:#b879ef;background:rgba(142,70,190,.18);box-shadow:inset 0 0 0 1px rgba(190,130,239,.15)}
+#app .mc-create-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:end}
+#app .mc-create-grid .mc-full{grid-column:1/-1}
+#app .mc-create-button{grid-column:1/-1;width:100%}
+#app .mc-server-main{display:flex;min-width:0;flex-direction:column;gap:4px}
+#app .mc-server-row{gap:12px;align-items:center}
+#app .mc-server-row small{overflow-wrap:anywhere}
+#app .mc-mods-panel{padding:18px;background:linear-gradient(145deg,rgba(28,17,40,.96),rgba(10,8,15,.97))}
+#app .mc-mods-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+#app .mc-mods-toolbar .field{flex:1;min-width:0}
+#app .mc-mods-source{display:flex;flex-direction:column;gap:4px;align-items:flex-end;padding-bottom:7px}
+#app .mc-mods-source span{font-size:10px;letter-spacing:.14em;color:#a99ab7}
+#app .mc-mods-source b{font-size:14px;color:#d9b5ff}
+#app .mc-mods-context{margin:12px 0;color:#cdb8df;font-size:13px}
+#app .mc-mods-search{display:flex;gap:10px;margin:12px 0}
+#app .mc-mods-search input{flex:1;min-width:0}
+#app .mc-mods-selection{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0;padding:12px;border:1px solid rgba(190,150,220,.18);border-radius:12px;background:rgba(255,255,255,.025)}
+#app .mc-mods-selection span{font-size:13px;color:#d9c9e5}
+#app .mc-mods-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}
+#app .mc-mod-card{display:grid;grid-template-columns:54px minmax(0,1fr) auto;gap:12px;align-items:start;padding:14px;border:1px solid rgba(180,130,210,.18);border-radius:14px;background:rgba(255,255,255,.025)}
+#app .mc-mod-icon{width:54px;height:54px;border-radius:12px;object-fit:cover;background:#21162b}
+#app .mc-mod-placeholder{display:grid;place-items:center;font-size:25px;color:#bd8bea}
+#app .mc-mod-body{min-width:0;display:flex;flex-direction:column;gap:6px}
+#app .mc-mod-title{font-size:15px;font-weight:700;color:#f3eaff}
+#app .mc-mod-body p{margin:0;color:#b7aabd;font-size:12px;line-height:1.45}
+#app .mc-mod-body small{color:#a99bb1;font-size:11px}
+#app .mc-mod-body a{font-size:11px;color:#d3a8ff;text-decoration:none}
+#app .mc-mod-body a:hover{text-decoration:underline}
+#app .mc-mod-tags{display:flex;flex-wrap:wrap;gap:5px}
+#app .mc-mod-tag{padding:3px 7px;border-radius:999px;background:rgba(165,110,206,.13);color:#d5b2f1;font-size:10px}
+#app .mc-installed-heading{margin:15px 0 8px;font-size:12px;color:#cab0df;font-weight:700}
+#app .mc-installed-list{display:flex;flex-wrap:wrap;gap:7px}
+#app .mc-installed-list span{padding:6px 9px;border:1px solid rgba(180,130,210,.18);border-radius:9px;background:rgba(255,255,255,.03);font-size:11px;color:#ded0e9}
+#app .mc-installed-list small{color:#ab9cb7}
+#app .mc-mods-more-wrap{display:flex;justify-content:center;margin-top:16px}
+#app .mc-modrinth-credit{margin:10px 4px;color:#a89aad;font-size:11px}
+#app .mc-modrinth-credit a{color:#d3a8ff;text-decoration:none}
+@media(max-width:760px){
+ #app .mc-kind-grid{grid-template-columns:1fr}
+ #app .mc-create-grid{grid-template-columns:1fr}
+ #app .mc-create-grid .mc-full{grid-column:auto}
+ #app .mc-mods-toolbar{align-items:stretch;flex-direction:column}
+ #app .mc-mods-source{align-items:flex-start}
+ #app .mc-mods-search{flex-direction:column}
+ #app .mc-mods-grid{grid-template-columns:1fr}
+ #app .mc-mod-card{grid-template-columns:46px minmax(0,1fr)}
+ #app .mc-mod-icon{width:46px;height:46px}
+ #app .mc-mod-card>.btn{grid-column:2;justify-self:start}
+ #app .mc-mods-selection{align-items:flex-start;flex-direction:column}
+}
