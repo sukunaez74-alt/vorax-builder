@@ -297,7 +297,11 @@ async function resolveMinecraftMod(projectId,mcVersion,loader,ctx,dependencyOf=n
   });
   for(const dependency of (version.dependencies||[])){
     if(dependency.dependency_type!=="required")continue;
-    const requiredProject=dependency.project_id;
+    let requiredProject=dependency.project_id||null;
+    if(!requiredProject&&dependency.version_id){
+      const requiredVersion=await modrinthRequest("/version/"+encodeURIComponent(dependency.version_id));
+      requiredProject=requiredVersion.project_id||null;
+    }
     if(!requiredProject){
       if(dependency.file_name)throw new Error("O mod "+(project.title||projectId)+" exige uma dependência externa ("+dependency.file_name+"). Adicione-a manualmente.");
       continue;
