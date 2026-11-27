@@ -232,6 +232,10 @@ async function minecraftClientRequest(settings,env,path,method="GET",data=null) 
   }
   return parsed;
 }
+function minecraftJsonObject(value,fallback={}) {
+  if(typeof value==="string"){try{value=JSON.parse(value)}catch{return fallback}}
+  return value&&typeof value==="object"&&!Array.isArray(value)?value:fallback;
+}
 const MODRINTH_SERVER_ENVIRONMENTS=new Set(["client_and_server","server_only","server_only_client_optional","dedicated_server_only","client_or_server","client_or_server_prefers_both"]);
 const MODRINTH_LOADERS=new Set(["fabric","forge","neoforge","quilt"]);
 async function modrinthRequest(path) {
@@ -2846,7 +2850,7 @@ export async function onRequest(context) {
     if (path === "/admin/minecraft/config" && request.method === "GET") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;if(!ownerOnly(auth.user))return reply({error:"Acesso restrito ao administrador."},403);
       const [mail,mc]=await Promise.all([emailSenderSettings(env),minecraftSettings(env)]);
-      const loaderConfigs=mc?.loader_configs||{};
+      const loaderConfigs=minecraftJsonObject(mc?.loader_configs,{});
       return reply({emailConfigured:!!mail?.api_key_enc,fromEmail:mail?.from_email||"",minecraftConfigured:minecraftConfigReady(mc),
         panelUrl:mc?.panel_url||"",panelKeyConfigured:!!mc?.application_key_enc,clientApiKeyConfigured:!!mc?.client_api_key_enc,
         loaderConfigs,eggId:mc?.egg_id||"",allocationId:mc?.allocation_id||"",
@@ -2864,7 +2868,7 @@ export async function onRequest(context) {
       const clientApiKey=String(b.panelClientApiKey||"").trim();
       const eggId=Number(b.eggId||old?.egg_id||0),allocationId=Number(b.allocationId||old?.allocation_id||0);
       const memory=Number(b.memoryMb||old?.memory_mb||2048),disk=Number(b.diskMb||old?.disk_mb||10240),cpu=Number(b.cpuPercent||old?.cpu_percent||200),maxServers=Number(b.maxServersPerUser||old?.max_servers_per_user||1);
-      const loaderConfigs=b.loaderConfigs&&typeof b.loaderConfigs==="object"&&!Array.isArray(b.loaderConfigs)?b.loaderConfigs:(old?.loader_configs||{});
+      const loaderConfigs=minecraftJsonObject(b.loaderConfigs,minecraftJsonObject(old?.loader_configs,{}));
       if(mailKey||fromEmail){
         if(!/^.+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$|^[^<>\s]+@[^<>\s]+\.[^<>\s]+$/.test(fromEmail))return reply({error:"Informe um remetente válido, de preferência no formato Nome <email@seudominio.com>."},400);
         if(mailKey.length<20&&!(await emailSenderSettings(env))?.api_key_enc)return reply({error:"Informe a chave de API do Resend."},400);
@@ -2919,7 +2923,7 @@ export async function onRequest(context) {
     if (path === "/minecraft/status" && request.method === "GET") {
       const auth=await requireUser(request,env);if(auth.error)return auth.error;
       const mc=await minecraftSettings(env);
-      const configuredLoaderConfigs=mc?.loader_configs||{};
+      const configuredLoaderConfigs=minecraftJsonObject(mc?.loader_configs,{});
       const supportedLoaders=Object.entries(configuredLoaderConfigs).filter(([key,value])=>MODRINTH_LOADERS.has(key)&&Number(value?.eggId)>0).map(([key])=>key);
       let servers=await env.DB.prepare("SELECT id,name,version,server_type,mod_loader,installed_mods,state,allocation_ip,allocation_port,panel_server_id,panel_server_identifier,error_message,created_at,updated_at FROM minecraft_servers WHERE user_id=? ORDER BY created_at DESC LIMIT 30").bind(auth.user.id).all();
       let rows=Array.isArray(servers)?servers:(servers?.results||[]);
@@ -2935,10 +2939,11 @@ export async function onRequest(context) {
             const selected=allocations.find(entry=>entry.attributes?.is_default)?.attributes||allocations[0]?.attributes||remote.allocation||{};
             const ip=selected.ip||selected.alias||item.allocation_ip||null;
             const port=selected.port||item.allocation_port||null;
-            if(nextState!==item.state||ip!==item.allocation_ip||Number(port||0)!==Number(item.allocation_port||0)){
-              await env.DB.prepare("UPDATE minecraft_servers SET state=?,allocation_ip=?,allocation_port=?,updated_at=? WHERE id=? AND user_id=?")
-                .bind(nextState,ip,port,Date.now(),item.id,auth.user.id).run();
-              item.state=nextState;item.allocation_ip=ip;item.allocation_port=port;
+            const identifier=remote.identifier||remote.uuid||item.panel_server_identifier||null;
+            if(nextState!==item.state||ip!==item.allocation_ip||Number(port||0)!==Number(item.allocation_port||0)||identifier!==item.panel_server_identifier){
+              await env.DB.prepare("UPDATE minecraft_servers SET state=?,allocation_ip=?,allocation_port=?,panel_server_identifier=?,updated_at=? WHERE id=? AND user_id=?")
+                .bind(nextState,ip,port,identifier,Date.now(),item.id,auth.user.id).run();
+              item.state=nextState;item.allocation_ip=ip;item.allocation_port=port;item.panel_server_identifier=identifier;
             }
           }catch(error){
             // The creation record remains visible even while the remote panel is temporarily unavailable.
@@ -3034,7 +3039,7 @@ export async function onRequest(context) {
       if(!/^(latest|\d{1,2}(?:\.\d{1,2}){1,2})$/.test(version))return reply({error:"Escolha uma versão válida do Minecraft."},400);
       if(serverType==="modded"&&(!MODRINTH_LOADERS.has(loader)||version==="latest"))return reply({error:"Para servidor com mods, escolha Fabric, Forge, NeoForge ou Quilt e uma versão específica do Minecraft."},400);
       const mc=await minecraftSettings(env);if(!minecraftConfigReady(mc))return reply({code:"minecraft_not_configured",error:"A hospedagem Minecraft ainda está sendo preparada pelo administrador."},503);
-      const loaderConfigs=mc?.loader_configs||{};
+      const loaderConfigs=minecraftJsonObject(mc?.loader_configs,{});
       const loaderConfig=serverType==="modded"?loaderConfigs[loader]:null;
       if(serverType==="modded"&&(!loaderConfig||Number(loaderConfig.eggId)<1))return reply({code:"minecraft_loader_not_configured",error:"O ADM ainda não preparou a instalação de "+loader+" para servidores com mods."},503);
       const selectedConfig=loaderConfig||{};
