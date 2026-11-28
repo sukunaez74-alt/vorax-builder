@@ -668,7 +668,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 <div id="modalRoot"></div><div id="toastRoot"></div>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
-const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,bulkSelected:[],adminPortal:false,verificationAdmin:null,companionHosting:null,companionBotId:null,view:"overview",minecraftSelectedMods:{},minecraftModResults:[],minecraftModOffset:0,minecraftModServerId:null,minecraftServers:[],modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,hostingCanCreate:false,logs:[]};
+const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,bulkSelected:[],adminPortal:false,verificationAdmin:null,companionHosting:null,companionBotId:null,companionLogs:null,view:"overview",minecraftSelectedMods:{},minecraftModResults:[],minecraftModOffset:0,minecraftModServerId:null,minecraftServers:[],modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,hostingCanCreate:false,logs:[]};
 const moduleNames={music:"Música",tickets:"Tickets",attendance:"Bate-ponto",team:"Equipe e cargos",goals:"Metas e ranking",warnings:"Advertências",recruitment:"Recrutamento",logs:"Logs"};
 function bzIcon(name,extraClass=""){const safe=["fox","bot","crystal","cat","rocket","shield"].includes(name)?name:"bot";return '<svg class="bz-emoji '+extraClass+'" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-'+safe+'"></use></svg>'}
 function displayErrorText(value,depth=0){
@@ -1438,28 +1438,62 @@ async function loadSettingsHostingState(){
 
 async function runCompanionPower(action){
  const bot=state.bots.find(item=>item.name==="Segunda bot"&&item.projectType==="custom");
- if(!bot?.id)return toast("A segunda bot ainda não tem um projeto criado.");
- if(!bot.providerAppId&&!bot.hostingDeploymentId)return toast("A hospedagem gratuita da segunda bot ainda não foi vinculada. Envie o ZIP primeiro; assim o Estúdio não tenta criar outro servidor.");
- if(action==="stop"&&!window.confirm("Deseja parar somente a segunda bot? O CAOS continuará funcionando normalmente."))return;
- const buttons=["#companionStartButton","#companionStopButton","#companionUpdateButton","#companionRefreshButton"].map(selector=>$(selector)).filter(Boolean);
+ if(!bot?.id)return toast("A Segunda bot ainda não tem um projeto criado.");
+ if(!bot.providerAppId&&!bot.hostingDeploymentId)return toast("A hospedagem da Segunda bot ainda não foi vinculada. Envie o ZIP primeiro.");
+ const labels={start:"iniciar",stop:"parar",restart:"reiniciar"},verb=labels[action]||"controlar";
+ if(action==="stop"&&!window.confirm("Deseja parar somente a Segunda bot? O CAOS continuará funcionando normalmente."))return;
+ if(action==="restart"&&!window.confirm("Deseja reiniciar somente a Segunda bot? O CAOS continuará funcionando normalmente."))return;
+ const buttons=["#companionStartButton","#companionStopButton","#companionRestartButton","#companionUpdateButton","#companionRefreshButton","#companionLogsRefreshButton"].map(selector=>$(selector)).filter(Boolean);
  buttons.forEach(button=>button.disabled=true);
  const status=$("#companionRuntimeInfo");
- if(status)status.innerHTML="<strong>"+(action==="stop"?"Enviando comando para parar a segunda bot…":"Enviando comando para iniciar a segunda bot…")+"</strong><small>Somente o projeto da segunda bot será controlado.</small>";
+ if(status)status.innerHTML="<strong>Enviando comando para "+verb+" a Segunda bot…</strong><small>Somente este projeto será controlado. O CAOS não será alterado.</small>";
  try{
   const result=await api("/bots/"+encodeURIComponent(bot.id)+"/power",{method:"POST",body:JSON.stringify({action})});
   if(result?.ok===false)throw new Error(result.error||"A hospedagem não confirmou a operação.");
-  toast(result.message||result.hint||(action==="stop"?"Comando de parada enviado à segunda bot.":"Comando de início enviado à segunda bot."));
+  toast(result.message||result.hint||("Comando para "+verb+" a Segunda bot enviado."));
   await loadVerificationBotAdmin();
  }catch(error){
-  toast(error.message||"Não consegui controlar a segunda bot.");
-  if(status)status.innerHTML="<strong>"+escapeHtml(error.message||"Falha ao controlar a segunda bot.")+"</strong><small>O CAOS não foi alterado.</small>";
+  toast(error.message||"Não consegui controlar a Segunda bot.");
+  if(status)status.innerHTML="<strong>"+escapeHtml(error.message||"Falha ao controlar a Segunda bot.")+"</strong><small>O CAOS não foi alterado.</small>";
   await loadVerificationBotAdmin();
  }finally{
   buttons.forEach(button=>{if(button.isConnected)button.disabled=false;});
  }
 }
 
-async function loadVerificationBotAdmin(){
+async function loadCompanionLogs(options={}){
+ const quiet=options.quiet===true;
+ const bot=state.bots.find(item=>item.name==="Segunda bot"&&item.projectType==="custom");
+ const area=$("#companionLogsArea"),meta=$("#companionLogsMeta"),button=$("#companionLogsRefreshButton");
+ if(!bot?.id){
+  state.companionLogs={lines:[],note:"A Segunda bot ainda não foi criada.",updatedAt:Date.now()};
+  if(area)area.innerHTML='<div class="companion-log-empty">A Segunda bot ainda não foi criada.</div>';
+  if(meta)meta.textContent="Aguardando projeto";
+  return;
+ }
+ if(area)area.innerHTML='<div class="companion-log-empty"><span class="companion-log-pulse"></span> Buscando saída recente do processo…</div>';
+ if(meta)meta.textContent="Consultando a hospedagem";
+ if(button)button.disabled=true;
+ try{
+  const result=await api("/bots/"+encodeURIComponent(bot.id)+"/logs");
+  const raw=Array.isArray(result.lines)?result.lines:(Array.isArray(result.logs)?result.logs:(typeof result.logs==="string"?result.logs.split(/\r?\n/):(typeof result.raw==="string"?result.raw.split(/\r?\n/):[])));
+  const lines=raw.map(line=>typeof line==="string"?line:displayErrorText(line)).filter(Boolean).slice(-160);
+  const note=String(result.note||"");
+  state.companionLogs={lines,note,provider:result.provider||bot.hostingProvider||null,updatedAt:Date.now()};
+  if(meta)meta.textContent=(state.companionLogs.provider?String(state.companionLogs.provider).toUpperCase()+" · ":"")+"Atualizado às "+new Date(state.companionLogs.updatedAt).toLocaleTimeString("pt-BR");
+  if(area){
+   if(lines.length)area.innerHTML='<pre class="companion-log-output">'+lines.map(line=>escapeHtml(line)).join("\n")+'</pre>';
+   else area.innerHTML='<div class="companion-log-empty">'+escapeHtml(note||"A hospedagem não retornou linhas recentes. Reproduza o erro e atualize novamente.")+'</div>';
+  }
+ }catch(error){
+  state.companionLogs={lines:[],error:error.message||"Não consegui consultar os logs.",updatedAt:Date.now()};
+  if(meta)meta.textContent="Falha ao consultar";
+  if(area)area.innerHTML='<div class="companion-log-error">'+escapeHtml(error.message||"Não consegui consultar os logs.")+'</div>';
+  if(!quiet)toast(error.message||"Não consegui consultar os logs da Segunda bot.");
+ }finally{if(button&&button.isConnected)button.disabled=false;}
+}
+
+async function loadVerificationBotAdmin(){async function loadVerificationBotAdmin(){
  const [caosResult,hostingResult,botsResult]=await Promise.allSettled([
   api("/admin/caos/status"),
   api("/hosting/pool/status"),
@@ -1474,7 +1508,10 @@ async function loadVerificationBotAdmin(){
   const companion=state.bots.find(bot=>bot.name==="Segunda bot"&&bot.projectType==="custom");
   state.companionBotId=companion?.id||null;
  }
- if(state.view==="verificationAdmin"&&state.adminPortal)render();
+ if(state.view==="verificationAdmin"&&state.adminPortal){
+  render();
+  await loadCompanionLogs({quiet:true});
+ }
  if(state.verificationAdmin?.loadError)toast(state.verificationAdmin.loadError);
 }
 function verificationAdminView(){
@@ -1519,10 +1556,11 @@ function verificationAdminView(){
  '<div class="companion-hero"><div class="companion-emblem">☾</div><div class="companion-heading"><span class="companion-eyebrow">CONTROLE INDEPENDENTE</span><h3>Segunda bot</h3><p>Um painel próprio para sua segunda bot, sem misturar os comandos do CAOS.</p></div><span id="companionStatusBadge" class="status '+(companionIsOnline?"":"off")+'">'+companionStatus+'</span></div>'+
  '<div class="companion-meta"><span>HOSPEDAGEM<strong>'+escapeHtml(companionProviderName)+'</strong></span><span>LINGUAGEM<strong>'+companionRuntime+'</strong></span><span>DISCORD<strong>'+(companion?.hasDiscordToken?"TOKEN PROTEGIDO":"TOKEN PENDENTE")+'</strong></span></div>'+
  '<div class="companion-controls">'+
- '<button class="btn companion-start" id="companionStartButton" '+(!companionHasServer||companionIsOnline||companionIsStarting?"disabled":"")+'><span>▶</span> Iniciar</button>'+
- '<button class="btn danger companion-stop" id="companionStopButton" '+(!companionHasServer||["stopped","offline","terminated"].includes(companionStateValue)?"disabled":"")+'><span>■</span> Parar</button>'+
- '<button class="btn secondary companion-update" id="companionUpdateButton" '+(!companion?.hasDiscordToken?"disabled":"")+'><span>↻</span> Atualizar</button>'+
- '<button class="btn secondary companion-refresh" id="companionRefreshButton"><span>⟳</span> Recarregar</button></div>'+
+ '<button class="btn companion-start" id="companionStartButton" '+(!companionHasServer||companionIsOnline||companionIsStarting?"disabled":"")+' title="Iniciar somente a Segunda bot"><span>▶</span> '+(companionIsOnline?"Já está ligada":companionIsStarting?"Iniciando…":"Iniciar")+'</button>'+
+ '<button class="btn danger companion-stop" id="companionStopButton" '+(!companionHasServer||["stopped","offline","terminated"].includes(companionStateValue)?"disabled":"")+' title="Parar somente a Segunda bot"><span>■</span> Parar</button>'+
+ '<button class="btn secondary companion-restart" id="companionRestartButton" '+(!companionHasServer?"disabled":"")+' title="Reiniciar somente a Segunda bot"><span>⟳</span> Reiniciar</button>'+
+ '<button class="btn secondary companion-update" id="companionUpdateButton" '+(!companion?.hasDiscordToken?"disabled":"")+'><span>↻</span> Atualizar ZIP</button>'+
+ '<button class="btn secondary companion-refresh" id="companionRefreshButton"><span>⌕</span> Recarregar painel</button></div>'+
  '<div class="companion-live-note" id="companionRuntimeInfo"><strong>'+(companionIsOnline?"A segunda bot está marcada como online.":companionIsStarting?"A hospedagem está preparando ou iniciando a segunda bot.":companionHasServer?"Servidor criado. Use Iniciar para ligar a bot.":companion?.hasDiscordToken?"Token protegido. Falta concluir a publicação do ZIP numa vaga gratuita.":"Configure o token do Discord e envie o ZIP para criar a segunda bot.")+'</strong><small>'+escapeHtml(companionProviderName)+' · '+(companionHasServer?"ID vinculado: "+String(companion?.providerAppId||companion?.hostingDeploymentId):"O CAOS permanece separado e não será alterado.")+'</small></div>'+
  '<div class="companion-setup"><div class="companion-setup-title"><span>CONFIGURAÇÃO E ARQUIVOS</span><small>Token + ZIP</small></div>'+
  '<p class="muted small">Hospedagem preparada: Discloud Free, usando a conexão que já está salva no Estúdio. Cole o token e escolha o ZIP; a vaga gratuita será conferida automaticamente. Não precisa cadastrar outra API e nenhum plano pago será iniciado.</p>'+
@@ -1533,6 +1571,7 @@ function verificationAdminView(){
  '<div style="grid-column:1/-1"><button class="btn" id="companionDeployButton" type="submit">'+(companionHasServer?"⇧ Enviar ZIP manualmente":"▶ Instalar segunda bot")+'</button></div></form>'+
  '<div id="companionDeployStatus" class="companion-live-note" style="margin-top:12px">'+(companionHasServer?"A bot já tem hospedagem. O botão Atualizar permite enviar uma nova versão do ZIP.":(companion?.hasDiscordToken?"O token já está salvo e protegido. Selecione o ZIP para concluir a instalação.":"O token será validado e protegido antes do envio do ZIP."))+'</div>'+
  '</div></section>'+
+ '<section class="dashboard-panel companion-logs-panel"><div class="dashboard-panel-head"><div><small>SAÍDA DO PROCESSO</small><h2>Logs da Segunda bot</h2><p class="muted small">Consulte os erros de inicialização e a resposta do Discord sem sair do ADM.</p></div><div class="companion-log-actions"><span id="companionLogsMeta" class="small-muted">Aguardando consulta</span><button class="btn secondary" id="companionLogsRefreshButton"><span>↻</span> Atualizar logs</button><button class="btn ghost" id="companionLogsCopyButton">Copiar</button></div></div><div class="companion-terminal"><div class="companion-terminal-top"><span class="companion-terminal-lights"><i></i><i></i><i></i></span><span>BLACK ZONE · SEGUNDA BOT</span><span class="companion-terminal-live">ÚLTIMAS LINHAS</span></div><div id="companionLogsArea" class="companion-terminal-content"><div class="companion-log-empty">Os logs serão consultados quando a Segunda bot estiver vinculada a uma hospedagem.</div></div></div><div class="companion-log-footnote">Se o provedor só disponibilizar console por WebSocket, o painel avisará em vez de mostrar uma saída vazia. Os logs do CAOS permanecem separados.</div></section>'+
  '<section class="card" style="margin-bottom:16px"><div class="section-head"><h3>Estado do CAOS</h3><span id="verificationStatusBadge" class="status'+(live?"":" off")+'">'+escapeHtml(status)+'</span></div>'+
  '<div class="project-note" id="verificationRuntimeInfo"><strong>'+(r.botName?escapeHtml(r.botName):"Bot CAOS")+'</strong><br>'+escapeHtml(note)+
  (r.runtime?.deploymentId?'<br>ID da hospedagem: <b>'+escapeHtml(r.runtime.deploymentId)+'</b>':"")+
@@ -2078,6 +2117,17 @@ const keritForm=$("#keritConnectForm");
  if(companionStartButton)companionStartButton.onclick=()=>runCompanionPower("start");
  const companionStopButton=$("#companionStopButton");
  if(companionStopButton)companionStopButton.onclick=()=>runCompanionPower("stop");
+ const companionRestartButton=$("#companionRestartButton");
+ if(companionRestartButton)companionRestartButton.onclick=()=>runCompanionPower("restart");
+ const companionLogsRefreshButton=$("#companionLogsRefreshButton");
+ if(companionLogsRefreshButton)companionLogsRefreshButton.onclick=()=>loadCompanionLogs();
+ const companionLogsCopyButton=$("#companionLogsCopyButton");
+ if(companionLogsCopyButton)companionLogsCopyButton.onclick=async()=>{
+  const lines=state.companionLogs?.lines||[];
+  if(!lines.length)return toast("Ainda não há linhas de log para copiar.");
+  try{await navigator.clipboard.writeText(lines.join("\n"));toast("Logs da Segunda bot copiados.");}
+  catch{toast("O navegador não permitiu copiar. Selecione o texto no console.");}
+ };
  const companionRefreshButton=$("#companionRefreshButton");
  if(companionRefreshButton)companionRefreshButton.onclick=loadVerificationBotAdmin;
  const companionUpdateButton=$("#companionUpdateButton");
