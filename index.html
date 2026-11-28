@@ -1202,6 +1202,7 @@ function overviewView(){
    '<article><span class="bz-stat-icon">✧</span><div><small>MÓDULOS ATIVOS</small><strong>'+activeModules+'</strong><em>'+(current?escapeHtml(current.name):"Nenhum bot selecionado")+'</em></div></article>'+
    '<article><span class="bz-stat-icon">⬡</span><div><small>HOSPEDAGEM</small><strong class="bz-stat-status">'+(state.hosting?"Conectada":"Pendente")+'</strong><em>'+(state.hosting?"Acesso autorizado":"Conecte uma hospedagem")+'</em></div></article>'+
   '</div>'+
+  '<section class="bz-system-status '+(current?.discordOnline?'is-online':'is-pending')+'"><div class="bz-system-status-main"><span class="bz-system-status-icon">⌁</span><div><b>Todos os módulos sob seu controle</b><small>Ative ou desative recursos; os comandos selecionados são publicados no Discord quando o bot inicia ou atualiza.</small></div></div><div class="bz-system-status-state"><i></i><span>STATUS DO BOT</span><strong>'+(current?.discordOnline?'ONLINE':(current?'AGUARDANDO INÍCIO':'PRONTO PARA CRIAR'))+'</strong></div></section>'+
   '<div class="bz-cyber-layout"><main class="bz-cyber-main">'+
    '<section class="bz-cyber-panel"><div class="bz-cyber-panel-head"><div><small>RECURSOS DO BOT</small><h2>Escolha o que seu bot vai fazer</h2><p>Os interruptores da configuração controlam os comandos que serão publicados no Discord.</p></div><button class="btn" data-action="create-bot">Criar bot pronto ↗</button></div>'+
     '<div class="bz-feature-grid">'+cardHtml+'</div></section>'+
@@ -2421,13 +2422,13 @@ function createReadyBotModal(){
  const moduleCards=Object.entries(descriptions).map(([key,item])=>'<label class="bz-ready-module"><span class="bz-ready-module-icon">'+({"tickets":"▣","music":"♫","attendance":"◷","goals":"✧","warnings":"⚑","recruitment":"♙","orders":"◇","partnerships":"♧","requests":"➤","rules_discord":"◈","rules_rp":"⚔","rules_team":"♜","team":"♙","logs":"≋","ai":"✦","horror":"☾"}[key])+'</span><span class="bz-ready-module-copy"><b>'+item[0]+'</b><small>'+item[2]+'</small><em>'+item[1]+'</em></span><input type="checkbox" class="toggle" data-ready-module="'+key+'" '+(defaults[key]?"checked":"")+'></label>').join("");
  openModal(
   '<div class="modal-head"><h3>♛ Configurar bot pronto</h3><button class="close" id="closeModal" aria-label="Fechar">×</button></div>'+
-  '<div class="bz-onboarding-head">'+bzIcon("bot")+'<div><div class="bz-onboarding-title">Escolha os recursos</div><div class="bz-onboarding-subtitle">Os módulos ligados publicam os comandos correspondentes no Discord.</div></div></div>'+
+  '<div class="bz-onboarding-head">'+bzIcon("bot")+'<div><div class="bz-onboarding-title">Escolha os recursos</div><div class="bz-onboarding-subtitle">Escolha os recursos que serão instalados com comandos reais do Discord; você pode alterar isso depois.</div></div></div>'+
   '<form id="createReadyBotForm">'+
    '<div class="field"><label>NOME DO BOT</label><input name="name" value="Meu bot" maxlength="48" minlength="2" required></div>'+
    '<div class="field"><label>BOT TOKEN DO DISCORD</label><input name="discordToken" type="password" required autocomplete="new-password" spellcheck="false" minlength="30" maxlength="512" placeholder="Cole o Bot Token do seu aplicativo Discord"></div>'+
    '<div class="bz-ready-module-actions"><b>MÓDULOS DISPONÍVEIS</b><span><button type="button" class="text-action" id="readySelectAll">Ativar todos</button> · <button type="button" class="text-action" id="readySelectNone">Desativar todos</button></span></div>'+
    '<div class="bz-ready-modules-grid">'+moduleCards+'</div>'+
-   '<div class="project-note" style="margin-top:14px"><strong>Comandos reais, não apenas botões decorativos.</strong><br>Ao salvar, o Estúdio registra os módulos. Quando o bot iniciar, os comandos selecionados serão sincronizados no Discord. Música instala as dependências de voz e áudio do modelo.</div>'+
+   '<div class="project-note" style="margin-top:14px"><strong>Comandos reais, não apenas botões decorativos.</strong><br>A seleção fica salva neste projeto. Ao iniciar o bot, o Estúdio sincroniza os comandos selecionados no Discord; nas instalações já ativas, aplica as alterações e solicita a reinicialização. Música inclui os componentes de voz e áudio do modelo.</div>'+
    '<div id="readyBotProgress" class="project-note" style="margin-top:10px">Pronto para validar o token e criar seu bot.</div>'+
    '<button class="btn wide" id="createReadyBotSubmit" type="submit">Criar bot pronto ↗</button>'+
   '</form>'
