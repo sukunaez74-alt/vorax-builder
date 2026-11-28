@@ -643,12 +643,10 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
    <button class="nav-btn" data-view="minecraftMods"><span>✦</span> Mods de Minecraft</button>
    <button class="nav-btn owner-only hidden" data-view="minecraftAdmin"><span>⚙</span> Minecraft · ADM</button>
   </div>
-  <div class="nav-group"><div class="nav-title caps">Roblox</div>
-   <button class="nav-btn" type="button" disabled><span>◈</span> Área independente · em breve</button>
-  </div>
   <div class="nav-group"><div class="nav-title caps">Discord · gerenciamento</div>
    <button class="nav-btn" data-view="backups"><span>▣</span> Backups</button>
    <button class="nav-btn" data-view="templates"><span>▧</span> Modelos</button>
+   <button class="nav-btn" data-view="integrations"><span>◉</span> Hospedagens alternativas</button>
   </div>
   <div class="nav-group"><div class="nav-title caps">Discord · sistema</div>
    <button class="nav-btn" data-view="overview"><span>◫</span> Estatísticas</button>
@@ -771,6 +769,7 @@ document.addEventListener("click",async e=>{
   const name=modal.dataset.name||"",version=modal.dataset.version||"1.21.11";
   const serverType=modal.dataset.serverType||"vanilla",loader=modal.dataset.loader||"";
   button.disabled=true;button.textContent="Criando conta e servidor…";
+  if(note){note.className="notice";note.classList.remove("hidden");note.textContent="Um momento: estamos preparando sua conta individual e solicitando a criação do servidor na infraestrutura Minecraft do Estúdio. Não feche esta janela."}
   try{
    const result=await api("/minecraft/create",{method:"POST",body:JSON.stringify({name,version,serverType,loader,consent:true})});
    modal.classList.add("hidden");
@@ -937,7 +936,7 @@ function minecraftView(){
  '<div class="mc-consent hidden" id="minecraftConsent" role="dialog" aria-modal="true" aria-labelledby="mcConsentTitle"><div class="mc-consent-card"><div class="mc-kicker">CONFIRMAÇÃO NECESSÁRIA</div><h2 id="mcConsentTitle">Vamos criar sua conta Minecraft?</h2><p>Ao continuar, você autoriza o BLACK ZONE Estúdio a criar uma conta individual no painel Minecraft usando seu nome e o e-mail que você confirmou.</p><p>Também será solicitado um servidor do tipo escolhido, com a versão e o loader exibidos. A conta de jogo não tem privilégios administrativos e não se mistura com sua conta Discord.</p><p>Não vamos acessar sua caixa de e-mail nem pedir sua senha de outros serviços.</p><div class="mc-actions"><button class="btn secondary" type="button" data-minecraft-action="cancel-consent">Cancelar</button><button class="btn" type="button" data-minecraft-action="confirm-create">Continuar e criar conta</button></div><div id="minecraftCreateNotice" class="notice hidden"></div></div></div>';
 }
 function minecraftAdminView(){
- return pageHead("Minecraft · Administração","Configuração privada dos servidores Minecraft, loaders, catálogo de mods e envio de e-mails.")+
+ return pageHead("Minecraft · Administração","Configuração privada dos servidores Minecraft, loaders, catálogo de mods e envio de e-mails.",'<button class="btn secondary" data-view="verificationAdmin">← Voltar para CAOS · ADM</button>')+
  '<section class="dashboard-panel mc-admin-panel"><div class="dashboard-panel-head"><div><small>CONFIGURAÇÃO PRIVADA</small><h2>Verificação por e-mail</h2></div><span class="status">ADM</span></div>'+
  '<form id="mcAdminConfigForm" class="mc-admin-grid">'+
  '<label class="field"><span>CHAVE DE API RESEND</span><input type="password" name="resendApiKey" autocomplete="new-password" placeholder="re_..."></label>'+
@@ -1003,7 +1002,7 @@ async function loadMinecraftStatus(){
    const chosen=versionSelect.value;
    try{
     const versionData=await api("/minecraft/versions");
-    const releases=(versionData.versions||[]).filter(value=>/^1\./.test(value)).slice(0,30);
+    const releases=(versionData.versions||[]).filter(value=>/^\d+\.\d+(?:\.\d+)*$/.test(value)).slice(0,30);
     if(releases.length)versionSelect.innerHTML=releases.map(value=>'<option value="'+escapeHtml(value)+'">'+escapeHtml(value)+'</option>').join("");
     if(releases.includes(chosen))versionSelect.value=chosen;
    }catch{}
@@ -1586,7 +1585,7 @@ function verificationAdminView(){
   ? (companionProviderLabels[String(companion?.hostingProvider||"").toLowerCase()]||String(companion?.hostingProvider||"Hospedagem vinculada"))
   : (savedDiscloud?"Discloud Free · conta já conectada":"Hospedagem gratuita aguardando");
  const companionRuntime=String(companion?.runtime||"python").toLowerCase()==="nodejs"?"Node.js":"Python";
- return pageHead("CAOS · ADM","Controle o CAOS e instale a segunda bot usando somente o token Discord e o ZIP.")+
+ return pageHead("CAOS · ADM","Controle o CAOS e instale a segunda bot usando somente o token Discord e o ZIP.",'<button class="btn secondary" data-view="minecraftAdmin">Minecraft · ADM ↗</button>')+
  (r.loadError?'<div class="notice error" style="margin-bottom:14px">'+escapeHtml(r.loadError)+'</div>':"")+
  '<section class="card companion-console" style="margin-bottom:16px">'+
  '<div class="companion-hero"><div class="companion-emblem">☾</div><div class="companion-heading"><span class="companion-eyebrow">CONTROLE INDEPENDENTE</span><h3>Segunda bot</h3><p>Um painel próprio para sua segunda bot, sem misturar os comandos do CAOS.</p></div><span id="companionStatusBadge" class="status '+(companionIsOnline?"":"off")+'">'+companionStatus+'</span></div>'+
