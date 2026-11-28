@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import JSZip from "jszip";
 import { CAOS_MAIN_PY } from "./caos-main.js";
+import { BOT_PRONTO_MAIN_PY, BOT_PRONTO_REQUIREMENTS } from "./bot-pronto-main.js";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
 const HOST = "https://bot-hosting.net/api/v1";
@@ -1171,10 +1172,57 @@ finally:
 `;
 }
 
-async function caosBundleVersion() {
-  const payload = CAOS_MAIN_PY + "\n" + CAOS_REQUIREMENTS + "\n" + runnerTemplate();
+async function caosBundleVersion(mainSource = CAOS_MAIN_PY, requirements = CAOS_REQUIREMENTS) {
+  const payload = mainSource + "\n" + requirements + "\n" + runnerTemplate();
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload));
   return b64(digest);
+}
+
+const BOT_PRONTO_PANEL_ASSETS = [
+  "ticket.jpg", "point.jpg", "goals.jpg", "recruitment.jpg",
+  "rules_discord.jpg", "rules_team.jpg", "rules_rp.jpg",
+  "orders.jpg", "partnerships.jpg", "requests.jpg", "music.jpg"
+];
+const BOT_PRONTO_ASSET_BASE = "https://black-zone-estudio.vercel.app/bot-pronto-assets/panels/";
+
+async function fetchBotProntoAsset(name) {
+  const response = await fetch(BOT_PRONTO_ASSET_BASE + encodeURIComponent(name), {
+    cache: "no-store",
+    signal: AbortSignal.timeout(20000)
+  });
+  if (!response.ok) throw new Error("Não consegui carregar a arte " + name + " do Bot Pronto (HTTP " + response.status + ").");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength < 10000 || bytes.byteLength > 500000) {
+    throw new Error("A arte " + name + " chegou com tamanho inesperado.");
+  }
+  return bytes;
+}
+
+async function uploadBotProntoAssets(userId, env, deploymentId) {
+  const upload = await hostRequest(
+    userId, env,
+    "/deployments/" + encodeURIComponent(deploymentId) + "/files/upload-url",
+    "POST",
+    { path: "/assets/panels" }
+  );
+  const signedUrl = String(upload.url || upload.data?.url || "");
+  const field = String(upload.field || upload.data?.field || "files");
+  if (!signedUrl) throw new Error("O Bot-Hosting não forneceu o endereço temporário para enviar as artes azuis.");
+  const form = new FormData();
+  for (const name of BOT_PRONTO_PANEL_ASSETS) {
+    const bytes = await fetchBotProntoAsset(name);
+    form.append(field, new Blob([bytes], { type: "image/jpeg" }), name);
+  }
+  const response = await fetch(signedUrl, {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(60000)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.ok === false) {
+    throw new Error("O upload das artes azuis falhou no Bot-Hosting: " + String(result.error || result.message || response.status));
+  }
+  return result;
 }
 
 async function setHostEnv(userId, env, deploymentId, key, value, secret = false) {
@@ -1191,8 +1239,14 @@ async function ensureBotDeployment(bot, userId, env) {
   if (projectType === "standard" && bot.runtime !== "python") {
     throw new Error("O bot padrão do Estúdio utiliza Python 3.11.");
   }
-  if (projectType === "standard" && (!CAOS_MAIN_PY || CAOS_MAIN_PY.length < 10000)) {
-    throw new Error("O bot padrão não foi incluído nesta publicação. Atualize o painel e tente novamente.");
+  const modules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
+  const isBotPronto = modules.template_pronto === true;
+  const mainSource = isBotPronto ? BOT_PRONTO_MAIN_PY : CAOS_MAIN_PY;
+  const requirementsSource = isBotPronto ? BOT_PRONTO_REQUIREMENTS : CAOS_REQUIREMENTS;
+  const runtimeModules = { ...modules };
+  delete runtimeModules.template_pronto;
+  if (projectType === "standard" && (!mainSource || mainSource.length < 10000 || !requirementsSource)) {
+    throw new Error(isBotPronto ? "O modelo Bot Pronto não foi incluído nesta publicação. Atualize o Estúdio e tente novamente." : "O bot inicial não foi incluído nesta publicação. Atualize o painel e tente novamente.");
   }
   let token = null;
   if (bot.discord_token_enc) {
@@ -1215,15 +1269,16 @@ async function ensureBotDeployment(bot, userId, env) {
     }
   }
 
-  const modules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
   let deploymentId = bot.hosting_deployment_id || null;
   const isNewDeployment = !deploymentId;
 
   if (isNewDeployment) {
     const hosting = await env.DB.prepare("SELECT scope FROM hosting_connections WHERE user_id=?").bind(userId).first();
     const granted = String(hosting?.scope || "").split(/\s+/);
-    if (!granted.includes("deployments:write") || !granted.includes("credits:spend")) {
-      throw new Error("A hospedagem desta conta não recebeu as permissões deployments:write e credits:spend. Reconecte o Bot-Hosting em Configurações e autorize a criação de servidores.");
+    if (!granted.includes("deployments:write") || !granted.includes("credits:spend") || (isBotPronto && !granted.includes("files:write"))) {
+      throw new Error(isBotPronto
+        ? "A conexão Bot-Hosting precisa das permissões deployments:write, credits:spend e files:write para instalar o modelo e as artes azuis. Reconecte a hospedagem em Configurações e autorize esses escopos."
+        : "A hospedagem desta conta não recebeu as permissões deployments:write e credits:spend. Reconecte o Bot-Hosting em Configurações e autorize a criação de servidores.");
     }
     const safeName = ("black-zone-" + String(bot.name || "caos").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) + "-" + String(bot.id).slice(0, 5)).replace(/-+/g, "-");
     const deployRuntime = projectType === "custom" ? (customProject.runtime === "nodejs" ? "nodejs" : "python") : "python";
@@ -1262,7 +1317,7 @@ async function ensureBotDeployment(bot, userId, env) {
 
   // Só reenviamos o pacote CAOS quando a versão instalada mudou.
   // Isso evita baixar e reinstalar as mesmas dependências a cada clique em Iniciar.
-  const bundleVersion = await caosBundleVersion();
+  const bundleVersion = await caosBundleVersion(mainSource, requirementsSource);
   let installedVersion = "";
   if (!isNewDeployment) {
     try {
@@ -1279,8 +1334,8 @@ async function ensureBotDeployment(bot, userId, env) {
   if (isNewDeployment || installedVersion !== bundleVersion) {
     const writeResult = await hostRequest(userId, env, "/deployments/" + encodeURIComponent(deploymentId) + "/files/writeMany", "POST", {
       files: [
-        { path: "/main.py", content: CAOS_MAIN_PY, mode: "overwrite" },
-        { path: "/requirements.txt", content: CAOS_REQUIREMENTS, mode: "overwrite" },
+        { path: "/main.py", content: mainSource, mode: "overwrite" },
+        { path: "/requirements.txt", content: requirementsSource, mode: "overwrite" },
         { path: "/runner.py", content: runnerTemplate(), mode: "overwrite" },
         { path: "/caos-version.txt", content: bundleVersion, mode: "overwrite" }
       ]
@@ -1291,12 +1346,13 @@ async function ensureBotDeployment(bot, userId, env) {
         const reason = externalErrorText(item?.reason ?? item?.error ?? item?.message ?? item);
         return filePath + " — " + (reason || "falha sem detalhes");
       }).join("; ");
-      throw new Error("Não consegui enviar todos os arquivos do CAOS: " + failures);
+      throw new Error("Não consegui enviar todos os arquivos do bot: " + failures);
     }
+    if (isBotPronto) await uploadBotProntoAssets(userId, env, deploymentId);
   }
 
   await setHostEnv(userId, env, deploymentId, "DISCORD_TOKEN", token, true);
-  await setHostEnv(userId, env, deploymentId, "CAOS_MODULES", JSON.stringify(modules), false);
+  await setHostEnv(userId, env, deploymentId, "CAOS_MODULES", JSON.stringify(runtimeModules), false);
   await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_ENABLED", "0", false);
   await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_START", "00:00", false);
   await setHostEnv(userId, env, deploymentId, "CAOS_SCHEDULE_END", "23:59", false);
@@ -4295,7 +4351,7 @@ export async function onRequest(context) {
       }
 
       const ownedBot = await env.DB.prepare(
-        "SELECT id,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,hosting_provider,project_type,custom_project FROM bots WHERE id=? AND user_id=?"
+        "SELECT id,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,hosting_provider,project_type,custom_project,modules FROM bots WHERE id=? AND user_id=?"
       ).bind(id, user.id).first();
       if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
 
@@ -4318,10 +4374,12 @@ export async function onRequest(context) {
       // para que Regras da Equipe, Ponto e Advertências possam ser controlados individualmente.
       const allowed = [
         "music","tickets","attendance","team","goals","warnings","recruitment","logs",
-        "ai","requests","orders","partnerships","rules_discord","rules_rp","rules_team","horror"
+        "ai","requests","orders","partnerships","rules_discord","rules_rp","rules_team","horror","copy"
       ];
       const modules = {};
       for (const key of allowed) modules[key] = !!(b.modules && b.modules[key]);
+      const previousModules = typeof ownedBot.modules === "string" ? JSON.parse(ownedBot.modules || "{}") : (ownedBot.modules || {});
+      modules.template_pronto = previousModules.template_pronto === true;
       await env.DB.prepare(
         "UPDATE bots SET modules=?::jsonb,updated_at=? WHERE id=? AND user_id=?"
       ).bind(JSON.stringify(modules), Date.now(), id, user.id).run();
@@ -4352,7 +4410,7 @@ export async function onRequest(context) {
         try {
           await setHostEnv(
             user.id, env, ownedBot.hosting_deployment_id,
-            "CAOS_MODULES", JSON.stringify(modules), false
+            "CAOS_MODULES", JSON.stringify(Object.fromEntries(Object.entries(modules).filter(([key]) => key !== "template_pronto"))), false
           );
           let applied = await hostRequest(
             user.id, env,
@@ -4523,10 +4581,11 @@ export async function onRequest(context) {
 
       const allowedModules = [
         "music","tickets","attendance","team","goals","warnings","recruitment","logs",
-        "ai","requests","orders","partnerships","rules_discord","rules_rp","rules_team","horror"
+        "ai","requests","orders","partnerships","rules_discord","rules_rp","rules_team","horror","copy"
       ];
       const modules = {};
       for (const key of allowedModules) modules[key] = !!(b.modules && b.modules[key]);
+      modules.template_pronto = b.templateKey === "bot_pronto";
 
       const id = randomToken(12);
       const now = Date.now();
@@ -5726,8 +5785,10 @@ export async function onRequest(context) {
           if (generatedStandard && !bot.discord_token_enc) {
             return reply({ code: "discord_token_missing", error: "Salve e valide primeiro o Bot Token do Discord." }, 409);
           }
+          const storedModules = typeof bot.modules === "string" ? JSON.parse(bot.modules || "{}") : (bot.modules || {});
+          const isBotPronto = generatedStandard && storedModules.template_pronto === true;
           const archiveName = generatedStandard
-            ? "black-zone-caos.zip"
+            ? (isBotPronto ? "black-zone-bot-pronto.zip" : "black-zone-caos-inicial.zip")
             : String(b.filename || "meu-bot.zip").replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 120);
           if (!/\.zip$/i.test(archiveName)) return reply({ error: "Envie um arquivo ZIP válido." }, 400);
           const isAclCloudsTarget = String(bot.hosting_provider || "").toLowerCase() === "aclclouds" && !!bot.provider_app_id;
@@ -5736,14 +5797,24 @@ export async function onRequest(context) {
           const maxArchiveBytes = (isAclCloudsTarget || isPterodactylTarget || !!sillydevConnection) ? 25 * 1024 * 1024 : 5 * 1024 * 1024;
           let archiveBytes;
           if (generatedStandard) {
-            if (!CAOS_MAIN_PY || CAOS_MAIN_PY.length < 10000 || !CAOS_REQUIREMENTS) {
-              return reply({ code: "standard_template_missing", error: "O modelo padrão do bot não está disponível nesta publicação. Atualize o Estúdio e tente novamente." }, 503);
+            const exportMain = isBotPronto ? BOT_PRONTO_MAIN_PY : CAOS_MAIN_PY;
+            const exportRequirements = isBotPronto ? BOT_PRONTO_REQUIREMENTS : CAOS_REQUIREMENTS;
+            const exportModules = { ...storedModules };
+            delete exportModules.template_pronto;
+            if (!exportMain || exportMain.length < 10000 || !exportRequirements) {
+              return reply({ code: "standard_template_missing", error: "O modelo selecionado não está disponível nesta publicação. Atualize o Estúdio e tente novamente." }, 503);
             }
             const template = new JSZip();
-            template.file("main.py", CAOS_MAIN_PY);
-            template.file("requirements.txt", CAOS_REQUIREMENTS);
+            template.file("main.py", exportMain);
+            template.file("requirements.txt", exportRequirements);
+            if (isBotPronto) {
+              for (const name of BOT_PRONTO_PANEL_ASSETS) {
+                const bytes = await fetchBotProntoAsset(name);
+                template.file("assets/panels/" + name, bytes);
+              }
+            }
             template.file(".env", [
-              "CAOS_MODULES={}",
+              "CAOS_MODULES=" + JSON.stringify(exportModules),
               "CAOS_SCHEDULE_ENABLED=0",
               "CAOS_SCHEDULE_START=00:00",
               "CAOS_SCHEDULE_END=23:59",
