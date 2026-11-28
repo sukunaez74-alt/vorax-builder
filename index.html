@@ -1493,7 +1493,7 @@ async function loadCompanionLogs(options={}){
  }finally{if(button&&button.isConnected)button.disabled=false;}
 }
 
-async function loadVerificationBotAdmin(){async function loadVerificationBotAdmin(){
+async function loadVerificationBotAdmin(){
  const [caosResult,hostingResult,botsResult]=await Promise.allSettled([
   api("/admin/caos/status"),
   api("/hosting/pool/status"),
