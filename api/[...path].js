@@ -4521,12 +4521,19 @@ export async function onRequest(context) {
       if (!name) name = String(prepared?.identity?.botName || "Meu bot").trim().slice(0, 48) || "Meu bot";
       if (name.length < 2) return reply({ error: "O nome identificado do bot é inválido. Informe um nome com pelo menos 2 caracteres." }, 400);
 
+      const allowedModules = [
+        "music","tickets","attendance","team","goals","warnings","recruitment","logs",
+        "ai","requests","orders","partnerships","rules_discord","rules_rp","rules_team","horror"
+      ];
+      const modules = {};
+      for (const key of allowedModules) modules[key] = !!(b.modules && b.modules[key]);
+
       const id = randomToken(12);
       const now = Date.now();
       await env.DB.prepare(
         "INSERT INTO bots (id,user_id,name,runtime,project_type,state,modules,discord_token_enc,discord_bot_id,discord_bot_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
       ).bind(
-        id, user.id, name, runtime, projectType, "draft", JSON.stringify({}),
+        id, user.id, name, runtime, projectType, "draft", JSON.stringify(modules),
         prepared?.encryptedToken || null,
         prepared?.identity.botId || null,
         prepared?.identity.botName || null,
@@ -4548,7 +4555,7 @@ export async function onRequest(context) {
       }
 
       return reply({
-        id, name, runtime, projectType, state: "draft", modules: {},
+        id, name, runtime, projectType, state: "draft", modules,
         hasDiscordToken: !!prepared,
         discordBotId: persisted.discord_bot_id || null,
         discordBotName: persisted.discord_bot_name || null,
