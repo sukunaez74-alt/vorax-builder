@@ -946,7 +946,7 @@ function minecraftView(){
  '<div id="minecraftStatus" class="mc-status"><div class="notice">Consultando sua conta e os servidores…</div></div></section>'+minecraftHostDirectory()+
  '<div class="mc-consent hidden" id="minecraftConsent" role="dialog" aria-modal="true" aria-labelledby="mcConsentTitle"><div class="mc-consent-card"><div class="mc-kicker">CONFIRMAÇÃO NECESSÁRIA</div><h2 id="mcConsentTitle">Vamos criar sua conta Minecraft?</h2><p>Ao continuar, você autoriza o BLACK ZONE Estúdio a criar uma conta individual no painel Minecraft usando seu nome e o e-mail que você confirmou.</p><p>O servidor será hospedado na infraestrutura Minecraft configurada pelo administrador do Estúdio. A conta é individual, mas isso não cria uma assinatura ou hospedagem independente em outro provedor.</p><p>Não vamos acessar sua caixa de e-mail nem pedir sua senha de outros serviços. Você pode cancelar agora ou continuar com a criação.</p><div class="mc-actions"><button class="btn secondary" type="button" data-minecraft-action="cancel-consent">Cancelar</button><button class="btn" type="button" data-minecraft-action="confirm-create">Continuar e criar conta</button></div><div id="minecraftCreateNotice" class="notice hidden"></div></div></div>';
 }
-function minecraftAdminView(){function minecraftAdminView(){
+function minecraftAdminView(){
  return pageHead("Minecraft · Administração","Configuração privada dos servidores Minecraft, loaders, catálogo de mods e envio de e-mails.",'<button class="btn secondary" data-view="verificationAdmin">← Voltar para CAOS · ADM</button>')+
  '<section class="dashboard-panel mc-admin-panel"><div class="dashboard-panel-head"><div><small>CONFIGURAÇÃO PRIVADA</small><h2>Verificação por e-mail</h2></div><span class="status">ADM</span></div>'+
  '<form id="mcAdminConfigForm" class="mc-admin-grid">'+
@@ -1253,7 +1253,7 @@ function botCard(b){
   '</div></article>';
 }
 function botsView(){return pageHead("Meus bots","Controle a execução, os horários e os comandos do seu bot Discord.",'<button class="btn" id="addBot">＋ Criar projeto</button>')+'<div class="card"><div class="section-head"><h3>Seus bots</h3><button class="btn secondary" id="refreshBots">↻ Atualizar</button></div><div class="list">'+(state.bots.length?state.bots.map(botCard).join(""):'<div class="empty"><b>Nenhum bot cadastrado</b>Crie seu bot, proteja o token e conecte a hospedagem para iniciar.</div>')+'</div></div>'}
-function templatesView(){function templatesView(){
+function templatesView(){
  return pageHead("Modelos e criação","Escolha a base do Estúdio ou importe o seu próprio bot.")+
  '<div class="grid two-col">'+
  '<section class="card bz-template-card"><div class="bot-row"><div class="bot-logo">'+bzIcon("bot")+'</div><div class="bot-info"><strong>CAOS · Modelo do Estúdio</strong><span>Python · Equipe, tickets, metas, recrutamento e música</span></div><span class="status off">Modelo</span></div><p class="muted small" style="margin:17px 0">Base pronta do Black Zone. Informe o Bot Token, escolha os módulos que o código oferece e publique em uma hospedagem compatível. Não exige API Key de IA.</p><button class="btn" id="configureCaos">Configurar modelo CAOS ↗</button></section>'+
@@ -1317,7 +1317,7 @@ function integrationsView(){
   '<div class="bz-host-alternative-grid" style="margin-top:15px">'+providers.map(p=>'<article class="bz-host-alt-card"><div class="bz-host-alt-top"><span class="bz-host-alt-name">'+bzIcon("rocket")+' '+p[0]+'</span><span class="bz-host-alt-meta">'+p[4]+'</span></div><div class="bz-host-alt-spec">'+p[1]+'</div><p>'+p[2]+'</p><a href="'+p[3]+'" target="_blank" rel="noopener noreferrer">Abrir site oficial ↗</a></article>').join("")+'</div>'+
   '<div class="bz-host-alt-note" style="margin-top:14px">Não coloque o token do Discord em sites que não sejam o painel oficial da hospedagem. Confira os termos e a disponibilidade antes de enviar seus arquivos. Os limites gratuitos podem mudar sem aviso.</div>';
 }
-function hostingView(){function hostingView(){
+function hostingView(){
  const bots=state.bots||[],online=bots.filter(bot=>bot.discordOnline===true).length;
  return pageHead("Infraestrutura","A execução dos seus bots é gerenciada pelo Black Zone.",'<button class="btn btn-bright" data-action="create-bot">＋ Criar bot · Token + ZIP</button>')+
  '<section class="dashboard-panel bz-onboarding-panel"><div class="bz-onboarding-head">'+bzIcon("rocket")+'<div><div class="bz-onboarding-title">Publicação simplificada</div><div class="bz-onboarding-subtitle">Envie o token e o ZIP. O Estúdio verifica a capacidade e publica quando houver vaga compatível.</div></div></div><div class="bz-feature-row">'+bzIcon("shield")+'<div><b>Área técnica protegida</b><small>Contas de execução, credenciais e detalhes dos serviços parceiros não aparecem no painel comum. O Estúdio não contrata planos pagos sem autorização.</small></div></div></section>'+
