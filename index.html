@@ -479,6 +479,7 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 <link rel="stylesheet" href="/studio-dashboard.css?v=4">
 <link rel="stylesheet" href="/studio-extra.css?v=3">
 <link rel="stylesheet" href="/studio-dragon.css?v=2">
+<link rel="stylesheet" href="/creator-cyber.css">
 </head>
 <body>
 <svg class="bz-symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
@@ -668,8 +669,8 @@ h1,h2,h3,h4,.brand-name,.nav-title,.nav-btn,.btn,.caps,.stat-value,.stat-label,.
 <div id="modalRoot"></div><div id="toastRoot"></div>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
-const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,bulkSelected:[],adminPortal:false,verificationAdmin:null,companionHosting:null,companionBotId:null,companionLogs:null,view:"overview",minecraftSelectedMods:{},minecraftModResults:[],minecraftModOffset:0,minecraftModServerId:null,minecraftServers:[],modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false},hosting:false,hostingCanCreate:false,logs:[]};
-const moduleNames={music:"Música",tickets:"Tickets",attendance:"Bate-ponto",team:"Equipe e cargos",goals:"Metas e ranking",warnings:"Advertências",recruitment:"Recrutamento",logs:"Logs"};
+const $=s=>document.querySelector(s);const state={user:null,bots:[],activeBot:null,bulkSelected:[],adminPortal:false,verificationAdmin:null,companionHosting:null,companionBotId:null,companionLogs:null,view:"overview",minecraftSelectedMods:{},minecraftModResults:[],minecraftModOffset:0,minecraftModServerId:null,minecraftServers:[],modules:{music:false,tickets:false,attendance:false,team:false,goals:false,warnings:false,recruitment:false,logs:false,ai:false,requests:false,orders:false,partnerships:false,rules_discord:false,rules_rp:false,rules_team:false,horror:false},hosting:false,hostingCanCreate:false,logs:[]};
+const moduleNames={tickets:"Tickets",music:"Música",attendance:"Bate-ponto",goals:"Metas e ranking",warnings:"Advertências",recruitment:"Recrutamento",orders:"Encomendas",partnerships:"Parcerias",requests:"Solicitações",rules_discord:"Regras do Discord",rules_rp:"Regras de RP",rules_team:"Regras da equipe",team:"Equipe e cargos",logs:"Logs",ai:"Inteligência artificial",horror:"Brincadeira de terror"};
 function bzIcon(name,extraClass=""){const safe=["fox","bot","crystal","cat","rocket","shield"].includes(name)?name:"bot";return '<svg class="bz-emoji '+extraClass+'" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-'+safe+'"></use></svg>'}
 function displayErrorText(value,depth=0){
  if(value===null||value===undefined)return "";
@@ -1171,26 +1172,52 @@ function decorationView(){
 function overviewView(){
  const bots=state.bots||[];
  const online=bots.filter(b=>b.discordOnline===true).length;
- const first=bots[0]||null;
- const activeModules=first?Object.values(first.modules||{}).filter(Boolean).length:0;
- return '<div class="cosmic-dashboard"><div class="dashboard-center">'+
-  '<section class="cosmic-hero"><div class="cosmic-hero-copy"><div class="cosmic-kicker"><i></i> CENTRAL DE CONTROLE · BLACK ZONE</div><p>Bem-vindo(a) de volta,</p><h1>BLACK ZONE <em>ESTÚDIO</em></h1><div class="cosmic-subtitle">Sua central de hospedagem e gerenciamento de bots</div>'+
-  '<div class="cosmic-badges"><span><b>◈</b>'+online+' online</span><span><b>⚡</b>'+bots.length+' projetos</span><span><b>✧</b>'+activeModules+' módulos ativos</span><span><b>⬡</b>'+"Hospedagem automática"+'</span></div><div class="theme-emoji-line" id="themeEmojiLine"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-fox"></use></svg><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-cat"></use></svg><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-rocket"></use></svg></div></div><div class="cosmic-planet"><div class="planet-ring"></div><div class="planet-core"></div><div class="cosmic-astronaut"><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-bot"></use></svg></div><div class="planet-spark spark-a">✦</div><div class="planet-spark spark-b">✧</div></div></section>'+
-  '<section class="dashboard-panel quick-panel"><div class="dashboard-panel-head"><div><small>ATALHOS</small><h2>Ações rápidas</h2></div></div><div class="quick-action-grid">'+
-   '<button data-action="create-bot" class="quick-action quick-purple"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-bot"></use></svg></span>Novo bot</button><button data-view="files" class="quick-action quick-blue"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-crystal"></use></svg></span>Arquivos</button><button data-view="logs" class="quick-action quick-cyan"><span>›_</span>Terminal / logs</button><button data-view="templates" class="quick-action quick-orange"><span>▧</span>Modelos</button><button data-view="hosting" class="quick-action quick-violet"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-rocket"></use></svg></span>Infraestrutura</button>'+
-  '</div></section>'+
-  '<section class="dashboard-panel bots-panel"><div class="dashboard-panel-head"><div><small>SEUS PROJETOS</small><h2>Meus bots</h2></div><div class="panel-head-actions"><span class="small-muted">'+bots.length+' cadastrados</span><button class="icon-button" id="refreshBots">↻</button></div></div>'+
-   (bots.length?'<div class="dashboard-bot-list">'+bots.map(botCard).join("")+'</div>':'<div class="dashboard-empty empty-create"><span><svg class="bz-emoji" aria-hidden="true" viewBox="0 0 64 64"><use href="#bz-fox"></use></svg></span><b>Seu universo começa aqui</b><p>Crie seu primeiro bot para configurar o token, selecionar módulos e conectar a hospedagem.</p><button class="btn btn-bright" id="addBot">＋ Criar primeiro bot</button></div>')+
-  '</section>'+
-  '<section class="dashboard-panel terminal-panel"><div class="dashboard-panel-head"><div><small>SAÍDA DO PROCESSO</small><h2>Terminal · '+escapeHtml(first?.name||"Bot principal")+'</h2></div><button class="text-action" data-view="logs">Ver registros ↗</button></div><div class="terminal-window"><div class="terminal-top"><i></i><i></i><i></i><span>black-zone · runtime</span></div><div class="terminal-content" id="dashboardTerminal"><div class="dashboard-empty">Consultando logs do servidor…</div></div></div></section>'+
- '</div><aside class="dashboard-rail">'+
-  '<section class="dashboard-panel system-summary"><div class="rail-title"><span>◈</span> RESUMO DO SISTEMA</div><div class="summary-row"><span>Conta</span><b>Estúdio</b></div><div class="summary-row"><span>Projetos cadastrados</span><b>'+bots.length+'</b></div><div class="summary-row"><span>Bots online</span><b class="'+(online?"good":"muted")+'">'+online+'</b></div><div class="summary-row"><span>Módulos selecionados</span><b>'+activeModules+'</b></div><div class="summary-row"><span>Hospedagem</span><b class="'+(state.hosting?"good":"muted")+'">'+(state.hosting?"Conectada":"Pendente")+'</b></div><div class="summary-row"><span>Banco de dados</span><b id="summaryDbStatus">Verificando…</b></div></section>'+
-  '<section class="dashboard-panel activity-panel"><div class="rail-head"><div class="rail-title"><span>◷</span> ATIVIDADE RECENTE</div><button class="text-action" data-view="logs">Ver tudo</button></div><div id="dashboardActivity"><div class="dashboard-empty">Os eventos recentes serão carregados quando houver logs disponíveis.</div></div></section>'+
-  '<section class="dashboard-panel resources-panel"><div class="rail-title"><span>⌁</span> USO DE RECURSOS</div><div id="dashboardResources"><div class="dashboard-empty">Aguardando dados reais da hospedagem.</div></div></section>'+
-  '<section class="dashboard-panel services-panel"><div class="rail-title"><span>✧</span> STATUS DOS SERVIÇOS</div><div id="dashboardServices"><div class="dashboard-empty">Verificando serviços…</div></div></section>'+
-  '<section class="dashboard-panel time-panel"><div class="rail-title"><span>◷</span> HORÁRIO DA BAHIA</div><div class="server-clock" id="serverClock">--:--:--</div><div class="server-date" id="serverDate">Carregando data…</div><div class="time-orbit"><i></i><b>✦</b></div></section>'+
-  '<section class="dashboard-signature"><b>BLACK ZONE <em>ESTÚDIO</em></b><span>ANIME CONTROL STUDIO</span><small>Seu universo. Seus bots. Seu controle.</small></section>'+
- '</aside></div>';
+ const current=bots.find(b=>b.id===state.activeBot)||bots[0]||null;
+ const enabled=current?.modules||{};
+ const activeModules=Object.values(enabled).filter(Boolean).length;
+ const cards=[
+  ["tickets","Tickets","▣","Atendimento privado, abertura e fechamento de chamados.","/painel_ticket"],
+  ["goals","Metas","✧","Entrega de comprovantes, acompanhamento e cobrança de metas.","/painel_metas"],
+  ["recruitment","Recrutamento","♙","Inscrições privadas, análise da equipe e aprovação.","/painel_recrutamento"],
+  ["orders","Encomendas","◇","Pedidos e solicitações organizados em canais privados.","/painel_encomendas"],
+  ["rules_discord","Regras Discord","◈","Regulamento do servidor enviado aos membros.","/painel_regras_discord"],
+  ["rules_rp","Regras RP","⚔","Regras de roleplay e combate.","/painel_regras_rp"],
+  ["rules_team","Regras equipe","♜","Conduta, hierarquia e responsabilidades.","/painel_regras_equipe"],
+  ["requests","Solicitações","➤","Central de solicitações e atendimento à comunidade.","/gerar_paineis"],
+  ["attendance","Ponto","◷","Entrada e saída de call, horas e ranking.","/painel_ponto"],
+  ["music","Música","♫","Busca, fila e controles de áudio em canais de voz.","/musica"],
+  ["partnerships","Parcerias","♧","Pedidos de parceria e fluxo de aprovação.","/painel_encomendas"],
+  ["warnings","Advertências","⚑","Histórico e aplicação de advertências.","/ver_adv"],
+  ["team","Equipe e cargos","♙","Configuração da equipe, cargos e permissões.","/instalar"],
+  ["logs","Logs","≋","Canal de registros e eventos do bot.","/configurar_logs"],
+  ["ai","IA e imagens","✦","Perguntas, geração de imagens e automações.","/perguntar"],
+  ["horror","Modo terror","☾","Recurso opcional de áudio; desligado por padrão.","/configurar_susto"]
+ ];
+ const cardHtml=cards.map(item=>'<article class="bz-feature-card"><div class="bz-feature-card-art bz-art-'+item[0]+'"><span>'+item[2]+'</span></div><div class="bz-feature-card-body"><div class="bz-feature-title-row"><h3>'+item[1]+'</h3><span class="bz-feature-state '+(enabled[item[0]]?"is-enabled":"")+'">'+(enabled[item[0]]?"Ativo":"Desligado")+'</span></div><p>'+item[3]+'</p><small>'+item[4]+'</small><button class="bz-feature-config" '+(current?'data-config-bot="'+escapeHtml(current.id)+'"':'data-action="create-bot"')+'>'+(current?"Configurar módulo":"Criar bot para ativar")+' ↗</button></div></article>').join("");
+ return '<div class="bz-cyber-dashboard">'+
+  '<section class="bz-cyber-welcome"><div><div class="bz-cyber-eyebrow"><i></i> PAINEL DE CONTROLE</div><h1>Seu bot. Seu espaço. Seu controle.</h1><p>Crie um bot pronto, escolha os recursos e acompanhe o funcionamento de cada módulo.</p></div><div class="bz-cyber-welcome-actions"><button class="btn" data-action="create-bot">＋ Criar bot</button><button class="btn secondary" data-view="bots">Meus bots</button></div></section>'+
+  '<div class="bz-cyber-stats">'+
+   '<article><span class="bz-stat-icon">♙</span><div><small>PROJETOS</small><strong>'+bots.length+'</strong><em>Na sua conta</em></div></article>'+
+   '<article><span class="bz-stat-icon">◉</span><div><small>BOTS ONLINE</small><strong>'+online+'</strong><em>Conexões confirmadas</em></div></article>'+
+   '<article><span class="bz-stat-icon">✧</span><div><small>MÓDULOS ATIVOS</small><strong>'+activeModules+'</strong><em>'+(current?escapeHtml(current.name):"Nenhum bot selecionado")+'</em></div></article>'+
+   '<article><span class="bz-stat-icon">⬡</span><div><small>HOSPEDAGEM</small><strong class="bz-stat-status">'+(state.hosting?"Conectada":"Pendente")+'</strong><em>'+(state.hosting?"Acesso autorizado":"Conecte uma hospedagem")+'</em></div></article>'+
+  '</div>'+
+  '<div class="bz-cyber-layout"><main class="bz-cyber-main">'+
+   '<section class="bz-cyber-panel"><div class="bz-cyber-panel-head"><div><small>RECURSOS DO BOT</small><h2>Escolha o que seu bot vai fazer</h2><p>Os interruptores da configuração controlam os comandos que serão publicados no Discord.</p></div><button class="btn" data-action="create-bot">Criar bot pronto ↗</button></div>'+
+    '<div class="bz-feature-grid">'+cardHtml+'</div></section>'+
+   '<section class="bz-cyber-panel"><div class="bz-cyber-panel-head"><div><small>SEUS PROJETOS</small><h2>Meus bots</h2></div><button class="text-action" data-view="bots">Ver todos ↗</button></div>'+
+    (bots.length?'<div class="dashboard-bot-list">'+bots.slice(0,3).map(botCard).join("")+'</div>':'<div class="bz-cyber-empty"><b>Nenhum bot criado ainda</b><p>Comece pelo modelo pronto e escolha quais comandos deseja disponibilizar.</p><button class="btn" data-action="create-bot">＋ Criar primeiro bot</button></div>')+
+   '</section>'+
+   '<section class="bz-cyber-panel"><div class="bz-cyber-panel-head"><div><small>SAÍDA DO PROCESSO</small><h2>Terminal e registros</h2></div><button class="text-action" data-view="logs">Ver logs ↗</button></div><div class="bz-cyber-terminal" id="dashboardTerminal"><div class="dashboard-empty">Os registros aparecerão aqui quando houver uma hospedagem conectada.</div></div></section>'+
+  '</main><aside class="bz-cyber-rail">'+
+   '<section class="bz-cyber-panel"><div class="bz-cyber-rail-title">◈ BOT SELECIONADO</div>'+
+    (current?'<div class="bz-cyber-selected-bot"><b>'+escapeHtml(current.name||"Meu bot")+'</b><span class="bz-bot-pill '+(current.discordOnline?"is-online":"")+'">'+(current.discordOnline?"ONLINE":(current.state==="running"?"PROCESSO ATIVO":"OFFLINE"))+'</span><small>'+escapeHtml(current.runtime==="python"?"Python 3.11":"Node.js")+' · '+activeModules+' módulos</small><div class="bz-bot-actions"><button class="btn" data-bot-power="start" data-bot-id="'+escapeHtml(current.id)+'" '+(current.discordOnline?"disabled":"")+'>▶ Iniciar</button><button class="btn secondary" data-config-bot="'+escapeHtml(current.id)+'">Configurar</button></div></div>':'<div class="bz-cyber-empty"><b>Sem bot selecionado</b><p>Crie seu primeiro bot pronto.</p><button class="btn" data-action="create-bot">Criar bot</button></div>')+
+   '</section>'+
+   '<section class="bz-cyber-panel"><div class="bz-cyber-rail-title">◈ STATUS DOS SERVIÇOS</div><div id="dashboardServices"><div class="dashboard-empty">Verificando os serviços…</div></div></section>'+
+   '<section class="bz-cyber-panel"><div class="bz-cyber-rail-title">◷ ATIVIDADE RECENTE</div><div id="dashboardActivity"><div class="dashboard-empty">Aguardando registros do bot.</div></div></section>'+
+   '<section class="bz-cyber-panel"><div class="bz-cyber-rail-title">⌁ RECURSOS DA HOSPEDAGEM</div><div id="dashboardResources"><div class="dashboard-empty">Dados reais aparecerão após a implantação.</div></div></section>'+
+   '<section class="bz-cyber-signature"><b>ʙʟᴀᴄᴋ ᴢᴏɴᴇ <em>Estúdio</em></b><span>CONTROLE E PERSONALIZAÇÃO DE BOTS</span><small>Configurações separadas para cada projeto.</small></section>'+
+  '</aside></div></div>';
 }
 function botStatusLabel(b){
   if(b.state==="running")return "Servidor ativo";
@@ -1260,7 +1287,7 @@ function templatesView(){
  '<section class="card bz-template-card"><div class="bot-row"><div class="bot-logo">'+bzIcon("rocket")+'</div><div class="bot-info"><strong>Meu próprio bot</strong><span>Python ou Node.js · código ZIP</span></div><span class="status">Token + ZIP</span></div><p class="muted small" style="margin:17px 0">Importe seu projeto, valide o Bot Token e deixe o Estúdio identificar o arquivo de inicialização. A hospedagem automática tenta as vagas gratuitas disponíveis.</p><button class="btn btn-bright" data-action="create-bot">Importar meu bot ↗</button></section>'+
  '</div>';
 }
-function modulesMarkup(){return '<div class="project-note" style="margin:14px 0"><strong>Escolha somente o que seu código oferece.</strong><br>Os módulos começam desligados. Não precisa ativar todos; marque apenas os recursos que realmente existem no seu bot.</div><div class="grid module-grid">'+Object.entries(moduleNames).map(([k,n])=>'<label class="module"><div class="module-top"><strong>'+n+'</strong><input type="checkbox" class="toggle module-toggle" data-module="'+k+'" '+(state.modules[k]?"checked":"")+'></div><small>Ativar este módulo</small></label>').join("")+'</div>'}
+function modulesMarkup(){return '<div class="project-note" style="margin:14px 0"><strong>Recursos do modelo pronto.</strong><br>Ao salvar, o Estúdio atualiza a configuração do bot e solicita a reinicialização para sincronizar os comandos ativos no Discord.</div><div class="grid module-grid">'+Object.entries(moduleNames).map(([k,n])=>'<label class="module"><div class="module-top"><strong>'+n+'</strong><input type="checkbox" class="toggle module-toggle" data-module="'+k+'" '+(state.modules[k]?"checked":"")+'></div><small>Ativar ou desativar este recurso</small></label>').join("")+'</div>'}
 
 const resourceCatalog=[
  {key:"tickets",name:"Tickets",icon:"▣",desc:"Organize atendimentos e solicitações da comunidade.",detail:"Configuração do módulo de suporte do CAOS."},
@@ -1270,7 +1297,15 @@ const resourceCatalog=[
  {key:"goals",name:"Metas e ranking",icon:"✧",desc:"Acompanhe metas e resultados da comunidade.",detail:"Os dados dependem dos eventos registrados pelo bot."},
  {key:"warnings",name:"Advertências",icon:"⚑",desc:"Mantenha registros e medidas disciplinares.",detail:"Controle de advertências e histórico da equipe."},
  {key:"recruitment",name:"Recrutamento",icon:"⌕",desc:"Centralize o processo de entrada de novos membros.",detail:"Fluxos de recrutamento disponibilizados pelo CAOS."},
- {key:"logs",name:"Logs",icon:"≋",desc:"Acompanhe eventos e registros do bot.",detail:"Consulte a saída recente do servidor de execução."}
+ {key:"logs",name:"Logs",icon:"≋",desc:"Acompanhe eventos e registros do bot.",detail:"Consulte a saída recente do servidor de execução."},
+ {key:"ai",name:"Inteligência artificial",icon:"✦",desc:"Perguntas e criação de imagens no Discord.",detail:"Usa a conexão de IA configurada no Estúdio."},
+ {key:"requests",name:"Solicitações",icon:"➤",desc:"Central de solicitações e formulários.",detail:"Painel interativo do modelo pronto."},
+ {key:"orders",name:"Encomendas",icon:"◇",desc:"Pedidos e atendimento em canais privados.",detail:"Comando /painel_encomendas."},
+ {key:"partnerships",name:"Parcerias",icon:"♧",desc:"Solicitações de parceria e colaboração.",detail:"Compartilha o painel de encomendas/parcerias."},
+ {key:"rules_discord",name:"Regras do Discord",icon:"◈",desc:"Publica o regulamento do servidor.",detail:"Comando /painel_regras_discord."},
+ {key:"rules_rp",name:"Regras de RP",icon:"⚔",desc:"Publica regras de roleplay e combate.",detail:"Comando /painel_regras_rp."},
+ {key:"rules_team",name:"Regras da equipe",icon:"♜",desc:"Publica regras internas da equipe.",detail:"Comando /painel_regras_equipe."},
+ {key:"horror",name:"Modo terror",icon:"☾",desc:"Brincadeira opcional de áudio de terror.",detail:"Desligado por padrão; depende do ponto e do áudio."}
 ];
 function activeBotForResources(){return state.bots.find(b=>b.id===state.activeBot)||state.bots[0]||null}
 function resourcesView(){
@@ -1280,7 +1315,7 @@ function resourcesView(){
  '<div class="resource-toolbar"><div><b>'+(current?escapeHtml(current.name):"Nenhum bot selecionado")+'</b><span> • '+(current?"Estado dos módulos deste projeto":"Crie um projeto para começar")+'</span></div>'+
  (state.bots.length?'<select id="resourceBotSelect" aria-label="Selecionar projeto">'+state.bots.map(b=>'<option value="'+escapeHtml(b.id)+'" '+(b.id===current?.id?"selected":"")+'>'+escapeHtml(b.name)+'</option>').join("")+'</select>':'')+'</div>'+
  '<div class="resource-dashboard-grid">'+resourceCatalog.map(r=>'<article class="resource-card"><div class="resource-card-top"><span class="resource-icon">'+r.icon+'</span><span class="resource-state '+(enabled[r.key]?"is-on":"")+'">'+(enabled[r.key]?"Ativo":"Desativado")+'</span></div><h3>'+r.name+'</h3><p>'+r.desc+'</p><small>'+r.detail+'</small><button class="resource-config" data-setup-module="'+r.key+'">'+(current?"Configurar módulo":"Criar projeto para configurar")+' ↗</button></article>').join("")+'</div>'+
- '<div class="resource-note"><b>Importante:</b> ativar uma opção não instala código ausente. O módulo precisa existir no código do bot e estar compatível com as dependências e permissões do servidor.</div>';
+ '<div class="resource-note"><b>Importante:</b> no modelo pronto, cada opção controla os comandos e painéis correspondentes; salvar solicita a atualização do bot. Em projetos importados por ZIP, o recurso também precisa existir no código que foi enviado.</div>';
 }
 function modulesView(){
  if(!state.bots.length)return pageHead("Módulos do bot","Escolha quais recursos usar em cada projeto.")+'<div class="card empty"><b>Seu catálogo está pronto</b>Crie um bot para configurar tickets, música, equipe, metas e outros módulos.</div><button class="btn" data-action="create-bot">Criar meu primeiro bot</button>';
@@ -2351,6 +2386,77 @@ async function connectHosting(){
 function openModal(content){window.__modalCloseGuard=null;$("#modalRoot").innerHTML='<div class="modal-wrap" id="modalWrap"><div class="modal">'+content+'</div></div>';$("#modalWrap").onclick=e=>{if(e.target.id==="modalWrap")closeModal()};const c=$("#closeModal");if(c)c.onclick=()=>closeModal()}
 function closeModal(force=false){if(!force&&window.__modalCloseGuard&&!window.__modalCloseGuard())return;window.__modalCloseGuard=null;$("#modalRoot").innerHTML=""}
 function createBotModal(){
+ openModal(
+  '<div class="modal-head"><h3>✨ Criar um bot</h3><button class="close" id="closeModal" aria-label="Fechar">×</button></div>'+
+  '<div class="bz-onboarding-head">'+bzIcon("bot")+'<div><div class="bz-onboarding-title">Escolha como começar</div><div class="bz-onboarding-subtitle">Use o bot pronto com comandos reais ou importe o seu próprio projeto.</div></div></div>'+
+  '<div class="bz-create-choice-grid">'+
+   '<button class="bz-create-choice is-featured" id="createReadyBotChoice" type="button"><span>♛</span><b>Bot pronto do Estúdio</b><small>Tickets, música, metas, ponto, recrutamento, regras, IA e outros módulos com comandos do Discord.</small><em>Recomendado ↗</em></button>'+
+   '<button class="bz-create-choice" id="createZipBotChoice" type="button"><span>📦</span><b>Importar meu próprio ZIP</b><small>Envie o código de outro bot e mantenha o projeto separado do modelo pronto.</small><em>Escolher ZIP ↗</em></button>'+
+  '</div>'+
+  '<div class="project-note">O bot pronto é baseado no código completo do CAOS enviado para o Estúdio. Cada módulo pode ser ligado ou desligado; os comandos são sincronizados no Discord ao iniciar ou aplicar as alterações.</div>'
+ );
+ const ready=$("#createReadyBotChoice");if(ready)ready.onclick=createReadyBotModal;
+ const zip=$("#createZipBotChoice");if(zip)zip.onclick=createCustomZipBotModal;
+}
+function createReadyBotModal(){
+ const defaults={tickets:true,music:true,attendance:true,goals:true,warnings:true,recruitment:true,orders:true,partnerships:true,requests:true,rules_discord:true,rules_rp:true,rules_team:true,team:true,logs:true,ai:true,horror:false};
+ const descriptions={
+  tickets:["Tickets","/painel_ticket","Atendimento privado e fechamento de chamados."],
+  music:["Música","/musica · /pausar_musica · /fila_musica","Pesquisa, reprodução e controles de áudio na call."],
+  attendance:["Bate-ponto","/painel_ponto · /meu_rank","Controle de horas por entrada e saída da call configurada."],
+  goals:["Metas e ranking","/painel_metas · /cobrar_meta","Entrega de metas, comprovantes e acompanhamento."],
+  warnings:["Advertências","/ver_adv · /aplicar_adv","Consulta e aplicação de advertências da equipe."],
+  recruitment:["Recrutamento","/painel_recrutamento","Inscrições, revisão humana e aprovação de candidatos."],
+  orders:["Encomendas","/painel_encomendas","Pedidos e canais privados de atendimento."],
+  partnerships:["Parcerias","/painel_encomendas","Solicitações e atendimento de parcerias."],
+  requests:["Solicitações","/gerar_paineis","Publicação do painel de solicitações."],
+  rules_discord:["Regras Discord","/painel_regras_discord","Regulamento do servidor."],
+  rules_rp:["Regras RP","/painel_regras_rp","Regras de roleplay e combate."],
+  rules_team:["Regras equipe","/painel_regras_equipe","Conduta, hierarquia e responsabilidades."],
+  team:["Equipe e cargos","/instalar · /configurar_cargo_fac","Cargos, categorias e ferramentas administrativas."],
+  logs:["Logs","/configurar_logs","Canal de registros e eventos."],
+  ai:["Inteligência artificial","/painel_ia · /perguntar · /criar_imagem","Perguntas, geração de imagens e monitoramento configurável."],
+  horror:["Modo terror","/configurar_susto","Recurso opcional de áudio; começa desligado."]
+ };
+ const moduleCards=Object.entries(descriptions).map(([key,item])=>'<label class="bz-ready-module"><span class="bz-ready-module-icon">'+({"tickets":"▣","music":"♫","attendance":"◷","goals":"✧","warnings":"⚑","recruitment":"♙","orders":"◇","partnerships":"♧","requests":"➤","rules_discord":"◈","rules_rp":"⚔","rules_team":"♜","team":"♙","logs":"≋","ai":"✦","horror":"☾"}[key])+'</span><span class="bz-ready-module-copy"><b>'+item[0]+'</b><small>'+item[2]+'</small><em>'+item[1]+'</em></span><input type="checkbox" class="toggle" data-ready-module="'+key+'" '+(defaults[key]?"checked":"")+'></label>').join("");
+ openModal(
+  '<div class="modal-head"><h3>♛ Configurar bot pronto</h3><button class="close" id="closeModal" aria-label="Fechar">×</button></div>'+
+  '<div class="bz-onboarding-head">'+bzIcon("bot")+'<div><div class="bz-onboarding-title">Escolha os recursos</div><div class="bz-onboarding-subtitle">Os módulos ligados publicam os comandos correspondentes no Discord.</div></div></div>'+
+  '<form id="createReadyBotForm">'+
+   '<div class="field"><label>NOME DO BOT</label><input name="name" value="Meu bot" maxlength="48" minlength="2" required></div>'+
+   '<div class="field"><label>BOT TOKEN DO DISCORD</label><input name="discordToken" type="password" required autocomplete="new-password" spellcheck="false" minlength="30" maxlength="512" placeholder="Cole o Bot Token do seu aplicativo Discord"></div>'+
+   '<div class="bz-ready-module-actions"><b>MÓDULOS DISPONÍVEIS</b><span><button type="button" class="text-action" id="readySelectAll">Ativar todos</button> · <button type="button" class="text-action" id="readySelectNone">Desativar todos</button></span></div>'+
+   '<div class="bz-ready-modules-grid">'+moduleCards+'</div>'+
+   '<div class="project-note" style="margin-top:14px"><strong>Comandos reais, não apenas botões decorativos.</strong><br>Ao salvar, o Estúdio registra os módulos. Quando o bot iniciar, os comandos selecionados serão sincronizados no Discord. Música instala as dependências de voz e áudio do modelo.</div>'+
+   '<div id="readyBotProgress" class="project-note" style="margin-top:10px">Pronto para validar o token e criar seu bot.</div>'+
+   '<button class="btn wide" id="createReadyBotSubmit" type="submit">Criar bot pronto ↗</button>'+
+  '</form>'
+ );
+ const form=$("#createReadyBotForm");
+ $("#readySelectAll").onclick=()=>document.querySelectorAll("[data-ready-module]").forEach(el=>el.checked=true);
+ $("#readySelectNone").onclick=()=>document.querySelectorAll("[data-ready-module]").forEach(el=>el.checked=false);
+ form.onsubmit=async e=>{
+  e.preventDefault();
+  const data=new FormData(form),name=String(data.get("name")||"Meu bot").trim(),token=String(data.get("discordToken")||"").trim();
+  const button=$("#createReadyBotSubmit"),progress=$("#readyBotProgress");
+  const modules=Object.fromEntries([...document.querySelectorAll("[data-ready-module]")].map(el=>[el.dataset.readyModule,!!el.checked]));
+  if(!name||name.length<2)return toast("Informe um nome com pelo menos 2 caracteres.");
+  if(!token)return toast("Cole o Bot Token do Discord.");
+  if(button){button.disabled=true;button.textContent="Validando token…"}
+  if(progress)progress.textContent="Validando o token no Discord e salvando as opções escolhidas…";
+  try{
+   const created=await api("/bots",{method:"POST",body:JSON.stringify({name,projectType:"standard",runtime:"python",discordToken:token,modules})});
+   await loadBots();state.activeBot=created.id;
+   if(progress)progress.textContent="Bot criado. Os módulos foram salvos; preparando a tela de controle…";
+   closeModal(true);navigate("bots");
+   toast(state.hosting?"Bot criado. Inicie o projeto para publicar os comandos selecionados no Discord.":"Bot criado. Conecte uma hospedagem e inicie o projeto para publicar os comandos no Discord.");
+  }catch(error){
+   if(progress)progress.textContent=error.message||"Não consegui criar o bot pronto.";
+   toast(error.message||"Não consegui criar o bot pronto.");
+  }finally{if(button){button.disabled=false;button.textContent="Criar bot pronto ↗"}}
+ };
+}
+function createCustomZipBotModal(){
  let createdBotId=null,detectedRuntime="python";
  openModal(
   '<div class="modal-head"><h3>✨ Criar meu bot</h3><button class="close" id="closeModal" aria-label="Fechar">×</button></div>'+
