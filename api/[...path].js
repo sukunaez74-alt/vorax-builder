@@ -4800,6 +4800,12 @@ export async function onRequest(context) {
         const b = await body(request);
         const signal = String(b.action || "").toLowerCase();
         if (!["start","stop","restart"].includes(signal)) return reply({ error: "Ação de energia inválida." }, 400);
+        const confirmRemoteStop = (rawState, providerName) => {
+          const current = String(rawState || "").trim().toLowerCase().replace(/[ _-]+/g, " ");
+          if (["offline","stopped","terminated","suspended","exited","killed","shutdown","not running"].includes(current)) return "stopped";
+          if (!current) throw new Error(providerName + " não retornou o estado atual. Não vou marcar a bot como parada sem confirmação.");
+          throw new Error(providerName + " ainda informa o estado ‘" + current + "’. A parada não foi confirmada; tente novamente em alguns segundos.");
+        };
         if (bot.hosting_provider === "discloud" && bot.provider_app_id) {
           try {
             const token = await providerTokenForPool(user.id, "discloud", env);
@@ -4807,9 +4813,9 @@ export async function onRequest(context) {
             const appId = encodeURIComponent(bot.provider_app_id);
             const result = await discloudRequest(token, "/app/" + appId + "/" + signal, "PUT");
             const status = await discloudRequest(token, "/app/" + appId + "/status");
-            const container = String(status.apps?.container || status.app?.container || "").toLowerCase();
+            const container = String(status.apps?.container || status.app?.container || status.container || status.apps?.status || status.app?.status || status.status || status.state || "").toLowerCase();
             const online = container === "online" || container === "running";
-            const state = signal === "stop" ? "stopped" : (online ? "running" : "starting");
+            const state = signal === "stop" ? confirmRemoteStop(container, "Discloud") : (online ? "running" : "starting");
             await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
               .bind(state, Date.now(), id, user.id).run();
             return reply({
@@ -4832,7 +4838,7 @@ export async function onRequest(context) {
             const check = await aclCloudsRequest(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
             const resource = aclCloudsAttributes(check.data);
             const current = String(resource.current_state || "").toLowerCase();
-            const state = signal === "stop" ? "stopped" : (current === "running" ? "running" : "starting");
+            const state = signal === "stop" ? confirmRemoteStop(current, "ACLClouds") : (current === "running" ? "running" : "starting");
             await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?").bind(state, Date.now(), id, user.id).run();
             return reply({ ok: true, action: signal, state, provider: "aclclouds", providerAppId: serverId, discordOnline: false,
               resources: resource.resources || null, hint: signal === "stop" ? "Servidor parado na ACLClouds." : "Comando enviado à ACLClouds. Confira os logs para confirmar a conexão do Discord." });
@@ -4846,7 +4852,7 @@ export async function onRequest(context) {
             await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
             const resource = await cogitRequest(config.token, "/servers/" + encodeURIComponent(serverId) + "/resources");
             const current = String(resource.data?.attributes?.current_state || "").toLowerCase();
-            const state = signal === "stop" ? "stopped" : (current === "running" ? "running" : "starting");
+            const state = signal === "stop" ? confirmRemoteStop(current, "Cogithost") : (current === "running" ? "running" : "starting");
             await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?").bind(state, Date.now(), id, user.id).run();
             return reply({ ok: true, action: signal, state, provider: "cogithost", providerAppId: serverId, discordOnline: false,
               resources: resource.data?.attributes?.resources || null,
@@ -4863,7 +4869,7 @@ export async function onRequest(context) {
             await requestFn(token, "/servers/" + encodeURIComponent(serverId) + "/power", "POST", { signal });
             const resource = await requestFn(token, "/servers/" + encodeURIComponent(serverId) + "/resources");
             const current = String(resource.data?.attributes?.current_state || "").toLowerCase();
-            const state = signal === "stop" ? "stopped" : (current === "running" ? "running" : "starting");
+            const state = signal === "stop" ? confirmRemoteStop(current, providerName) : (current === "running" ? "running" : "starting");
             await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?").bind(state, Date.now(), id, user.id).run();
             return reply({ ok: true, action: signal, state, provider: providerId, providerAppId: serverId, discordOnline: false,
               resources: resource.data?.attributes?.resources || null,
@@ -4876,8 +4882,13 @@ export async function onRequest(context) {
             if (!token) return reply({ code: "provider_not_connected", error: "Reconecte a Cube Hosting nas Configurações." }, 409);
             const projectId = cubeProjectId(bot.provider_app_id);
             const result = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(projectId) + "/" + signal, "POST");
-            const project = result.project || {};
-            const state = String(project.status || (signal === "stop" ? "stopped" : "running")).toLowerCase();
+            let project = result.project || {};
+            if (signal === "stop") {
+              const latest = await cubeCloudRequest(token, "/projects/" + encodeURIComponent(projectId));
+              project = latest.project || latest || project;
+            }
+            const projectState = String(project.status || project.state || "").toLowerCase();
+            const state = signal === "stop" ? confirmRemoteStop(projectState, "Cube Hosting") : (projectState || "starting");
             await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
               .bind(state, Date.now(), id, user.id).run();
             return reply({
@@ -4904,7 +4915,8 @@ export async function onRequest(context) {
                     (signal === "stop" && code === "CONTAINER_ALREADY_STOPPED"))) throw error;
             }
             const status = await squareCloudRequest(token, "/apps/" + appId + "/status");
-            const state = signal === "stop" ? "stopped" : String(status.status || (status.running ? "running" : "starting")).toLowerCase();
+            const providerState = String(status.status || status.state || (typeof status.running === "boolean" ? (status.running ? "running" : "stopped") : "")).toLowerCase();
+            const state = signal === "stop" ? confirmRemoteStop(providerState, "Square Cloud") : (providerState || "starting");
             await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
               .bind(state, Date.now(), id, user.id).run();
             return reply({
@@ -5019,6 +5031,11 @@ export async function onRequest(context) {
             }
           }
 
+          if (signal === "stop") {
+            const diagnosis = await hostRequest(user.id, env, "/deployments/" + encodeURIComponent(deploymentId) + "/diagnose?waitSeconds=0");
+            const remoteState = String(diagnosis.state || diagnosis.deployment?.state || result.state || "").toLowerCase();
+            result.state = confirmRemoteStop(remoteState, "Bot-Hosting");
+          }
           const actualState = String(result.state || (signal === "stop" ? "offline" : "starting")).toLowerCase();
           await env.DB.prepare("UPDATE bots SET state=?,hosting_deployment_id=?,updated_at=? WHERE id=? AND user_id=?")
             .bind(actualState, deploymentId, Date.now(), id, user.id).run();
@@ -5055,7 +5072,7 @@ export async function onRequest(context) {
           }
 
           await env.DB.prepare("UPDATE bots SET state=?,hosting_deployment_id=?,updated_at=? WHERE id=? AND user_id=?")
-            .bind(signal === "stop" ? "stopped" : actualState, deploymentId, Date.now(), id, user.id).run();
+            .bind(actualState, deploymentId, Date.now(), id, user.id).run();
 
           return reply({
             ok: true,
