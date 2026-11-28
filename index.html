@@ -926,16 +926,27 @@ $("#showRegister").onclick=()=>{$("#loginPane").classList.add("hidden");$("#regi
 const doLogout=async()=>{try{await api("/logout",{method:"POST"})}finally{state.user=null;showLanding()}};$("#logoutBtn").onclick=doLogout;const sideLogout=$("#sidebarLogout");if(sideLogout)sideLogout.onclick=doLogout;
 $("#menuBtn").onclick=()=>$("#sidebar").classList.toggle("open");
 
-function navigate(view){if(state.adminPortal&&!["verificationAdmin","minecraftAdmin"].includes(view))return;if(!state.adminPortal&&["verificationAdmin","minecraftAdmin"].includes(view))return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");$("#app").classList.toggle("minecraft-surface",view==="minecraft"||view==="minecraftMods");render();if(view==="verificationAdmin")loadVerificationBotAdmin();if(view==="minecraft")loadMinecraftStatus();if(view==="minecraftMods")loadMinecraftMods();if(view==="minecraftAdmin")loadMinecraftAdminConfig();const labels={overview:"Discord",bots:"Meus Bots",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",files:"Arquivos dos bots",backups:"Backups",docs:"Documentação",hosting:"Infraestrutura",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",minecraft:"Servidores Minecraft",minecraftMods:"Mods e modpacks",verificationAdmin:"CAOS · ADM",minecraftAdmin:"Minecraft · Administração"};$("#crumb").textContent=labels[view]||view}
+function navigate(view){if(state.adminPortal&&!["verificationAdmin","minecraftAdmin"].includes(view))return;if(!state.adminPortal&&["verificationAdmin","minecraftAdmin"].includes(view))return;state.view=view;document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active",b.dataset.view===view));$("#sidebar").classList.remove("open");$("#app").classList.toggle("minecraft-surface",view==="minecraft"||view==="minecraftMods");render();if(view==="verificationAdmin")loadVerificationBotAdmin();if(view==="minecraft")loadMinecraftStatus();if(view==="minecraftMods")loadMinecraftMods();if(view==="minecraftAdmin")loadMinecraftAdminConfig();const labels={overview:"Discord",bots:"Meus Bots",resources:"Recursos",modules:"Módulos do bot",templates:"Modelos",integrations:"Hospedagens alternativas",files:"Arquivos dos bots",backups:"Backups",docs:"Documentação",hosting:"Infraestrutura",logs:"Terminal / Logs",settings:"Configurações",decoration:"Decoração",minecraft:"Servidores Minecraft",minecraftMods:"Mods e modpacks",verificationAdmin:"CAOS · ADM",minecraftAdmin:"Minecraft · Administração"};$("#crumb").textContent=labels[view]||view}
 function pageHead(title,desc,action=""){return '<div class="page-head"><div><div class="caps">PAINEL DE CONTROLE</div><h1>'+title+'</h1><p>'+desc+'</p></div>'+action+'</div>'}
 
+function minecraftHostDirectory(){
+ const hosts=[
+  ["Jump Hosting","2 GB RAM · até 2 cores · 15 GB","Java e Bedrock; Fabric, Forge, NeoForge, Quilt e mods pelo Modrinth. O servidor gratuito dorme após 15 minutos sem jogadores e acorda quando alguém entra.","https://jumphosting.cloud/","GRÁTIS · SUSPENDE QUANDO VAZIO"],
+  ["Kubik","Servidor grátis permanente · sem cartão","Painel no navegador, console e gerenciador de arquivos. O servidor dorme quando não há jogadores e volta quando você retorna.","https://kubik.gg/en/gratis","GRÁTIS · ACORDA AO ENTRAR"],
+  ["MCWorldHost","4 GB RAM · 15 GB disco · 20 slots","Plano free com 80% de CPU, um servidor e suspensão após 10 minutos sem jogadores. Modpacks são anunciados como plano Premium, não no Free.","https://mcworldhost.de/","GRÁTIS · SEM MODPACKS NO FREE"],
+  ["Pingless","4 GB RAM · 10 GB NVMe","Painel, console e suporte a Minecraft; o servidor grátis precisa ser renovado a cada 48 horas usando créditos/renovação no painel.","https://dash.pingless.org/support","GRÁTIS · RENOVAR A CADA 48H"],
+  ["Aternos","Java e Bedrock · catálogo de mods e modpacks","Permite instalar loaders e modpacks compatíveis do catálogo. Em um modpack instalado, não dá para misturar livremente outros mods e configurações.","https://aternos.org/","GRÁTIS · CATÁLOGO PRÓPRIO"],
+  ["Scale Hosting","5 GB RAM · 15 GB NVMe · 120% CPU","Anuncia Vanilla, Paper, Fabric, Forge e modpacks; os servidores Free dormem após 10 minutos vazios. Na consulta mais recente, o plano Free aparecia sem vagas.","https://scalehosting.net/","FREE · SEM VAGAS NA CONSULTA"]
+ ];
+ return '<section class="dashboard-panel" style="margin-top:16px"><div class="dashboard-panel-head"><div><small>CONTAS EXTERNAS · MINECRAFT</small><h2>Mais hospedagens gratuitas</h2><p class="muted small">Crie sua conta no próprio provedor usando seu e-mail. Isso não compartilha nem utiliza as contas privadas do Black Zone.</p></div><span class="status">OPÇÕES FREE</span></div><div class="bz-host-alternative-grid">'+hosts.map(p=>'<article class="bz-host-alt-card"><div class="bz-host-alt-top"><span class="bz-host-alt-name">'+bzIcon("crystal")+' '+p[0]+'</span><span class="bz-host-alt-meta">'+p[4]+'</span></div><div class="bz-host-alt-spec">'+p[1]+'</div><p>'+p[2]+'</p><a href="'+p[3]+'" target="_blank" rel="noopener noreferrer">Abrir hospedagem oficial ↗</a></article>').join("")+'</div><div class="bz-host-alt-note" style="margin-top:14px">São painéis independentes: o cadastro, a criação do servidor e a instalação de mods acontecem no site escolhido. O Black Zone não consegue criar contas de terceiros apenas com o e-mail do cadastro. Vagas, suspensão por inatividade e limites dependem de cada provedor.</div></section>';
+}
 function minecraftView(){
  return pageHead("Servidores Minecraft","Área independente dos bots Discord: crie um servidor normal ou escolha um loader para jogar com mods.",'<button class="btn secondary" id="minecraftRefresh">↻ Atualizar servidores</button>')+
  '<section class="dashboard-panel mc-main-card"><div class="dashboard-panel-head"><div><small>BLACK ZONE · MINECRAFT</small><h2>Seu espaço de jogo</h2><p class="muted small">Contas, servidores, versões e mods ficam separados dos seus projetos Discord.</p></div><span class="mc-crystal">⛏</span></div>'+
- '<div id="minecraftStatus" class="mc-status"><div class="notice">Consultando sua conta e os servidores…</div></div></section>'+
- '<div class="mc-consent hidden" id="minecraftConsent" role="dialog" aria-modal="true" aria-labelledby="mcConsentTitle"><div class="mc-consent-card"><div class="mc-kicker">CONFIRMAÇÃO NECESSÁRIA</div><h2 id="mcConsentTitle">Vamos criar sua conta Minecraft?</h2><p>Ao continuar, você autoriza o BLACK ZONE Estúdio a criar uma conta individual no painel Minecraft usando seu nome e o e-mail que você confirmou.</p><p>Também será solicitado um servidor do tipo escolhido, com a versão e o loader exibidos. A conta de jogo não tem privilégios administrativos e não se mistura com sua conta Discord.</p><p>Não vamos acessar sua caixa de e-mail nem pedir sua senha de outros serviços.</p><div class="mc-actions"><button class="btn secondary" type="button" data-minecraft-action="cancel-consent">Cancelar</button><button class="btn" type="button" data-minecraft-action="confirm-create">Continuar e criar conta</button></div><div id="minecraftCreateNotice" class="notice hidden"></div></div></div>';
+ '<div id="minecraftStatus" class="mc-status"><div class="notice">Consultando sua conta e os servidores…</div></div></section>'+minecraftHostDirectory()+
+ '<div class="mc-consent hidden" id="minecraftConsent" role="dialog" aria-modal="true" aria-labelledby="mcConsentTitle"><div class="mc-consent-card"><div class="mc-kicker">CONFIRMAÇÃO NECESSÁRIA</div><h2 id="mcConsentTitle">Vamos criar sua conta Minecraft?</h2><p>Ao continuar, você autoriza o BLACK ZONE Estúdio a criar uma conta individual no painel Minecraft usando seu nome e o e-mail que você confirmou.</p><p>O servidor será hospedado na infraestrutura Minecraft configurada pelo administrador do Estúdio. A conta é individual, mas isso não cria uma assinatura ou hospedagem independente em outro provedor.</p><p>Não vamos acessar sua caixa de e-mail nem pedir sua senha de outros serviços. Você pode cancelar agora ou continuar com a criação.</p><div class="mc-actions"><button class="btn secondary" type="button" data-minecraft-action="cancel-consent">Cancelar</button><button class="btn" type="button" data-minecraft-action="confirm-create">Continuar e criar conta</button></div><div id="minecraftCreateNotice" class="notice hidden"></div></div></div>';
 }
-function minecraftAdminView(){
+function minecraftAdminView(){function minecraftAdminView(){
  return pageHead("Minecraft · Administração","Configuração privada dos servidores Minecraft, loaders, catálogo de mods e envio de e-mails.",'<button class="btn secondary" data-view="verificationAdmin">← Voltar para CAOS · ADM</button>')+
  '<section class="dashboard-panel mc-admin-panel"><div class="dashboard-panel-head"><div><small>CONFIGURAÇÃO PRIVADA</small><h2>Verificação por e-mail</h2></div><span class="status">ADM</span></div>'+
  '<form id="mcAdminConfigForm" class="mc-admin-grid">'+
@@ -1106,7 +1117,7 @@ async function loadMinecraftAdminConfig(){
  }catch(error){if(note)note.textContent=error.message||"Não foi possível carregar as configurações.";}
 }
 
-function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,files:filesView,backups:backupsView,docs:docsView,hosting:hostingView,minecraft:minecraftView,minecraftMods:minecraftModsView,minecraftAdmin:minecraftAdminView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
+function render(){const v=state.view;const f={overview:overviewView,bots:botsView,resources:resourcesView,modules:modulesView,templates:templatesView,integrations:integrationsView,files:filesView,backups:backupsView,docs:docsView,hosting:hostingView,minecraft:minecraftView,minecraftMods:minecraftModsView,minecraftAdmin:minecraftAdminView,logs:logsView,settings:settingsView,decoration:decorationView,verificationAdmin:verificationAdminView}[v]||overviewView;$("#view").innerHTML=f();bindView()}
 
 const DECORATION_OPTIONS=[
  {id:"dragon",name:"Dragão Violeta",tag:"🐉 · DRAGÃO ABISSAL",description:"Dragão roxo, sombras profundas, fumaça e brilho violeta.",symbol:"🐉",scene:"decor-scene-dragon",wallpaper:"/themes/dragon.svg",emojis:"🐉 ⚔️ 🌑 ✦"},
@@ -1242,101 +1253,7 @@ function botCard(b){
   '</div></article>';
 }
 function botsView(){return pageHead("Meus bots","Controle a execução, os horários e os comandos do seu bot Discord.",'<button class="btn" id="addBot">＋ Criar projeto</button>')+'<div class="card"><div class="section-head"><h3>Seus bots</h3><button class="btn secondary" id="refreshBots">↻ Atualizar</button></div><div class="list">'+(state.bots.length?state.bots.map(botCard).join(""):'<div class="empty"><b>Nenhum bot cadastrado</b>Crie seu bot, proteja o token e conecte a hospedagem para iniciar.</div>')+'</div></div>'}
-function fleetView(){
- const bots=state.bots||[];
- const online=bots.filter(b=>b.discordOnline===true).length;
- const hosted=bots.filter(b=>!!b.hostingDeploymentId).length;
- const pending=bots.filter(b=>!b.hasDiscordToken).length;
- const selected=new Set(state.bulkSelected||[]);
- const progress=Math.min(100,Math.round(bots.length/100*100));
- return pageHead("Frota de bots","Centralize até 100+ projetos, acompanhe a capacidade de cada hospedagem e execute ações em lote.",'<button class="btn" data-action="create-bot">＋ Criar projeto</button>')+
-  '<div class="fleet-shell">'+
-  '<section class="dashboard-panel fleet-capacity-panel"><div class="fleet-capacity-head"><div><div class="caps">META DE FROTA</div><h2>'+bots.length+' <span>/ 100 bots cadastrados</span></h2><p>O Estúdio não impõe limite de 100 projetos. A quantidade que pode ficar online depende das vagas e da memória dos provedores conectados.</p></div><div class="fleet-target-ring"><strong>'+progress+'%</strong><small>da meta</small></div></div><div class="fleet-progress-track"><i style="width:'+progress+'%"></i></div><div class="fleet-metrics"><div><b>'+online+'</b><span>Online no Discord</span></div><div><b>'+hosted+'</b><span>Com hospedagem vinculada</span></div><div><b>'+pending+'</b><span>Sem token cadastrado</span></div></div></section>'+
-  '<section class="dashboard-panel"><div class="dashboard-panel-head"><div><small>CAPACIDADE REAL</small><h2>Pool de hospedagem</h2></div><button class="btn secondary" id="fleetRefreshPool">↻ Atualizar</button></div><div id="fleetProviders" class="fleet-provider-grid"><div class="dashboard-empty">Consultando os limites reais das suas contas conectadas…</div></div><div class="project-note">A capacidade só aparece como disponível quando o provedor confirma a conta e os recursos pela API. Planos, vagas e memória podem mudar; o Estúdio não reserva vagas automaticamente.</div></section>'+
-  '<section class="dashboard-panel"><div class="dashboard-panel-head"><div><small>CONTROLE EM LOTE</small><h2>Selecionar projetos</h2></div><span class="small-muted" id="fleetSelectedCount">'+selected.size+' selecionados</span></div>'+
-   '<div class="fleet-bulk-toolbar"><label class="fleet-select-all"><input id="fleetSelectAll" type="checkbox" '+(bots.length&&selected.size===bots.length?"checked":"")+'><span>Selecionar todos</span></label><div class="fleet-bulk-actions"><button class="btn" data-fleet-power="start" '+(!selected.size?"disabled":"")+'>▶ Iniciar</button><button class="btn secondary" data-fleet-power="restart" '+(!selected.size?"disabled":"")+'>↻ Reiniciar</button><button class="btn secondary" data-fleet-power="stop" '+(!selected.size?"disabled":"")+'>■ Parar</button></div></div>'+
-   '<div id="fleetProgress" class="project-note fleet-progress-message" hidden></div>'+
-   (bots.length?'<div class="fleet-project-list">'+bots.map(b=>'<label class="fleet-project-row"><input class="fleet-project-check" type="checkbox" data-fleet-id="'+escapeHtml(b.id)+'" '+(selected.has(b.id)?"checked":"")+'><span class="fleet-project-main"><strong>'+escapeHtml(b.name||"Bot sem nome")+'</strong><small>'+escapeHtml(b.hostingProvider||"sem provedor")+' · '+(b.hostingDeploymentId?"hospedagem vinculada":"sem hospedagem")+' · '+(b.hasDiscordToken?"token salvo":"token pendente")+'</small></span><span class="fleet-project-status '+(b.discordOnline?"is-online":"")+'">'+(b.discordOnline?"ONLINE":(b.state==="running"?"PROCESSO ATIVO":(b.hostingDeploymentId?"OFFLINE":"RASCUNHO")))+'</span></label>').join("")+'</div>':'<div class="dashboard-empty">Nenhum projeto cadastrado ainda.</div>')+
-   '<p class="small-muted fleet-bulk-note">Ações em lote atuam somente em bots já vinculados a uma hospedagem. Para iniciar ou reiniciar, o bot também precisa ter token salvo. Projetos sem hospedagem/token serão ignorados.</p>'+
-  '</section></div>';
-}
-async function loadFleetProviders(){
- const root=$("#fleetProviders");
- if(!root)return;
- root.innerHTML='<div class="dashboard-empty">Consultando provedores conectados…</div>';
- try{
-  const data=await api("/hosting/pool/status");
-  const providers=Array.isArray(data.providers)?data.providers:[];
-  root.innerHTML=providers.map(p=>{
-   const name=escapeHtml(p.name||p.id||"Provedor");
-   const connected=!!p.connected,valid=p.valid!==false&&connected;
-   let capacity="Sem limite informado pela API",detail="";
-   if(p.id==="cubecloud"&&Number(p.maxBots)>0){
-    const used=Number(p.projectsCount||0),max=Number(p.maxBots||0);
-    capacity=used+" / "+max+" projetos no plano · "+Math.max(0,max-used)+" vagas nominais";
-    detail="Memória livre: "+Number(p.memoryAvailableMb||0)+" MB"+(p.memoryLimitMb?" / "+Number(p.memoryLimitMb)+" MB":"");
-   }else if(p.id==="squarecloud"){
-    capacity=Number(p.applicationsCount||0)+" aplicações";
-    detail="Memória livre: "+Number(p.memoryAvailableMb||0)+" MB"+(p.memoryLimitMb?" / "+Number(p.memoryLimitMb)+" MB":"");
-   }else if(p.id==="discloud"){
-    capacity=p.appsCount==null?"Aplicações não informadas":Number(p.appsCount)+" aplicações";
-    detail=p.totalRamMb?"RAM livre: "+Math.max(0,Number(p.totalRamMb)-Number(p.ramUsedMb||0))+" MB / "+Number(p.totalRamMb)+" MB":"Compatibilidade parcial; sem novas criações pelo Estúdio";
-   }else if(p.id==="sillydev"){
-    capacity=p.canCreate?Number(p.freeSlotsRemaining||0)+" vaga(s) Free confirmada(s)":Number(p.serversOwned||0)+"/"+Number(p.freeServersLimit||2)+" servidores usados";
-    detail="Até 2 servidores por conta · 256 MB RAM, 512 MB disco e 25% CPU por servidor";
-   }else if(p.id==="cogithost"){
-    capacity=Number(p.serversCount||0)+" servidores acessíveis";
-    detail="Vincule servidores criados no painel Cogithost";
-   }else if(p.id==="keritcloud"){
-    capacity=Number(p.serversCount||0)+" servidor(es) acessível(is)";
-    detail="Free: 1 servidor por pessoa · 256 MB RAM · 2 GB NVMe · sem expiração";
-   }else if(p.id==="aclclouds"){
-    capacity=Number(p.botsCount||0)+" bot(s) Discord na conta";
-    detail="Free: 1 bot por conta · renovação manual a cada 4 dias";
-   }else if(p.id==="bot-hosting"){
-    capacity=p.canCreate?"Criação autorizada pela conta":"Consulte a vaga do seu plano";
-    detail="A implantação ADM permanece separada e não será alterada";
-   }else if(p.deploymentMode==="manual"){
-    capacity=p.plan||"Plano gratuito anunciado";
-    detail=p.detail||"Implantação feita no painel do provedor.";
-   }
-   const stateText=p.deploymentMode==="manual"?"Grátis · deploy manual no painel":(!connected?"Não conectado":!valid?"Conexão precisa de revisão":p.canCreate?"Pode receber novos bots":p.canAttach?"Pode vincular servidores existentes":"Sem vaga confirmada");
-   const action=p.deploymentMode==="manual"&&p.url?'<a class="link" href="'+escapeHtml(p.url)+'" target="_blank" rel="noopener noreferrer">Abrir painel do provedor ↗</a>':"";
-   return '<article class="fleet-provider-card"><div class="fleet-provider-top"><strong>'+name+'</strong><span class="fleet-provider-dot '+(p.canCreate||p.canAttach?"is-ready":(connected?"is-waiting":""))+'"></span></div><b>'+escapeHtml(capacity)+'</b><small>'+escapeHtml(detail)+'</small><span class="fleet-provider-state">'+escapeHtml(stateText)+'</span>'+action+'</article>';
-  }).join("")||'<div class="dashboard-empty">Nenhum provedor foi retornado pelo painel.</div>';
- }catch(error){root.innerHTML='<div class="dashboard-empty">'+escapeHtml(error.message||"Não foi possível consultar os provedores.")+'</div>';}
-}
-async function runFleetPower(action){
- const selected=(state.bulkSelected||[]).map(id=>state.bots.find(bot=>bot.id===id)).filter(Boolean);
- if(!selected.length)return toast("Selecione pelo menos um projeto.");
- const eligible=selected.filter(bot=>bot.hostingDeploymentId&&(action==="stop"||bot.hasDiscordToken));
- const skipped=selected.length-eligible.length;
- if(!eligible.length)return toast("Nenhum projeto selecionado está pronto para essa ação. Confira hospedagem e Bot Token.");
- const labels={start:"iniciar",restart:"reiniciar",stop:"parar"};
- if(!window.confirm("Deseja "+labels[action]+" "+eligible.length+" bot(s)? Projetos sem hospedagem ou token necessário serão ignorados."))return;
- document.querySelectorAll("[data-fleet-power]").forEach(button=>button.disabled=true);
- const progress=$("#fleetProgress");if(progress){progress.hidden=false;progress.textContent="Preparando "+eligible.length+" ações…";}
- let cursor=0,success=0;const failures=[];
- async function worker(){
-  while(cursor<eligible.length){
-   const bot=eligible[cursor++];
-   if(progress)progress.textContent="Processando "+cursor+"/"+eligible.length+" · "+bot.name;
-   try{
-    const result=await api("/bots/"+encodeURIComponent(bot.id)+"/power",{method:"POST",body:JSON.stringify({action})});
-    if(result?.ok===false)throw new Error(result.error||"O provedor recusou o comando.");
-    success++;
-   }catch(error){failures.push(bot.name+": "+(error.message||"falha"));}
-  }
- }
- await Promise.all(Array.from({length:Math.min(2,eligible.length)},()=>worker()));
- state.bulkSelected=[];
- await loadBots();
- if(state.view==="fleet")await loadFleetProviders();
- const message=action.toUpperCase()+" · "+success+" sucesso(s), "+failures.length+" falha(s), "+skipped+" ignorado(s).";
- if(progress){progress.hidden=false;progress.textContent=message+(failures.length?" "+failures.slice(0,4).join(" | "):"");}
- toast(message);
-}
-function templatesView(){
+function templatesView(){function templatesView(){
  return pageHead("Modelos e criação","Escolha a base do Estúdio ou importe o seu próprio bot.")+
  '<div class="grid two-col">'+
  '<section class="card bz-template-card"><div class="bot-row"><div class="bot-logo">'+bzIcon("bot")+'</div><div class="bot-info"><strong>CAOS · Modelo do Estúdio</strong><span>Python · Equipe, tickets, metas, recrutamento e música</span></div><span class="status off">Modelo</span></div><p class="muted small" style="margin:17px 0">Base pronta do Black Zone. Informe o Bot Token, escolha os módulos que o código oferece e publique em uma hospedagem compatível. Não exige API Key de IA.</p><button class="btn" id="configureCaos">Configurar modelo CAOS ↗</button></section>'+
@@ -1385,11 +1302,22 @@ function docsView(){
  '<div class="docs-layout"><aside class="docs-index"><div class="nav-title caps">Guias</div>'+docs.map((d,i)=>'<a href="#guide-'+i+'">'+d[0]+' · '+d[1]+'</a>').join("")+'</aside><div class="docs-content">'+docs.map((d,i)=>'<article class="doc-step" id="guide-'+i+'"><div class="doc-step-head"><span>'+d[0]+'</span><h3>'+d[1]+'</h3></div><p>'+d[2]+'</p><div class="doc-tip">'+d[3]+'</div></article>').join("")+'</div></div>';
 }
 function integrationsView(){
- return pageHead("Infraestrutura do Estúdio","A publicação dos seus bots é gerenciada pelo Black Zone.")+
- '<section class="dashboard-panel bz-onboarding-panel"><div class="bz-onboarding-head">'+bzIcon("shield")+'<div><div class="bz-onboarding-title">Infraestrutura gerenciada</div><div class="bz-onboarding-subtitle">Contas técnicas e conexões de execução ficam restritas à administração.</div></div></div><p class="muted small">Na área dos membros, você acompanha somente seus projetos e o estado da publicação. Para criar ou atualizar um bot, use o Bot Token e o ZIP. O Estúdio não ativa plano pago sem autorização.</p></section>';
+ const providers=[
+  ["Quaxly","Até 3 bots · 512 MB compartilhados · 24/7","Plano gratuito sem renovação periódica anunciada. O envio do código e do token é feito no painel externo.","https://quaxly.com/","FREE · SEM RENOVAÇÃO"],
+  ["Kerit Cloud","256 MB RAM · 2 GB NVMe · 24/7","Um servidor gratuito por conta; anuncia auto-restart e banco MySQL gratuito.","https://kerit.cloud/free-discord-bot-hosting/","FREE · SEM SUSPENSÃO POR INATIVIDADE"],
+  ["ACLClouds","315 MB RAM · 0,25 vCPU · 715 MB disco","Um bot gratuito por conta, com renovação manual a cada 4 dias.","https://aclclouds.com/en/bots","FREE · RENOVAÇÃO A CADA 4 DIAS"],
+  ["CogitDev","1 GiB RAM · 500 MB disco · 75% CPU","Um bot gratuito por conta. As regras do plano exigem presença Discord indicando a hospedagem.","https://host.cogitdev.net/","FREE · 24/7"],
+  ["Waifly","300 MB RAM · 1 GB disco · 1 servidor","Node.js e Python; um servidor offline por 3 dias pode ser suspenso automaticamente.","https://waifly.com/","FREE · SEM CARTÃO"],
+  ["Hostrix","1 servidor gratuito · Node.js, Python e Java","Painel com console e arquivos; também anuncia Minecraft Paper/Vanilla. Confirme a capacidade ao cadastrar.","https://hostrix.website/","FREE · PAINEL EXTERNO"],
+  ["FPS.ms","128 MB RAM · 250 MB disco · 25% CPU","Suporta Python e Node.js; precisa renovar o plano gratuito para manter o processo ativo.","https://fps.ms/free-discord-bot-hosting","FREE · COM RENOVAÇÃO"],
+  ["Torchlite","512 MB RAM · 0,5 core · 3 GB disco","O plano grátis exige renovação a cada 2 horas durante o dia; entre 00h e 10h no horário da Romênia não há renovação.","https://torchlite.host/games/discord-bots","FREE · RENOVAÇÃO FREQUENTE"]
+ ];
+ return pageHead("Hospedagens alternativas","Opções externas para hospedar bots Discord com a conta e o e-mail do próprio membro.")+
+  '<section class="dashboard-panel bz-onboarding-panel"><div class="bz-onboarding-head">'+bzIcon("shield")+'<div><div class="bz-onboarding-title">Suas contas ficam com você</div><div class="bz-onboarding-subtitle">Estas opções não usam nem revelam as contas privadas do Black Zone.</div></div></div><p class="muted small">Escolha uma hospedagem, crie sua própria conta no site oficial e envie o ZIP/token diretamente no painel dela. São alternativas manuais, não integrações automáticas do Estúdio; cada provedor define regras, limites, disponibilidade e eventuais renovações.</p></section>'+
+  '<div class="bz-host-alternative-grid" style="margin-top:15px">'+providers.map(p=>'<article class="bz-host-alt-card"><div class="bz-host-alt-top"><span class="bz-host-alt-name">'+bzIcon("rocket")+' '+p[0]+'</span><span class="bz-host-alt-meta">'+p[4]+'</span></div><div class="bz-host-alt-spec">'+p[1]+'</div><p>'+p[2]+'</p><a href="'+p[3]+'" target="_blank" rel="noopener noreferrer">Abrir site oficial ↗</a></article>').join("")+'</div>'+
+  '<div class="bz-host-alt-note" style="margin-top:14px">Não coloque o token do Discord em sites que não sejam o painel oficial da hospedagem. Confira os termos e a disponibilidade antes de enviar seus arquivos. Os limites gratuitos podem mudar sem aviso.</div>';
 }
-
-function hostingView(){
+function hostingView(){function hostingView(){
  const bots=state.bots||[],online=bots.filter(bot=>bot.discordOnline===true).length;
  return pageHead("Infraestrutura","A execução dos seus bots é gerenciada pelo Black Zone.",'<button class="btn btn-bright" data-action="create-bot">＋ Criar bot · Token + ZIP</button>')+
  '<section class="dashboard-panel bz-onboarding-panel"><div class="bz-onboarding-head">'+bzIcon("rocket")+'<div><div class="bz-onboarding-title">Publicação simplificada</div><div class="bz-onboarding-subtitle">Envie o token e o ZIP. O Estúdio verifica a capacidade e publica quando houver vaga compatível.</div></div></div><div class="bz-feature-row">'+bzIcon("shield")+'<div><b>Área técnica protegida</b><small>Contas de execução, credenciais e detalhes dos serviços parceiros não aparecem no painel comum. O Estúdio não contrata planos pagos sem autorização.</small></div></div></section>'+
@@ -2288,22 +2216,7 @@ const keritForm=$("#keritConnectForm");
   toast("Visual padrão restaurado.");
  };
 
- const fleetSelectAll=$("#fleetSelectAll");
- if(fleetSelectAll)fleetSelectAll.onchange=()=>{
-  state.bulkSelected=fleetSelectAll.checked?state.bots.map(bot=>bot.id):[];
-  render();
- };
- document.querySelectorAll(".fleet-project-check").forEach(input=>input.onchange=()=>{
-  const values=new Set(state.bulkSelected||[]);
-  if(input.checked)values.add(input.dataset.fleetId);else values.delete(input.dataset.fleetId);
-  state.bulkSelected=[...values];
-  const count=$("#fleetSelectedCount");if(count)count.textContent=state.bulkSelected.length+" selecionados";
-  document.querySelectorAll("[data-fleet-power]").forEach(button=>button.disabled=!state.bulkSelected.length);
-  const all=$("#fleetSelectAll");if(all)all.checked=state.bulkSelected.length===state.bots.length;
- });
- document.querySelectorAll("[data-fleet-power]").forEach(button=>button.onclick=()=>runFleetPower(button.dataset.fleetPower));
- const fleetRefresh=$("#fleetRefreshPool");if(fleetRefresh)fleetRefresh.onclick=loadFleetProviders;
-  const hostingRefresh=$("#hostingRefresh");if(hostingRefresh)hostingRefresh.onclick=loadHostingPoolOverview;
+  const hostingRefresh=  const hostingRefresh=$("#hostingRefresh");if(hostingRefresh)hostingRefresh.onclick=loadHostingPoolOverview;
   document.querySelectorAll("[data-hosting-files]").forEach(button=>button.onclick=()=>{state.activeBot=button.dataset.hostingFiles;navigate("files")});
  const select=$("#resourceBotSelect");if(select)select.onchange=()=>{state.activeBot=select.value;render()};
  const openResources=$("#openResourceModules");if(openResources)openResources.onclick=()=>caosModal(activeBotForResources()?.id);
