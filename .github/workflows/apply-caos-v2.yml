@@ -1,0 +1,42 @@
+name: Publicar novo modelo de bot
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-caos-v2.yml"
+      - "scripts/apply-caos-v2.b64"
+      - "api/caos-v2-source-*.txt"
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Preparar Node e Python
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Preparar fonte e integração
+        run: |
+          python - <<'PY'
+          import base64, bz2
+          from pathlib import Path
+          encoded = Path("scripts/apply-caos-v2.b64").read_text().strip()
+          Path("scripts/apply-caos-v2.mjs").write_bytes(bz2.decompress(base64.b64decode(encoded)))
+          PY
+          node --check scripts/apply-caos-v2.mjs
+          node scripts/apply-caos-v2.mjs
+      - name: Validar e salvar
+        run: |
+          node scripts/validate.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html 'api/[...path].js' creator-cyber.css scripts/validate.mjs public/caos-v2/main.py
+          git add -u -- api/caos-v2-source-1.txt api/caos-v2-source-2.txt api/caos-v2-source-3.txt api/caos-v2-source-4.txt api/caos-v2-source-5.txt api/caos-v2-source-6.txt api/caos-v2-source-7.txt
+          git add scripts/apply-caos-v2.b64 .github/workflows/apply-caos-v2.yml
+          git commit -m "Add updated ready bot model with working module command sync"
+          git push
