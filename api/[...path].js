@@ -1090,7 +1090,7 @@ async function waitForHostReinstall(userId, env, deploymentId) {
   error.retryAfterMs = 1800;
   throw error;
 }
-const CAOS_REQUIREMENTS = "discord.py[voice]==2.7.1\nyt-dlp>=2026.10.26\nimageio-ffmpeg>=0.8.1\n";
+const CAOS_REQUIREMENTS = "discord.py[voice]==2.7.1\ndavey==0.1.7\nPyNaCl>=1.6.0,<1.7.0\npython-dotenv>=1.0,<2.0\nyt-dlp[default]>=2026.10.26\ndeno>=2.3.0\nimageio-ffmpeg>=0.8.1\n";
 function runnerTemplate() {
   return String.raw`import json, signal, subprocess, sys, time
 from datetime import datetime, timezone
@@ -4295,19 +4295,16 @@ export async function onRequest(context) {
       }
 
       const ownedBot = await env.DB.prepare(
-        "SELECT id,discord_token_enc,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
+        "SELECT id,discord_token_enc,discord_bot_id,discord_bot_name,hosting_deployment_id,hosting_provider,project_type,custom_project FROM bots WHERE id=? AND user_id=?"
       ).bind(id, user.id).first();
       if (!ownedBot) return reply({ error: "Projeto não encontrado nesta conta." }, 404);
 
-      // Backward-compatible: older clients may still send a token together
-      // with modules. New clients save the token through /bot-token separately.
       const newToken = String(b.discordToken || "").trim();
       let tokenResult = null;
       if (newToken) {
         tokenResult = await saveDiscordBotToken(id, user.id, newToken, env);
         if (!tokenResult.ok) return reply({ error: tokenResult.error }, tokenResult.status);
       } else if (ownedBot.discord_token_enc) {
-        // A blank token means "leave unchanged", not "delete".
         let existingToken = null;
         try { existingToken = await decryptSecret(ownedBot.discord_token_enc, env); } catch {}
         if (!existingToken) {
@@ -4317,7 +4314,12 @@ export async function onRequest(context) {
         }
       }
 
-      const allowed = ["music","tickets","attendance","team","goals","warnings","recruitment","logs"];
+      // Compatibilidade com a opção antiga "team"; os módulos novos ficam separados
+      // para que Regras da Equipe, Ponto e Advertências possam ser controlados individualmente.
+      const allowed = [
+        "music","tickets","attendance","team","goals","warnings","recruitment","logs",
+        "ai","requests","orders","partnerships","rules_discord","rules_rp","rules_team","horror"
+      ];
       const modules = {};
       for (const key of allowed) modules[key] = !!(b.modules && b.modules[key]);
       await env.DB.prepare(
@@ -4325,7 +4327,7 @@ export async function onRequest(context) {
       ).bind(JSON.stringify(modules), Date.now(), id, user.id).run();
 
       const confirmed = await env.DB.prepare(
-        "SELECT discord_token_enc,modules,discord_bot_id,discord_bot_name FROM bots WHERE id=? AND user_id=?"
+        "SELECT discord_token_enc,modules,discord_bot_id,discord_bot_name,state FROM bots WHERE id=? AND user_id=?"
       ).bind(id, user.id).first();
       const tokenStored = !!confirmed?.discord_token_enc;
       if (tokenStored) {
@@ -4341,19 +4343,61 @@ export async function onRequest(context) {
       const savedModules = typeof confirmed?.modules === "string"
         ? JSON.parse(confirmed.modules || "{}")
         : (confirmed?.modules || {});
+      let runtimeApplied = false;
+      let applyError = null;
+      let runtimeState = confirmed?.state || "draft";
+      const customProject = ownedBot.project_type === "custom" || !!ownedBot.custom_project;
+      const provider = String(ownedBot.hosting_provider || "bot-hosting").toLowerCase();
+      if (!customProject && ownedBot.hosting_deployment_id && provider === "bot-hosting") {
+        try {
+          await setHostEnv(
+            user.id, env, ownedBot.hosting_deployment_id,
+            "CAOS_MODULES", JSON.stringify(modules), false
+          );
+          let applied = await hostRequest(
+            user.id, env,
+            "/deployments/" + encodeURIComponent(ownedBot.hosting_deployment_id) + "/apply",
+            "POST",
+            { restart: true, waitSeconds: 0 }
+          );
+          let state = String(applied.state || "").toLowerCase();
+          if (["offline","stopped","unknown",""].includes(state)) {
+            applied = await hostRequest(
+              user.id, env,
+              "/deployments/" + encodeURIComponent(ownedBot.hosting_deployment_id) + "/power",
+              "POST",
+              { action: "start", waitSeconds: 0 }
+            );
+            state = String(applied.state || "starting").toLowerCase();
+          }
+          runtimeState = state || "starting";
+          runtimeApplied = true;
+          await env.DB.prepare("UPDATE bots SET state=?,updated_at=? WHERE id=? AND user_id=?")
+            .bind(runtimeState, Date.now(), id, user.id).run();
+        } catch (error) {
+          applyError = String(error?.message || "Não foi possível aplicar as opções no servidor agora.");
+        }
+      }
+
       return reply({
         ok: true,
         tokenStored,
         hasDiscordToken: tokenStored,
         tokenUpdated: !!tokenResult?.tokenUpdated,
         modules: savedModules,
+        runtimeApplied,
+        runtimeState,
+        applyError,
+        appliesOnNextStart: !customProject && !ownedBot.hosting_deployment_id,
         discordBotId: confirmed?.discord_bot_id || tokenResult?.discordBotId || null,
         discordBotName: confirmed?.discord_bot_name || tokenResult?.discordBotName || null,
-        message: tokenResult?.tokenUpdated
-          ? "Token validado e salvo; módulos atualizados."
-          : (tokenStored
-            ? "Módulos salvos; o token anterior foi mantido."
-            : "Módulos salvos. Nenhum token foi alterado.")
+        message: applyError
+          ? "Opções salvas. Não consegui reiniciar o servidor automaticamente: " + applyError
+          : (runtimeApplied
+            ? "Opções salvas e reinicialização solicitada para atualizar os comandos do Discord."
+            : (customProject
+              ? "Opções registradas, mas este ZIP é um projeto próprio e controla seus recursos pelo código dele."
+              : "Opções salvas. Os comandos serão configurados quando o bot for iniciado pela primeira vez."))
       });
     }
 
