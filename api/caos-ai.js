@@ -54,7 +54,7 @@ async function verifyBot(req, sql) {
   // Também autoriza bots extras do proprietário, desde que sejam projetos
   // personalizados com token salvo e hospedagem efetivamente vinculada.
   const companionRows = await sql.query(
-    "SELECT b.discord_bot_id FROM bots b INNER JOIN admin_caos_settings a ON a.id='main' AND a.owner_user_id=b.user_id WHERE b.discord_bot_id=$1 AND b.discord_token_enc IS NOT NULL AND b.project_type='custom' AND (COALESCE(b.provider_app_id,'') <> '' OR COALESCE(b.hosting_deployment_id,'') <> '') LIMIT 1",
+    "SELECT b.discord_bot_id FROM bots b INNER JOIN admin_caos_settings a ON a.id='main' AND a.owner_user_id=b.user_id WHERE b.discord_bot_id=$1 AND b.discord_token_enc IS NOT NULL AND b.project_type IN ('custom','standard') AND COALESCE(b.modules::jsonb->>'ai','false')='true' AND (COALESCE(b.provider_app_id,'') <> '' OR COALESCE(b.hosting_deployment_id,'') <> '') LIMIT 1",
     [String(identity.id)]
   );
   return companionRows?.length ? String(identity.id) : null;
@@ -103,9 +103,12 @@ async function useQuota(sql, guildId, userId, kind) {
   return { ok: true };
 }
 
-async function gatewayRequest(path, payload) {
-  const key = process.env.AI_GATEWAY_API_KEY;
-  if (!key) throw Object.assign(new Error("A chave privada da IA não está configurada no servidor."), { status: 503 });
+async function gatewayRequest(path, payload, req) {
+  // Vercel entrega o token OIDC da execução no header da Function. A chave
+  // persistente só é usada como alternativa explícita; nunca vai ao navegador.
+  const oidc = req?.headers?.["x-vercel-oidc-token"] || req?.headers?.get?.("x-vercel-oidc-token");
+  const key = process.env.AI_GATEWAY_API_KEY || oidc;
+  if (!key) throw Object.assign(new Error("A autenticação segura do AI Gateway não está disponível nesta implantação."), { status: 503 });
   let response;
   try {
     response = await fetch(GATEWAY + path, {
@@ -153,7 +156,7 @@ async function chat(req, res, sql, body) {
     messages,
     temperature: 0.55,
     max_tokens: 450
-  });
+  }, req);
   const answer = data?.choices?.[0]?.message?.content;
   const text = Array.isArray(answer) ? answer.map(part => part?.text || "").join("") : String(answer || "");
   if (!text.trim()) return send(res, 502, { error: "A IA não retornou uma resposta. Tente novamente." });
@@ -176,7 +179,7 @@ async function image(req, res, sql, body) {
     size: "768x768",
     n: 1,
     response_format: "b64_json"
-  });
+  }, req);
   const item = data?.data?.[0] || data?.images?.[0] || {};
   let imageBase64 = item.b64_json || item.base64 || null;
   let mimeType = "image/png";
@@ -199,8 +202,8 @@ async function image(req, res, sql, body) {
 export default async function handler(req, res) {
   if (req.method === "OPTIONS") return send(res, 204, {});
   if (req.method !== "POST") return send(res, 405, { error: "Método não permitido." });
-  if (!process.env.DATABASE_URL || !process.env.AI_GATEWAY_API_KEY) {
-    return send(res, 503, { error: "A conexão segura da IA ainda não está configurada no servidor." });
+  if (!process.env.DATABASE_URL) {
+    return send(res, 503, { error: "A conexão segura com o banco de dados ainda não está configurada no servidor." });
   }
   try {
     const body = await readBody(req);
