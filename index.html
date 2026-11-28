@@ -1507,6 +1507,27 @@ async function loadVerificationBotAdmin(){
   state.bots=Array.isArray(botsResult.value?.deployments)?botsResult.value.deployments:[];
   const companion=state.bots.find(bot=>bot.name==="Segunda bot"&&bot.projectType==="custom");
   state.companionBotId=companion?.id||null;
+  if(companion?.id&&(companion.providerAppId||companion.hostingDeploymentId)){
+   try{
+    const diagnosis=await api("/bots/"+encodeURIComponent(companion.id)+"/diagnose");
+    const remoteState=[
+     diagnosis?.apps?.container,diagnosis?.app?.container,diagnosis?.container,
+     diagnosis?.apps?.status,diagnosis?.app?.status,diagnosis?.status,
+     diagnosis?.current_state,diagnosis?.currentState,diagnosis?.state,
+     diagnosis?.project?.status,diagnosis?.deployment?.state,
+     diagnosis?.data?.attributes?.current_state
+    ].find(value=>typeof value==="string"&&value.trim());
+    if(remoteState){
+     const normalized=String(remoteState).trim().toLowerCase();
+     if(/^(online|running|started|active)$/.test(normalized))companion.state="running";
+     else if(/^(offline|stopped|terminated|suspended|exited|killed|shutdown|not[ _-]?running)$/.test(normalized))companion.state="stopped";
+     else if(/starting|installing|restarting|queued|creating|pending/.test(normalized))companion.state="starting";
+     companion.remoteState=normalized;
+    }
+   }catch(error){
+    companion.statusCheckError=error?.message||"Não foi possível confirmar o estado remoto.";
+   }
+  }
  }
  if(state.view==="verificationAdmin"&&state.adminPortal){
   render();
@@ -1557,13 +1578,13 @@ function verificationAdminView(){
  '<div class="companion-meta"><span>HOSPEDAGEM<strong>'+escapeHtml(companionProviderName)+'</strong></span><span>LINGUAGEM<strong>'+companionRuntime+'</strong></span><span>DISCORD<strong>'+(companion?.hasDiscordToken?"TOKEN PROTEGIDO":"TOKEN PENDENTE")+'</strong></span></div>'+
  '<div class="companion-controls">'+
  '<button class="btn companion-start" id="companionStartButton" '+(!companionHasServer||companionIsOnline||companionIsStarting?"disabled":"")+' title="Iniciar somente a Segunda bot"><span>▶</span> '+(companionIsOnline?"Já está ligada":companionIsStarting?"Iniciando…":"Iniciar")+'</button>'+
- '<button class="btn danger companion-stop" id="companionStopButton" '+(!companionHasServer||["stopped","offline","terminated"].includes(companionStateValue)?"disabled":"")+' title="Parar somente a Segunda bot"><span>■</span> Parar</button>'+
+ '<button class="btn danger companion-stop" id="companionStopButton" '+(!companionHasServer?"disabled":"")+' title="Enviar parada à hospedagem, mesmo que o último status salvo esteja desatualizado"><span>■</span> Parar</button>'+
  '<button class="btn secondary companion-restart" id="companionRestartButton" '+(!companionHasServer?"disabled":"")+' title="Reiniciar somente a Segunda bot"><span>⟳</span> Reiniciar</button>'+
  '<button class="btn secondary companion-update" id="companionUpdateButton" '+(!companion?.hasDiscordToken?"disabled":"")+'><span>↻</span> Atualizar ZIP</button>'+
  '<button class="btn secondary companion-refresh" id="companionRefreshButton"><span>⌕</span> Recarregar painel</button></div>'+
  '<div class="companion-live-note" id="companionRuntimeInfo"><strong>'+(companionIsOnline?"A segunda bot está marcada como online.":companionIsStarting?"A hospedagem está preparando ou iniciando a segunda bot.":companionHasServer?"Servidor criado. Use Iniciar para ligar a bot.":companion?.hasDiscordToken?"Token protegido. Falta concluir a publicação do ZIP numa vaga gratuita.":"Configure o token do Discord e envie o ZIP para criar a segunda bot.")+'</strong><small>'+escapeHtml(companionProviderName)+' · '+(companionHasServer?"ID vinculado: "+String(companion?.providerAppId||companion?.hostingDeploymentId):"O CAOS permanece separado e não será alterado.")+'</small></div>'+
  '<div class="companion-setup"><div class="companion-setup-title"><span>CONFIGURAÇÃO E ARQUIVOS</span><small>Token + ZIP</small></div>'+
- '<p class="muted small">Hospedagem preparada: Discloud Free, usando a conexão que já está salva no Estúdio. Cole o token e escolha o ZIP; a vaga gratuita será conferida automaticamente. Não precisa cadastrar outra API e nenhum plano pago será iniciado.</p>'+
+ '<p class="muted small">Hospedagem preparada: Discloud Free, usando a conexão que já está salva no Estúdio. Cole o token e escolha o ZIP; a vaga gratuita será conferida automaticamente. O envio do ZIP solicita a inicialização/reinicialização da bot; ele não serve para pará-la. Para deixá-la desligada depois da atualização, use o botão Parar. Não precisa cadastrar outra API e nenhum plano pago será iniciado.</p>'+
  '<div class="project-note" id="companionHostingState"><strong>'+escapeHtml(freeText)+'</strong><br><small>O limite do ZIP e a vaga disponível dependem do provedor gratuito.</small></div>'+
  '<form id="companionDeployForm" class="grid settings-grid" style="margin-top:12px">'+
  '<div class="field" style="grid-column:1/-1"><label>BOT TOKEN DO DISCORD</label><input id="companionBotToken" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="'+(companion?.hasDiscordToken?"Token protegido · deixe vazio para manter":"Cole o Bot Token do Discord")+'" '+(companion?.hasDiscordToken?"":"required")+'></div>'+
