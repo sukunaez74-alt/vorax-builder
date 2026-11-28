@@ -1183,7 +1183,7 @@ const BOT_PRONTO_PANEL_ASSETS = [
   "rules_discord.jpg", "rules_team.jpg", "rules_rp.jpg",
   "orders.jpg", "partnerships.jpg", "requests.jpg", "music.jpg"
 ];
-const BOT_PRONTO_ASSET_BASE = "https://black-zone-estudio.vercel.app/bot-pronto-assets/panels/";
+const BOT_PRONTO_ASSET_BASE = "https://raw.githubusercontent.com/sukunaez74-alt/vorax-builder/a38080e71c296111b10fda4846cd2299d37ae53c/bot-pronto-assets/panels/";
 
 async function fetchBotProntoAsset(name) {
   const response = await fetch(BOT_PRONTO_ASSET_BASE + encodeURIComponent(name), {
