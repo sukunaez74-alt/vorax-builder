@@ -2216,7 +2216,7 @@ const keritForm=$("#keritConnectForm");
   toast("Visual padrão restaurado.");
  };
 
-  const hostingRefresh=  const hostingRefresh=$("#hostingRefresh");if(hostingRefresh)hostingRefresh.onclick=loadHostingPoolOverview;
+  const hostingRefresh=$("#hostingRefresh");if(hostingRefresh)hostingRefresh.onclick=loadHostingPoolOverview;
   document.querySelectorAll("[data-hosting-files]").forEach(button=>button.onclick=()=>{state.activeBot=button.dataset.hostingFiles;navigate("files")});
  const select=$("#resourceBotSelect");if(select)select.onchange=()=>{state.activeBot=select.value;render()};
  const openResources=$("#openResourceModules");if(openResources)openResources.onclick=()=>caosModal(activeBotForResources()?.id);
